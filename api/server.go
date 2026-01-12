@@ -153,6 +153,7 @@ func (s *Server) setupRoutes() {
 			protected.DELETE("/traders/:id", s.handleDeleteTrader)
 			protected.POST("/traders/:id/start", s.handleStartTrader)
 			protected.POST("/traders/:id/stop", s.handleStopTrader)
+			protected.POST("/traders/:id/execute-decision", s.handleExecuteDecision)
 			protected.PUT("/traders/:id/prompt", s.handleUpdateTraderPrompt)
 			protected.POST("/traders/:id/sync-balance", s.handleSyncBalance)
 			protected.POST("/traders/:id/close-position", s.handleClosePosition)
@@ -1024,6 +1025,47 @@ func (s *Server) handleStopTrader(c *gin.Context) {
 
 	logger.Infof("⏹  Trader %s stopped", trader.GetName())
 	c.JSON(http.StatusOK, gin.H{"message": "Trader stopped"})
+}
+
+// handleExecuteDecision Manually trigger trader to execute decision immediately
+func (s *Server) handleExecuteDecision(c *gin.Context) {
+	userID := c.GetString("user_id")
+	traderID := c.Param("id")
+
+	// Verify trader belongs to current user
+	_, err := s.store.Trader().GetFullConfig(userID, traderID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Trader does not exist or no access permission"})
+		return
+	}
+
+	trader, err := s.traderManager.GetTrader(traderID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Trader does not exist"})
+		return
+	}
+
+	// Get trader status to check if it's running
+	status := trader.GetStatus()
+	isRunning, ok := status["is_running"].(bool)
+	if !ok || !isRunning {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Trader is not running, cannot execute decision"})
+		return
+	}
+
+	// Trigger decision immediately
+	result, err := trader.TriggerDecision()
+	if err != nil {
+		logger.Errorf("❌ Failed to trigger decision for trader %s: %v", trader.GetName(), err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to trigger decision"})
+		return
+	}
+
+	logger.Infof("✅ Manual decision executed successfully for trader %s: %+v", trader.GetName(), result)
+	c.JSON(http.StatusOK, gin.H{
+		"message": "Decision executed successfully",
+		"result": result,
+	})
 }
 
 // handleUpdateTraderPrompt Update trader custom prompt

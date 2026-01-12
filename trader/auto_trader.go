@@ -998,6 +998,37 @@ func (at *AutoTrader) ExecuteDecision(d *kernel.Decision) error {
 	return nil
 }
 
+// TriggerDecision triggers a new decision cycle immediately
+func (at *AutoTrader) TriggerDecision() (map[string]interface{}, error) {
+	logger.Infof("🔄 Manual trigger: Starting new decision cycle for %s", at.name)
+
+	// Check if trader is running
+	at.isRunningMutex.RLock()
+	running := at.isRunning
+	at.isRunningMutex.RUnlock()
+	if !running {
+		return nil, fmt.Errorf("trader is not running")
+	}
+
+	// Call the main decision cycle
+	err := at.runCycle()
+	if err != nil {
+		logger.Errorf("❌ Manual trigger decision cycle failed for %s: %v", at.name, err)
+		return nil, err
+	}
+
+	// Return success status and some info
+	result := map[string]interface{}{
+		"success": true,
+		"timestamp": time.Now().Unix(),
+		"cycle_number": at.callCount,
+		"message": "Decision cycle completed successfully",
+	}
+
+	logger.Infof("✅ Manual trigger decision cycle completed for %s", at.name)
+	return result, nil
+}
+
 // executeOpenLongWithRecord executes open long position and records detailed information
 func (at *AutoTrader) executeOpenLongWithRecord(decision *kernel.Decision, actionRecord *store.DecisionAction) error {
 	logger.Infof("  📈 Open long: %s", decision.Symbol)

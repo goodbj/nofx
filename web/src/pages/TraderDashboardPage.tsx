@@ -4,6 +4,8 @@ import { api } from '../lib/api'
 import { ChartTabs } from '../components/ChartTabs'
 import { DecisionCard } from '../components/DecisionCard'
 import { PositionHistory } from '../components/PositionHistory'
+
+import { TableExporter, ExportFormat } from '../utils/tableExporter'
 import { PunkAvatar, getTraderAvatar } from '../components/PunkAvatar'
 import { confirmToast, notify } from '../lib/notify'
 import { t, type Language } from '../i18n/translations'
@@ -17,6 +19,7 @@ import type {
     Statistics,
     TraderInfo,
     Exchange,
+    HistoricalPosition,
 } from '../types'
 
 // --- Helper Functions ---
@@ -133,6 +136,9 @@ export function TraderDashboardPage({
     const chartSectionRef = useRef<HTMLDivElement>(null)
     const [showWalletAddress, setShowWalletAddress] = useState<boolean>(false)
     const [copiedAddress, setCopiedAddress] = useState<boolean>(false)
+    const [startDate, setStartDate] = useState<string>('')
+    const [endDate, setEndDate] = useState<string>('')
+    const [isManualDecisionLoading, setIsManualDecisionLoading] = useState<boolean>(false)
 
     // Current positions pagination
     const [positionsPageSize, setPositionsPageSize] = useState<number>(20)
@@ -746,17 +752,55 @@ export function TraderDashboardPage({
                                 )}
                             </div>
                             {/* Limit Selector */}
-                            <select
-                                value={decisionsLimit}
-                                onChange={(e) => onDecisionsLimitChange(Number(e.target.value))}
-                                className="px-3 py-1.5 rounded-lg text-sm font-medium cursor-pointer transition-all bg-black/40 text-nofx-text-main border border-white/10 hover:border-nofx-accent focus:outline-none"
-                            >
-                                <option value={5}>5</option>
-                                <option value={10}>10</option>
-                                <option value={20}>20</option>
-                                <option value={50}>50</option>
-                                <option value={100}>100</option>
-                            </select>
+                            <div className="flex gap-2">
+                                <input
+                                    type="date"
+                                    value={startDate}
+                                    onChange={(e) => setStartDate(e.target.value)}
+                                    className="px-3 py-1.5 rounded-lg text-sm font-medium cursor-pointer transition-all bg-black/40 text-nofx-text-main border border-white/10 hover:border-nofx-accent focus:outline-none"
+                                    title="Start date"
+                                />
+                                <input
+                                    type="date"
+                                    value={endDate}
+                                    onChange={(e) => setEndDate(e.target.value)}
+                                    className="px-3 py-1.5 rounded-lg text-sm font-medium cursor-pointer transition-all bg-black/40 text-nofx-text-main border border-white/10 hover:border-nofx-accent focus:outline-none"
+                                    title="End date"
+                                />
+                                <select
+                                    value={decisionsLimit}
+                                    onChange={(e) => onDecisionsLimitChange(Number(e.target.value))}
+                                    className="px-3 py-1.5 rounded-lg text-sm font-medium cursor-pointer transition-all bg-black/40 text-nofx-text-main border border-white/10 hover:border-nofx-accent focus:outline-none"
+                                >
+                                    <option value={5}>5</option>
+                                    <option value={10}>10</option>
+                                    <option value={20}>20</option>
+                                    <option value={50}>50</option>
+                                    <option value={100}>100</option>
+                                </select>
+                                <button
+                                    onClick={() => {
+                                        // 导出决策历史为CSV，按时间范围过滤
+                                        const filteredDecisions = filterDecisionsByDate(decisions || [], startDate, endDate);
+                                        exportDecisionHistoryToCSV(filteredDecisions, selectedTrader?.trader_name || 'trader')
+                                    }}
+                                    className="px-3 py-1.5 rounded-lg text-sm font-medium transition-all hover:scale-105 active:scale-95 nofx-glass border border-nofx-gold/30 text-nofx-gold hover:bg-nofx-gold/10"
+                                    title="Export decision history to CSV"
+                                >
+                                    📥 Export Decisions
+                                </button>
+                                <button
+                                    onClick={() => {
+                                        // 导出决策历史为高级格式，包含System Prompt和User Prompt
+                                        const filteredDecisions = filterDecisionsByDate(decisions || [], startDate, endDate);
+                                        exportAdvancedDecisionHistoryToCSV(filteredDecisions, selectedTrader?.trader_name || 'trader')
+                                    }}
+                                    className="px-3 py-1.5 rounded-lg text-sm font-medium transition-all hover:scale-105 active:scale-95 nofx-glass border border-nofx-gold/30 text-nofx-gold hover:bg-nofx-gold/10"
+                                    title="Export advanced decision history with System/User Prompts and Chain of Thought"
+                                >
+                                    📤 Export Adv. Decisions
+                                </button>
+                            </div>
                         </div>
 
                         {/* Decisions List - Scrollable */}
@@ -794,13 +838,342 @@ export function TraderDashboardPage({
                                 <span className="text-2xl">📜</span>
                                 {t('positionHistory.title', language)}
                             </h2>
+                            <div className="flex gap-2">
+                                <input
+                                    type="date"
+                                    value={startDate}
+                                    onChange={(e) => setStartDate(e.target.value)}
+                                    className="px-3 py-1.5 rounded-lg text-sm font-medium cursor-pointer transition-all bg-black/40 text-nofx-text-main border border-white/10 hover:border-nofx-accent focus:outline-none"
+                                    title="Start date"
+                                />
+                                <input
+                                    type="date"
+                                    value={endDate}
+                                    onChange={(e) => setEndDate(e.target.value)}
+                                    className="px-3 py-1.5 rounded-lg text-sm font-medium cursor-pointer transition-all bg-black/40 text-nofx-text-main border border-white/10 hover:border-nofx-accent focus:outline-none"
+                                    title="End date"
+                                />
+                                <button
+                                    onClick={() => {
+                                        // 导出交易历史为CSV，按时间范围过滤
+                                        exportPositionHistoryToCSV(selectedTraderId, selectedTrader?.trader_name || 'trader', startDate, endDate)
+                                    }}
+                                    className="px-4 py-2 rounded-lg font-medium text-sm transition-all hover:scale-105 active:scale-95 nofx-glass border border-nofx-gold/30 text-nofx-gold hover:bg-nofx-gold/10"
+                                    title="Export position history to CSV"
+                                >
+                                    📥 Export CSV
+                                </button>
+                            </div>
                         </div>
-                        <PositionHistory traderId={selectedTraderId} />
+                        <PositionHistory traderId={selectedTraderId} onExport={exportPositionHistoryToCSV} traderName={selectedTrader?.trader_name} />
                     </div>
                 )}
             </div>
         </DeepVoidBackground>
     )
+}
+
+// 导出交易历史为CSV文件
+async function exportPositionHistoryToCSV(traderId: string, traderName: string, startDate?: string, endDate?: string) {
+    try {
+        // 获取交易历史数据
+        const data = await api.getPositionHistory(traderId, 1000)
+        let positions = data.positions || []
+        
+        // 按日期范围过滤位置
+        if (startDate || endDate) {
+            positions = positions.filter(position => {
+                const exitTime = position.exit_time ? new Date(position.exit_time) : null;
+                
+                if (!exitTime || isNaN(exitTime.getTime())) {
+                    return true; // 如果退出时间无效，则保留记录
+                }
+                
+                const exitDateString = exitTime.toISOString().split('T')[0];
+                
+                if (startDate && endDate) {
+                    return exitDateString >= startDate && exitDateString <= endDate;
+                } else if (startDate) {
+                    return exitDateString >= startDate;
+                } else if (endDate) {
+                    return exitDateString <= endDate;
+                }
+                
+                return true;
+            });
+        }
+        
+        if (positions.length === 0) {
+            notify.error('No position history to export')
+            return
+        }
+        
+        // 定义CSV头部
+        const headers = [
+            '序号',
+            '交易对',
+            '方向 (多/空)',
+            '开仓时间',
+            '平仓时间',
+            '持仓时长',
+            '开仓价格',
+            '平仓价格',
+            '仓位大小 (USD)',
+            '杠杆倍数',
+            '止损价',
+            '止盈价',
+            '盈亏 (USD)',
+            '盈亏 (%)',
+            '开仓理由 (对照DP_V18哪条规则)'
+        ];
+        
+        // 转换数据为CSV格式
+        const csvRows = [];
+        csvRows.push(headers.join(','));
+        
+        positions.forEach((position: HistoricalPosition, index: number) => {
+            const entryTime = position.entry_time ? new Date(position.entry_time).toLocaleString() : ''
+            const exitTime = position.exit_time ? new Date(position.exit_time).toLocaleString() : ''
+            
+            // 计算持仓时长
+            const entryTimeObj = position.entry_time ? new Date(position.entry_time).getTime() : 0
+            const exitTimeObj = position.exit_time ? new Date(position.exit_time).getTime() : 0
+            const holdingMinutes = entryTimeObj && exitTimeObj && exitTimeObj > entryTimeObj ? (exitTimeObj - entryTimeObj) / 60000 : 0
+            const holdingDuration = formatDurationForCSV(holdingMinutes)
+                    
+            // 计算盈亏百分比
+            const entryPrice = position.entry_price || 0
+            const exitPrice = position.exit_price || 0
+            let pnlPct = 0
+            if (entryPrice > 0) {
+                const isLong = (position.side || '').toUpperCase() === 'LONG'
+                if (isLong) {
+                    pnlPct = ((exitPrice - entryPrice) / entryPrice) * 100
+                } else {
+                    pnlPct = ((entryPrice - exitPrice) / entryPrice) * 100
+                }
+            }
+                    
+            // 计算仓位大小 (USD)
+            const entryQuantity = position.entry_quantity || position.quantity || 0
+            const positionValue = entryPrice * entryQuantity
+                    
+            const row = [
+                index + 1, // 序号
+                position.symbol, // 交易对
+                (position.side || '').toUpperCase(), // 方向
+                entryTime, // 开仓时间
+                exitTime, // 平仓时间
+                holdingDuration, // 持仓时长
+                entryPrice, // 开仓价格
+                exitPrice, // 平仓价格
+                positionValue.toFixed(2), // 仓位大小 (USD)
+                position.leverage || 1, // 杠杆倍数
+                '', // 止损价 (数据库中未存储)
+                '', // 止盈价 (数据库中未存储)
+                (position.realized_pnl || 0).toFixed(2), // 盈亏 (USD)
+                pnlPct.toFixed(2), // 盈亏 (%)
+                '' // 开仓理由 (如果数据库中有存储的话)
+            ].map(field => {
+                // 处理包含逗号或引号的字段
+                const fieldStr = String(field);
+                if (fieldStr.includes(',') || fieldStr.includes('"') || fieldStr.includes('\n')) {
+                    return `"${fieldStr.replace(/"/g, '""')}"`
+                }
+                return fieldStr
+            });
+            
+            csvRows.push(row.join(','));
+        });
+        
+        // 创建CSV内容
+        const csvContent = csvRows.join('\n');
+        
+        // 添加 BOM 以支持中文字符
+        const BOM = '\uFEFF';
+        const blob = new Blob([BOM, csvContent], { type: 'text/csv;charset=utf-8;' });
+        const link = document.createElement('a');
+        const fileName = `${traderName}_position_history_${new Date().toISOString().split('T')[0]}.csv`;
+        link.setAttribute('href', URL.createObjectURL(blob));
+        link.setAttribute('download', fileName);
+        link.style.visibility = 'hidden';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        
+        notify.success(`Position history exported to ${fileName}`)
+    } catch (error) {
+        console.error('Error exporting position history:', error)
+        notify.error('Failed to export position history')
+    }
+}
+
+// 格式化持续时间用于CSV输出
+function formatDurationForCSV(minutes: number): string {
+    if (!minutes || minutes <= 0) return ''
+    if (minutes < 60) return `${Math.floor(minutes)}m`
+    if (minutes < 1440) return `${Math.floor(minutes / 60)}h${Math.floor(minutes % 60)}m`
+    return `${Math.floor(minutes / 1440)}d${Math.floor((minutes % 1440) / 60)}h`
+}
+
+// 按日期范围过滤决策记录
+function filterDecisionsByDate(
+    decisions: DecisionRecord[],
+    startDate: string,
+    endDate: string
+): DecisionRecord[] {
+    if (!startDate && !endDate) return decisions;
+    
+    return decisions.filter(decision => {
+        // 尝试解析时间戳 - 可能是 ISO 格式或时间戳数字
+        let decisionDate: Date | null = null;
+        
+        if (typeof decision.timestamp === 'number') {
+            // 如果是数字时间戳（毫秒）
+            decisionDate = new Date(decision.timestamp);
+        } else if (typeof decision.timestamp === 'string') {
+            // 如果是字符串格式的时间
+            decisionDate = new Date(decision.timestamp);
+        }
+        
+        if (!decisionDate || isNaN(decisionDate.getTime())) {
+            return true; // 如果日期无效，则保留该记录
+        }
+        
+        const decisionDateString = decisionDate.toISOString().split('T')[0];
+        
+        if (startDate && endDate) {
+            return decisionDateString >= startDate && decisionDateString <= endDate;
+        } else if (startDate) {
+            return decisionDateString >= startDate;
+        } else if (endDate) {
+            return decisionDateString <= endDate;
+        }
+        
+        return true;
+    });
+}
+
+// 导出高级决策历史为CSV文件，包含System Prompt和User Prompt等信息
+async function exportAdvancedDecisionHistoryToCSV(decisions: DecisionRecord[], traderName: string) {
+  try {
+    if (!decisions || decisions.length === 0) {
+      notify.error('No decision history to export');
+      return;
+    }
+    
+    // 使用TableExporter工具
+    const headers = [
+      '序号',
+      '时间戳',
+      '循环编号',
+      '系统提示(System Prompt)',
+      '用户提示(User Prompt)',
+      'AI链式思维(CoT)',
+      '决策JSON',
+      '账户状态',
+      '持仓',
+      '候选币种',
+      '决策动作',
+      '执行日志',
+      '是否成功',
+      '错误信息'
+    ];
+    
+    const rows = decisions.map((decision, index) => [
+      index + 1, // 序号
+      decision.timestamp, // 时间戳
+      decision.cycle_number, // 循环编号
+      decision.system_prompt ? JSON.stringify(decision.system_prompt).replace(/,/g, ';') : '', // 系统提示(System Prompt)
+      decision.input_prompt ? JSON.stringify(decision.input_prompt).replace(/,/g, ';') : '', // 用户提示(User Prompt)
+      decision.cot_trace ? JSON.stringify(decision.cot_trace).replace(/,/g, ';') : '', // AI链式思维
+      decision.decision_json, // 决策JSON
+      decision.account_state ? JSON.stringify(decision.account_state) : '', // 账户状态
+      decision.positions ? JSON.stringify(decision.positions) : '', // 持仓
+      decision.candidate_coins ? JSON.stringify(decision.candidate_coins) : '', // 候选币种
+      decision.decisions ? JSON.stringify(decision.decisions) : '', // 决策动作
+      decision.execution_log ? JSON.stringify(decision.execution_log) : '', // 执行日志
+      decision.success ? 'true' : 'false', // 是否成功
+      decision.error_message || '' // 错误信息
+    ]);
+    
+    const tableData = {
+      headers,
+      rows,
+      title: 'Advanced Decision History'
+    };
+    
+    const filename = `${traderName}_advanced_decision_history_${new Date().toISOString().split('T')[0]}`;
+    
+    // 使用我们创建的TableExporter进行导出
+    TableExporter.export(tableData, filename, ExportFormat.CSV);
+    
+    notify.success(`Advanced decision history exported to ${filename}`);
+  } catch (error) {
+    console.error('Error exporting advanced decision history:', error);
+    notify.error('Failed to export advanced decision history');
+  }
+}
+
+// 导出决策历史为CSV文件
+async function exportDecisionHistoryToCSV(decisions: DecisionRecord[], traderName: string) {
+    try {
+        if (!decisions || decisions.length === 0) {
+            notify.error('No decision history to export')
+            return
+        }
+        
+        // 使用TableExporter工具
+        const headers = [
+            '序号',
+            '时间戳',
+            '循环编号',
+            '系统提示(System Prompt)',
+            '用户提示(User Prompt)',
+            'AI链式思维(CoT)',
+            '决策JSON',
+            '账户状态',
+            '持仓',
+            '候选币种',
+            '决策动作',
+            '执行日志',
+            '是否成功',
+            '错误信息'
+        ];
+        
+        const rows = decisions.map((decision, index) => [
+            index + 1, // 序号
+            decision.timestamp, // 时间戳
+            decision.cycle_number, // 循环编号
+            decision.system_prompt ? JSON.stringify(decision.system_prompt).replace(/,/g, ';') : '', // 系统提示(System Prompt)
+            decision.input_prompt ? JSON.stringify(decision.input_prompt).replace(/,/g, ';') : '', // 用户提示(User Prompt)
+            decision.cot_trace ? JSON.stringify(decision.cot_trace).replace(/,/g, ';') : '', // AI链式思维
+            decision.decision_json, // 决策JSON
+            decision.account_state ? JSON.stringify(decision.account_state) : '', // 账户状态
+            decision.positions ? JSON.stringify(decision.positions) : '', // 持仓
+            decision.candidate_coins ? JSON.stringify(decision.candidate_coins) : '', // 候选币种
+            decision.decisions ? JSON.stringify(decision.decisions) : '', // 决策动作
+            decision.execution_log ? JSON.stringify(decision.execution_log) : '', // 执行日志
+            decision.success ? 'true' : 'false', // 是否成功
+            decision.error_message || '' // 错误信息
+        ]);
+        
+        const tableData = {
+            headers,
+            rows,
+            title: 'Decision History'
+        };
+        
+        const filename = `${traderName}_decision_history_${new Date().toISOString().split('T')[0]}`;
+        
+        // 使用我们创建的TableExporter进行导出
+        TableExporter.export(tableData, filename, ExportFormat.CSV);
+        
+        notify.success(`Decision history exported to ${filename}`)
+    } catch (error) {
+        console.error('Error exporting decision history:', error)
+        notify.error('Failed to export decision history')
+    }
 }
 
 // Stat Card Component - Deep Void Style
