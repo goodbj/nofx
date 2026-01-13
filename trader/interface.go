@@ -55,7 +55,20 @@ type Trader interface {
 	// CloseShort Close short position (quantity=0 means close all)
 	CloseShort(symbol string, quantity float64) (map[string]interface{}, error)
 
+<<<<<<< Updated upstream
 	// SetLeverage Set leverage
+=======
+	// PartialClose 部分平仓
+	PartialClose(symbol string, side string, percentage float64) (map[string]interface{}, error)
+
+	// UpdateStopLoss 更新止损单
+	UpdateStopLoss(symbol string, positionSide string, newStopPrice float64) error
+
+	// UpdateTakeProfit 更新止盈单
+	UpdateTakeProfit(symbol string, positionSide string, newTakeProfitPrice float64) error
+
+	// SetLeverage 设置杠杆
+>>>>>>> Stashed changes
 	SetLeverage(symbol string, leverage int) error
 
 	// SetMarginMode Set position mode (true=cross margin, false=isolated margin)
