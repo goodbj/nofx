@@ -969,6 +969,12 @@ func (at *AutoTrader) executeDecisionWithRecord(decision *kernel.Decision, actio
 	case "hold", "wait":
 		// No execution needed, just record
 		return nil
+	case "update_stop_loss":
+		return at.executeUpdateStopLossWithRecord(decision, actionRecord)
+	case "update_take_profit":
+		return at.executeUpdateTakeProfitWithRecord(decision, actionRecord)
+	case "partial_close":
+		return at.executePartialCloseWithRecord(decision, actionRecord)
 	default:
 		return fmt.Errorf("unknown action: %s", decision.Action)
 	}
@@ -2265,5 +2271,194 @@ func getBinanceCustomEndpointForAutoTrader(config *AutoTraderConfig) string {
 		return "https://testnet.binancefuture.com" // Binance testnet futures endpoint
 	}
 	return "" // Return empty string to use default endpoint
+}
+
+// executeUpdateStopLossWithRecord executes update stop loss and records detailed information
+func (at *AutoTrader) executeUpdateStopLossWithRecord(decision *kernel.Decision, actionRecord *store.DecisionAction) error {
+	logger.Infof("  🔄 Update stop loss: %s to %.4f", decision.Symbol, decision.NewStopLoss)
+
+	// Get current positions to determine quantity and side
+	positions, err := at.trader.GetPositions()
+	if err != nil {
+		return fmt.Errorf("failed to get positions: %w", err)
+	}
+
+	// Find the position for this symbol
+	var foundPos map[string]interface{}
+	for _, pos := range positions {
+		if pos["symbol"] == decision.Symbol {
+			foundPos = pos
+			break
+		}
+	}
+
+	if foundPos == nil {
+		return fmt.Errorf("no position found for symbol %s", decision.Symbol)
+	}
+
+	// Get the current position quantity
+	quantity, ok := foundPos["positionAmt"].(*json.Number)
+	if !ok {
+		return fmt.Errorf("failed to get position amount")
+	}
+
+	qtyFloat, err := quantity.Float64()
+	if err != nil {
+		return fmt.Errorf("failed to convert quantity to float: %w", err)
+	}
+
+	// Convert negative quantity to positive if needed
+	if qtyFloat < 0 {
+		qtyFloat = math.Abs(qtyFloat)
+	}
+
+	// Get position side
+	positionSide, ok := foundPos["positionSide"].(string)
+	if !ok {
+		// Some exchanges use 'side' instead of 'positionSide'
+		positionSide, _ = foundPos["side"].(string)
+	}
+
+	// Determine side for stop loss
+	side := "LONG"
+	if positionSide == "SHORT" || (positionSide == "" && strings.Contains(strings.ToUpper(foundPos["symbol"].(string)), "USDT") && foundPos["side"].(string) == "SHORT") {
+		side = "SHORT"
+	}
+
+	// Update stop loss
+	err = at.trader.UpdateStopLoss(decision.Symbol, side, qtyFloat, decision.NewStopLoss)
+	if err != nil {
+		logger.Errorf("  ❌ Failed to update stop loss for %s: %v", decision.Symbol, err)
+		return fmt.Errorf("failed to update stop loss: %w", err)
+	}
+
+	logger.Infof("  ✓ Stop loss updated successfully for %s to %.4f", decision.Symbol, decision.NewStopLoss)
+	return nil
+}
+
+// executeUpdateTakeProfitWithRecord executes update take profit and records detailed information
+func (at *AutoTrader) executeUpdateTakeProfitWithRecord(decision *kernel.Decision, actionRecord *store.DecisionAction) error {
+	logger.Infof("  🔄 Update take profit: %s to %.4f", decision.Symbol, decision.NewTakeProfit)
+
+	// Get current positions to determine quantity and side
+	positions, err := at.trader.GetPositions()
+	if err != nil {
+		return fmt.Errorf("failed to get positions: %w", err)
+	}
+
+	// Find the position for this symbol
+	var foundPos map[string]interface{}
+	for _, pos := range positions {
+		if pos["symbol"] == decision.Symbol {
+			foundPos = pos
+			break
+		}
+	}
+
+	if foundPos == nil {
+		return fmt.Errorf("no position found for symbol %s", decision.Symbol)
+	}
+
+	// Get the current position quantity
+	quantity, ok := foundPos["positionAmt"].(*json.Number)
+	if !ok {
+		return fmt.Errorf("failed to get position amount")
+	}
+
+	qtyFloat, err := quantity.Float64()
+	if err != nil {
+		return fmt.Errorf("failed to convert quantity to float: %w", err)
+	}
+
+	// Convert negative quantity to positive if needed
+	if qtyFloat < 0 {
+		qtyFloat = math.Abs(qtyFloat)
+	}
+
+	// Get position side
+	positionSide, ok := foundPos["positionSide"].(string)
+	if !ok {
+		// Some exchanges use 'side' instead of 'positionSide'
+		positionSide, _ = foundPos["side"].(string)
+	}
+
+	// Determine side for take profit
+	side := "LONG"
+	if positionSide == "SHORT" || (positionSide == "" && strings.Contains(strings.ToUpper(foundPos["symbol"].(string)), "USDT") && foundPos["side"].(string) == "SHORT") {
+		side = "SHORT"
+	}
+
+	// Update take profit
+	err = at.trader.UpdateTakeProfit(decision.Symbol, side, qtyFloat, decision.NewTakeProfit)
+	if err != nil {
+		logger.Errorf("  ❌ Failed to update take profit for %s: %v", decision.Symbol, err)
+		return fmt.Errorf("failed to update take profit: %w", err)
+	}
+
+	logger.Infof("  ✓ Take profit updated successfully for %s to %.4f", decision.Symbol, decision.NewTakeProfit)
+	return nil
+}
+
+// executePartialCloseWithRecord executes partial close and records detailed information
+func (at *AutoTrader) executePartialCloseWithRecord(decision *kernel.Decision, actionRecord *store.DecisionAction) error {
+	logger.Infof("  🔄 Partial close: %s, %.2f%%", decision.Symbol, decision.ClosePercentage)
+
+	// Get current positions to determine quantity and side
+	positions, err := at.trader.GetPositions()
+	if err != nil {
+		return fmt.Errorf("failed to get positions: %w", err)
+	}
+
+	// Find the position for this symbol
+	var foundPos map[string]interface{}
+	for _, pos := range positions {
+		if pos["symbol"] == decision.Symbol {
+			foundPos = pos
+			break
+		}
+	}
+
+	if foundPos == nil {
+		return fmt.Errorf("no position found for symbol %s", decision.Symbol)
+	}
+
+	// Get the current position quantity
+	quantity, ok := foundPos["positionAmt"].(*json.Number)
+	if !ok {
+		return fmt.Errorf("failed to get position amount")
+	}
+
+	qtyFloat, err := quantity.Float64()
+	if err != nil {
+		return fmt.Errorf("failed to convert quantity to float: %w", err)
+	}
+
+	// Determine if long or short position
+	isLong := qtyFloat > 0
+	absQty := math.Abs(qtyFloat)
+
+	// Calculate partial close quantity
+	partialQty := absQty * decision.ClosePercentage / 100
+
+	// Determine side for closing
+	side := "SELL"
+	if isLong {
+		side = "SELL" // Sell to close long
+	} else {
+		side = "BUY"  // Buy to close short
+	}
+
+	// Close partial position
+	order, err := at.trader.ClosePositionByQuantity(decision.Symbol, partialQty, side)
+	if err != nil {
+		logger.Errorf("  ❌ Failed to partially close position for %s: %v", decision.Symbol, err)
+		return fmt.Errorf("failed to partially close position: %w", err)
+	}
+
+	logger.Infof("  ✓ Partial close executed successfully for %s, %.4f quantity", decision.Symbol, partialQty)
+
+	// Record order to database
+	at.recordAndConfirmOrder(order, decision.Symbol, "partial_close", partialQty, 0, 0, decision.ClosePercentage)
+	return nil
 }
 

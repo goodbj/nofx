@@ -104,6 +104,8 @@ func (pb *PromptBuilder) buildSystemPromptZH() string {
   - ADD_POSITION: 在现有仓位上加仓
   - OPEN_NEW: 开设新仓位
   - WAIT: 等待，不采取任何行动
+  - UPDATE_STOP_LOSS: 更新止损价格
+  - UPDATE_TAKE_PROFIT: 更新止盈价格
 - **leverage**: 杠杆倍数（开新仓时必需）
 - **position_size_usd**: 仓位大小（USDT，开新仓时必需）
 - **stop_loss**: 止损价格（开新仓时建议提供）
@@ -157,8 +159,23 @@ func (pb *PromptBuilder) getDecisionRequirementsZH() string {
   {
     "symbol": "PIPPINUSDT",
     "action": "PARTIAL_CLOSE",
+    "close_percentage": 50,
     "confidence": 85,
     "reasoning": "当前PnL +2.96%，接近历史峰值+2.99%（回撤仅0.03%）。建议部分平仓锁定利润，因为：1) 持仓时间仅11分钟，已获得3%收益；2) 5分钟K线显示价格接近短期阻力位；3) 成交量开始萎缩，上涨动能减弱。建议平仓50%，剩余仓位设置跟踪止盈在峰值回撤20%处。"
+  },
+  {
+    "symbol": "BTCUSDT",
+    "action": "UPDATE_STOP_LOSS",
+    "new_stop_loss": 42500,
+    "confidence": 90,
+    "reasoning": "BTC价格已从42000涨至43000，原止损41500过低，为保护利润需上调止损至42500，保持-5%的风险水平。"
+  },
+  {
+    "symbol": "ETHUSDT",
+    "action": "UPDATE_TAKE_PROFIT",
+    "new_take_profit": 2800,
+    "confidence": 80,
+    "reasoning": "ETH价格趋势强劲，原止盈2600已达成，为锁定更多利润，将止盈上调至2800，目标+8%收益。"
   },
   {
     "symbol": "HUSDT",
@@ -239,6 +256,8 @@ func (pb *PromptBuilder) buildSystemPromptEN() string {
   - ADD_POSITION: Add to existing position
   - OPEN_NEW: Open new position
   - WAIT: Wait, take no action
+  - UPDATE_STOP_LOSS: Update stop-loss price
+  - UPDATE_TAKE_PROFIT: Update take-profit price
 - **leverage**: Leverage multiplier (required for new positions)
 - **position_size_usd**: Position size in USDT (required for new positions)
 - **stop_loss**: Stop-loss price (recommended for new positions)
@@ -292,8 +311,23 @@ func (pb *PromptBuilder) getDecisionRequirementsEN() string {
   {
     "symbol": "PIPPINUSDT",
     "action": "PARTIAL_CLOSE",
+    "close_percentage": 50,
     "confidence": 85,
     "reasoning": "Current PnL +2.96%, near historical peak +2.99% (only 0.03% pullback). Suggest partial close to lock profits because: 1) Only 11 minutes holding time with 3% gain; 2) 5M chart shows price approaching short-term resistance; 3) Volume declining, upward momentum weakening. Recommend closing 50%, set trailing stop at 20% pullback from peak for remainder."
+  },
+  {
+    "symbol": "BTCUSDT",
+    "action": "UPDATE_STOP_LOSS",
+    "new_stop_loss": 42500,
+    "confidence": 90,
+    "reasoning": "BTC price has risen from 42000 to 43000, original stop-loss 41500 is too low, to protect profits need to raise stop-loss to 42500, maintaining -5% risk level."
+  },
+  {
+    "symbol": "ETHUSDT",
+    "action": "UPDATE_TAKE_PROFIT",
+    "new_take_profit": 2800,
+    "confidence": 80,
+    "reasoning": "ETH price trend is strong, original take-profit 2600 has been achieved, to lock more profits, raise take-profit to 2800, targeting +8% gain."
   },
   {
     "symbol": "HUSDT",
@@ -350,12 +384,14 @@ func ValidateDecisionFormat(decisions []Decision) error {
 
 		// 动作类型检查
 		validActions := map[string]bool{
-			"HOLD":          true,
-			"PARTIAL_CLOSE": true,
-			"FULL_CLOSE":    true,
-			"ADD_POSITION":  true,
-			"OPEN_NEW":      true,
-			"WAIT":          true,
+			"HOLD":              true,
+			"PARTIAL_CLOSE":     true,
+			"FULL_CLOSE":        true,
+			"ADD_POSITION":      true,
+			"OPEN_NEW":          true,
+			"WAIT":              true,
+			"UPDATE_STOP_LOSS":  true,
+			"UPDATE_TAKE_PROFIT": true,
 		}
 		if !validActions[d.Action] {
 			return fmt.Errorf("决策#%d: 无效的action类型: %s", i+1, d.Action)
@@ -368,6 +404,45 @@ func ValidateDecisionFormat(decisions []Decision) error {
 			}
 			if d.PositionSizeUSD == 0 {
 				return fmt.Errorf("决策#%d: OPEN_NEW动作需要提供position_size_usd", i+1)
+			}
+		}
+
+		// 更新止损的必需参数检查
+		if d.Action == "UPDATE_STOP_LOSS" {
+			if d.NewStopLoss == 0 {
+				return fmt.Errorf("决策#%d: UPDATE_STOP_LOSS动作需要提供new_stop_loss", i+1)
+			}
+			// 价格合理性验证
+			if d.StopLoss != 0 && d.NewStopLoss <= 0 {
+				return fmt.Errorf("决策#%d: new_stop_loss价格必须大于0", i+1)
+			}
+		}
+
+		// 更新止盈的必需参数检查
+		if d.Action == "UPDATE_TAKE_PROFIT" {
+			if d.NewTakeProfit == 0 {
+				return fmt.Errorf("决策#%d: UPDATE_TAKE_PROFIT动作需要提供new_take_profit", i+1)
+			}
+			// 价格合理性验证
+			if d.NewTakeProfit <= 0 {
+				return fmt.Errorf("决策#%d: new_take_profit价格必须大于0", i+1)
+			}
+		}
+
+		// 部分平仓的必需参数检查
+		if d.Action == "PARTIAL_CLOSE" {
+			if d.ClosePercentage == 0 {
+				return fmt.Errorf("决策#%d: PARTIAL_CLOSE动作需要提供close_percentage", i+1)
+			}
+			if d.ClosePercentage <= 0 || d.ClosePercentage > 100 {
+				return fmt.Errorf("决策#%d: close_percentage必须在1-100之间", i+1)
+			}
+		}
+
+		// ADD_POSITION操作需要提供position_size_usd
+		if d.Action == "ADD_POSITION" {
+			if d.PositionSizeUSD == 0 {
+				return fmt.Errorf("决策#%d: ADD_POSITION动作需要提供position_size_usd", i+1)
 			}
 		}
 	}
