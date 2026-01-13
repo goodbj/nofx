@@ -68,11 +68,8 @@ func NewFuturesTrader(apiKey, secretKey, userId, customEndpoint string) *Futures
 	var client *futures.Client
 	if customEndpoint != "" {
 		// Use custom endpoint if provided
-		client = futures.NewClientWithParams(futures.Params{
-			APIKey:    apiKey,
-			SecretKey: secretKey,
-			BaseURL:   customEndpoint,
-		})
+		client = futures.NewClient(apiKey, secretKey)
+		client.BaseURL = customEndpoint
 	} else {
 		// Use default endpoint
 		client = futures.NewClient(apiKey, secretKey)
@@ -729,6 +726,85 @@ func (t *FuturesTrader) CancelAllOrders(symbol string) error {
 	return nil
 }
 
+// CancelStopOrders cancels stop-loss and take-profit orders for this symbol (for adjusting stop-loss/take-profit positions)
+// Uses both legacy API and new Algo Order API
+func (t *FuturesTrader) CancelStopOrders(symbol string) error {
+	canceledCount := 0
+	var cancelErrors []error
+
+	// 1. Cancel legacy stop-loss and take-profit orders
+	orders, err := t.client.NewListOpenOrdersService().
+		Symbol(symbol).
+		Do(context.Background())
+
+	if err == nil {
+		for _, order := range orders {
+			orderType := string(order.Type)
+
+			// Cancel both stop-loss and take-profit orders
+			if orderType == "STOP_MARKET" || orderType == "STOP" || orderType == "TAKE_PROFIT_MARKET" || orderType == "TAKE_PROFIT" {
+				_, err := t.client.NewCancelOrderService().
+					Symbol(symbol).
+					OrderID(order.OrderID).
+					Do(context.Background())
+
+				if err != nil {
+					errMsg := fmt.Sprintf("Order ID %d: %v", order.OrderID, err)
+					cancelErrors = append(cancelErrors, fmt.Errorf("%s", errMsg))
+					logger.Infof("  ⚠ Failed to cancel legacy stop/take-profit order: %s", errMsg)
+					continue
+				}
+
+				canceledCount++
+				logger.Infof("  ✓ Canceled legacy stop/take-profit order (Order ID: %d, Type: %s, Side: %s)", order.OrderID, orderType, order.PositionSide)
+			}
+		}
+	}
+
+	// 2. Cancel Algo stop-loss and take-profit orders
+	algoOrders, err := t.client.NewListOpenAlgoOrdersService().
+		Symbol(symbol).
+		Do(context.Background())
+
+	if err == nil {
+		for _, algoOrder := range algoOrders {
+			// Cancel both stop-loss and take-profit orders
+			if algoOrder.OrderType == futures.AlgoOrderTypeStopMarket || 
+				algoOrder.OrderType == futures.AlgoOrderTypeStop || 
+				algoOrder.OrderType == futures.AlgoOrderTypeTakeProfitMarket || 
+				algoOrder.OrderType == futures.AlgoOrderTypeTakeProfit {
+
+				_, err := t.client.NewCancelAlgoOrderService().
+					AlgoID(algoOrder.AlgoId).
+					Do(context.Background())
+
+				if err != nil {
+					errMsg := fmt.Sprintf("Algo ID %d: %v", algoOrder.AlgoId, err)
+					cancelErrors = append(cancelErrors, fmt.Errorf("%s", errMsg))
+					logger.Infof("  ⚠ Failed to cancel Algo stop/take-profit order: %s", errMsg)
+					continue
+				}
+
+				canceledCount++
+				logger.Infof("  ✓ Canceled Algo stop/take-profit order (Algo ID: %d, Type: %s)", algoOrder.AlgoId, algoOrder.OrderType)
+			}
+		}
+	}
+
+	if canceledCount == 0 && len(cancelErrors) == 0 {
+		logger.Infof("  ℹ %s has no stop/take-profit orders to cancel", symbol)
+	} else if canceledCount > 0 {
+		logger.Infof("  ✓ Canceled %d stop/take-profit order(s) for %s", canceledCount, symbol)
+	}
+
+	// If all cancellations failed, return error
+	if len(cancelErrors) > 0 && canceledCount == 0 {
+		return fmt.Errorf("failed to cancel stop/take-profit orders: %v", cancelErrors)
+	}
+
+	return nil
+}
+
 // PartialClose 部分平仓
 func (t *FuturesTrader) PartialClose(symbol string, side string, percentage float64) (map[string]interface{}, error) {
 	if percentage <= 0 || percentage > 100 {
@@ -805,7 +881,7 @@ func (t *FuturesTrader) PartialClose(symbol string, side string, percentage floa
 // UpdateStopLoss 更新止损单
 func (t *FuturesTrader) UpdateStopLoss(symbol string, positionSide string, newStopPrice float64) error {
 	// 首先取消当前的止损单
-	if err := t.CancelAllOrders(symbol); err != nil {
+	if err := t.CancelStopLossOrders(symbol); err != nil {
 		log.Printf("  ⚠ 取消旧止损单失败（可能没有旧单）: %v", err)
 	}
 
@@ -836,7 +912,7 @@ func (t *FuturesTrader) UpdateStopLoss(symbol string, positionSide string, newSt
 // UpdateTakeProfit 更新止盈单
 func (t *FuturesTrader) UpdateTakeProfit(symbol string, positionSide string, newTakeProfitPrice float64) error {
 	// 首先取消当前的止盈单
-	if err := t.CancelAllOrders(symbol); err != nil {
+	if err := t.CancelTakeProfitOrders(symbol); err != nil {
 		log.Printf("  ⚠ 取消旧止盈单失败（可能没有旧单）: %v", err)
 	}
 
@@ -1358,4 +1434,44 @@ func (t *FuturesTrader) GetPnLSymbols(lastSyncTime time.Time) ([]string, error) 
 	}
 
 	return symbols, nil
+}
+
+// GetOpenOrders gets all open/pending orders for a symbol
+func (t *FuturesTrader) GetOpenOrders(symbol string) ([]OpenOrder, error) {
+	orders, err := t.client.NewListOpenOrdersService().
+		Symbol(symbol).
+		Do(context.Background())
+	if err != nil {
+		return nil, fmt.Errorf("failed to get open orders: %w", err)
+	}
+
+	var result []OpenOrder
+	for _, order := range orders {
+		// Parse quantity
+		quantity, _ := strconv.ParseFloat(order.OrigQuantity, 64)
+		// Parse price (may be empty for market orders)
+		price := 0.0
+		if order.Price != "" {
+			price, _ = strconv.ParseFloat(order.Price, 64)
+		}
+		// Parse stop price (may be empty)
+		stopPrice := 0.0
+		if order.StopPrice != "" {
+			stopPrice, _ = strconv.ParseFloat(order.StopPrice, 64)
+		}
+
+		result = append(result, OpenOrder{
+			OrderID:      fmt.Sprintf("%d", order.OrderID),
+			Symbol:       order.Symbol,
+			Side:         string(order.Side),
+			PositionSide: string(order.PositionSide),
+			Type:         string(order.Type),
+			Price:        price,
+			StopPrice:    stopPrice,
+			Quantity:     quantity,
+			Status:       string(order.Status),
+		})
+	}
+
+	return result, nil
 }

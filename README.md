@@ -142,6 +142,8 @@ curl -fsSL https://raw.githubusercontent.com/NoFxAiOS/nofx/main/install.sh | bas
 
 That's it! Open **http://127.0.0.1:3000** in your browser.
 
+> **Note**: For development environments with port conflicts, you can alternatively use ports 3300/8888 by modifying the environment variables in your local setup.
+
 ### One-Click Cloud Deploy (Railway)
 
 Deploy to Railway with one click - no server setup required:
@@ -220,6 +222,15 @@ npm run dev
 ```
 
 Access Web Interface: **http://127.0.0.1:3000**
+
+#### Custom API Endpoint Configuration
+
+NOFX supports custom API endpoints for different trading environments:
+
+- **Live Trading**: Uses the default exchange endpoint
+- **Paper Trading (Demo)**: Supports custom endpoints like Binance Testnet for simulation
+
+To configure custom endpoints, set them in the exchange configuration section of the web interface after initial setup.
 
 ---
 
@@ -425,8 +436,9 @@ sudo apt-get install libta-lib0-dev
 - System timeout is 120 seconds
 
 ### Frontend can't connect to backend
-- Ensure backend is running on http://localhost:8080
+- Ensure backend is running on http://localhost:8080 (default) or http://localhost:8888 (if using custom ports)
 - Check if port is occupied
+- For development with port conflicts, you can configure custom ports (e.g., 3300 frontend, 8888 backend)
 
 ---
 

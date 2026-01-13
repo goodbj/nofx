@@ -2081,6 +2081,47 @@ func (t *HyperliquidTrader) GetTrades(startTime time.Time, limit int) ([]TradeRe
 //	}
 var defaultBuilder *hyperliquid.BuilderInfo = nil
 
+// PartialClose partially closes a position
+func (t *HyperliquidTrader) PartialClose(symbol string, side string, percentage float64) (map[string]interface{}, error) {
+	// Get current position
+	positions, err := t.GetPositions()
+	if err != nil {
+		return nil, err
+	}
+
+	var position map[string]interface{}
+	for _, pos := range positions {
+		if pos["symbol"] == symbol {
+			if side == "long" && pos["side"] == "long" {
+				position = pos
+				break
+			} else if side == "short" && pos["side"] == "short" {
+				position = pos
+				break
+			}
+		}
+	}
+
+	if position == nil {
+		return nil, fmt.Errorf("no %s position found for %s", side, symbol)
+	}
+
+	// Calculate quantity to close
+	currentQty := position["positionAmt"].(float64)
+	closeQty := currentQty * (percentage / 100.0)
+
+	if closeQty <= 0 {
+		return nil, fmt.Errorf("calculated close quantity is invalid: %.4f", closeQty)
+	}
+
+	// Place close order
+	if side == "long" {
+		return t.CloseLong(symbol, closeQty)
+	} else {
+		return t.CloseShort(symbol, closeQty)
+	}
+}
+
 // GetOpenOrders gets all open/pending orders for a symbol
 func (t *HyperliquidTrader) GetOpenOrders(symbol string) ([]OpenOrder, error) {
 	openOrders, err := t.exchange.Info().OpenOrders(t.ctx, t.walletAddr)
@@ -2113,4 +2154,100 @@ func (t *HyperliquidTrader) GetOpenOrders(symbol string) ([]OpenOrder, error) {
 	}
 
 	return result, nil
+}
+
+// UpdateStopLoss 更新止损单
+func (t *HyperliquidTrader) UpdateStopLoss(symbol string, positionSide string, newStopPrice float64) error {
+	// 先取消现有的止损订单
+	err := t.CancelStopLossOrders(symbol)
+	if err != nil {
+		return fmt.Errorf("failed to cancel existing stop loss orders: %w", err)
+	}
+
+	// 获取当前仓位信息来确定数量
+	positions, err := t.GetPositions()
+	if err != nil {
+		return fmt.Errorf("failed to get positions: %w", err)
+	}
+
+	var position *map[string]interface{}
+	for i := range positions {
+		pos := &positions[i]
+		if (*pos)["symbol"] == symbol {
+			side := "long"
+			if strings.ToUpper(positionSide) == "SHORT" {
+				side = "short"
+			}
+			if (*pos)["side"] == side {
+				position = pos
+				break
+			}
+		}
+	}
+
+	if position == nil {
+		return fmt.Errorf("position not found for symbol %s", symbol)
+	}
+
+	quantity := (*position)["positionAmt"].(float64)
+	if quantity < 0 {
+		quantity = -quantity
+	}
+
+	// 设置新的止损订单
+	err = t.SetStopLoss(symbol, positionSide, quantity, newStopPrice)
+	if err != nil {
+		return fmt.Errorf("failed to set new stop loss: %w", err)
+	}
+
+	logger.Infof("✓ [Hyperliquid] Stop loss updated for %s to %.4f", symbol, newStopPrice)
+	return nil
+}
+
+// UpdateTakeProfit 更新止盈单
+func (t *HyperliquidTrader) UpdateTakeProfit(symbol string, positionSide string, newTakeProfitPrice float64) error {
+	// 先取消现有的止盈订单
+	err := t.CancelTakeProfitOrders(symbol)
+	if err != nil {
+		return fmt.Errorf("failed to cancel existing take profit orders: %w", err)
+	}
+
+	// 获取当前仓位信息来确定数量
+	positions, err := t.GetPositions()
+	if err != nil {
+		return fmt.Errorf("failed to get positions: %w", err)
+	}
+
+	var position *map[string]interface{}
+	for i := range positions {
+		pos := &positions[i]
+		if (*pos)["symbol"] == symbol {
+			side := "long"
+			if strings.ToUpper(positionSide) == "SHORT" {
+				side = "short"
+			}
+			if (*pos)["side"] == side {
+				position = pos
+				break
+			}
+		}
+	}
+
+	if position == nil {
+		return fmt.Errorf("position not found for symbol %s", symbol)
+	}
+
+	quantity := (*position)["positionAmt"].(float64)
+	if quantity < 0 {
+		quantity = -quantity
+	}
+
+	// 设置新的止盈订单
+	err = t.SetTakeProfit(symbol, positionSide, quantity, newTakeProfitPrice)
+	if err != nil {
+		return fmt.Errorf("failed to set new take profit: %w", err)
+	}
+
+	logger.Infof("✓ [Hyperliquid] Take profit updated for %s to %.4f", symbol, newTakeProfitPrice)
+	return nil
 }

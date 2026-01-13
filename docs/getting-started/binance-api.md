@@ -2,6 +2,15 @@
 
 This guide explains how to create and configure Binance API keys for use with NOFX.
 
+## Binance API Endpoints
+
+NOFX supports both live trading and paper trading (demo) environments:
+
+- **Live Trading**: `https://www.binance.com`
+- **Paper Trading**: `https://testnet.binancefuture.com` (Demo/Sandbox)
+
+By default, NOFX connects to the live trading endpoint. To use paper trading, you can configure the custom endpoint in the exchange configuration.
+
 ## Create API Key
 
 1. Log in to your [Binance account](https://www.binance.com)

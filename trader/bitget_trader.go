@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"nofx/logger"
 	"strconv"
@@ -1097,8 +1098,191 @@ func genBitgetClientOid() string {
 	return fmt.Sprintf("nofx%d%05d", timestamp, rand)
 }
 
+// PartialClose 部分平仓
+func (t *BitgetTrader) PartialClose(symbol string, side string, percentage float64) (map[string]interface{}, error) {
+	if percentage <= 0 || percentage > 100 {
+		return nil, fmt.Errorf("平仓百分比必须在0-100之间: %.2f", percentage)
+	}
+
+	// 获取当前持仓
+	positions, err := t.GetPositions()
+	if err != nil {
+		return nil, fmt.Errorf("获取持仓失败: %w", err)
+	}
+
+	var currentPos *map[string]interface{}
+	for i, pos := range positions {
+		if pos["symbol"] == symbol {
+			if (side == "long" && pos["side"] == "long") || (side == "short" && pos["side"] == "short") {
+				currentPos = &positions[i]
+				break
+			}
+		}
+	}
+
+	if currentPos == nil {
+		return nil, fmt.Errorf("未找到 %s 的%s仓位", symbol, side)
+	}
+
+	// 计算部分平仓数量
+	currentQty := (*currentPos)["positionAmt"].(float64)
+	absCurrentQty := math.Abs(currentQty)
+	closeQty := absCurrentQty * (percentage / 100.0)
+
+	// 格式化数量
+	qtyStr, err := t.FormatQuantity(symbol, closeQty)
+	if err != nil {
+		return nil, err
+	}
+
+	symbol = t.convertSymbol(symbol)
+
+	// 确定平仓方向
+	closeSide := "sell"
+	if side == "short" {
+		closeSide = "buy"
+	}
+
+	logger.Infof("  📊 Bitget PartialClose: symbol=%s, side=%s, percentage=%.2f%%, currentQty=%.6f, closeQty=%.6f", symbol, side, percentage, absCurrentQty, closeQty)
+
+	body := map[string]interface{}{
+		"symbol":      symbol,
+		"productType": "USDT-FUTURES",
+		"marginMode":  "crossed",
+		"marginCoin":  "USDT",
+		"side":        closeSide,
+		"orderType":   "market",
+		"size":        qtyStr,
+		"reduceOnly":  "YES",
+		"clientOid":   genBitgetClientOid(),
+	}
+
+	data, err := t.doRequest("POST", bitgetOrderPath, body)
+	if err != nil {
+		return nil, fmt.Errorf("部分平仓失败: %w", err)
+	}
+
+	var order struct {
+		OrderId   string `json:"orderId"`
+		ClientOid string `json:"clientOid"`
+	}
+
+	if err := json.Unmarshal(data, &order); err != nil {
+		return nil, fmt.Errorf("解析订单响应失败: %w", err)
+	}
+
+	// 清除缓存
+	t.clearCache()
+
+	logger.Infof("✓ Bitget 部分平仓成功: %s %s %.2f%%", symbol, side, percentage)
+
+	return map[string]interface{}{
+		"orderId":  order.OrderId,
+		"symbol":   symbol,
+		"status":   "FILLED",
+		"quantity": qtyStr,
+		"percentage": percentage,
+	}, nil
+}
+
 // GetOpenOrders gets all open/pending orders for a symbol
 func (t *BitgetTrader) GetOpenOrders(symbol string) ([]OpenOrder, error) {
 	// TODO: Implement Bitget open orders
 	return []OpenOrder{}, nil
+}
+
+// UpdateStopLoss 更新止损单
+func (t *BitgetTrader) UpdateStopLoss(symbol string, positionSide string, newStopPrice float64) error {
+	// 取消现有的止损订单
+	err := t.CancelStopLossOrders(symbol)
+	if err != nil {
+		return fmt.Errorf("failed to cancel existing stop loss orders: %w", err)
+	}
+
+	// 获取当前仓位信息来确定数量
+	positions, err := t.GetPositions()
+	if err != nil {
+		return fmt.Errorf("failed to get positions: %w", err)
+	}
+
+	var position *map[string]interface{}
+	for i := range positions {
+		pos := &positions[i]
+		if (*pos)["symbol"] == symbol {
+			side := "long"
+			if strings.ToUpper(positionSide) == "SHORT" {
+				side = "short"
+			}
+			if (*pos)["side"] == side {
+				position = pos
+				break
+			}
+		}
+	}
+
+	if position == nil {
+		return fmt.Errorf("position not found for symbol %s", symbol)
+	}
+
+	quantity := (*position)["positionAmt"].(float64)
+	if quantity < 0 {
+		quantity = -quantity
+	}
+
+	// 设置新的止损订单
+	err = t.SetStopLoss(symbol, positionSide, quantity, newStopPrice)
+	if err != nil {
+		return fmt.Errorf("failed to set new stop loss: %w", err)
+	}
+
+	logger.Infof("✓ [Bitget] Stop loss updated for %s to %.4f", symbol, newStopPrice)
+	return nil
+}
+
+// UpdateTakeProfit 更新止盈单
+func (t *BitgetTrader) UpdateTakeProfit(symbol string, positionSide string, newTakeProfitPrice float64) error {
+	// 取消现有的止盈订单
+	err := t.CancelTakeProfitOrders(symbol)
+	if err != nil {
+		return fmt.Errorf("failed to cancel existing take profit orders: %w", err)
+	}
+
+	// 获取当前仓位信息来确定数量
+	positions, err := t.GetPositions()
+	if err != nil {
+		return fmt.Errorf("failed to get positions: %w", err)
+	}
+
+	var position *map[string]interface{}
+	for i := range positions {
+		pos := &positions[i]
+		if (*pos)["symbol"] == symbol {
+			side := "long"
+			if strings.ToUpper(positionSide) == "SHORT" {
+				side = "short"
+			}
+			if (*pos)["side"] == side {
+				position = pos
+				break
+			}
+		}
+	}
+
+	if position == nil {
+		return fmt.Errorf("position not found for symbol %s", symbol)
+	}
+
+	quantity := (*position)["positionAmt"].(float64)
+	if quantity < 0 {
+		quantity = -quantity
+	}
+
+	// 设置新的止盈订单
+	err = t.SetTakeProfit(symbol, positionSide, quantity, newTakeProfitPrice)
+	if err != nil {
+		return fmt.Errorf("failed to set new take profit: %w", err)
+	}
+
+	logger.Infof("✓ [Bitget] Take profit updated for %s to %.4f", symbol, newTakeProfitPrice)
+	return nil
 }

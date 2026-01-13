@@ -24,7 +24,7 @@ npm install
 npm run dev
 ```
 
-访问 http://localhost:3000
+访问 http://localhost:3000 (默认) 或 http://localhost:3300 (如使用自定义端口)
 
 ## 构建生产版本
 
@@ -54,7 +54,7 @@ npm run build
 - 决策日志、统计：每10秒刷新
 
 ### API集成
-前端通过Vite代理访问后端API（http://localhost:8080）
+前端通过Vite代理访问后端API（http://localhost:8080 默认，或 http://localhost:8888 如使用自定义端口）
 
 **API端点：**
 - `GET /api/status` - 系统状态
@@ -87,9 +87,10 @@ web/
 
 ## 注意事项
 
-1. **确保后端API服务已启动**（默认端口8080）
+1. **确保后端API服务已启动**（默认端口8080，或自定义端口如8888）
 2. **Node.js版本要求**：>= 18.0.0
 3. **网络连接**：需要访问Binance API
+4. **端口配置**：如遇端口冲突，可在开发环境中使用自定义端口（如前端3300，后端8888）
 
 ## 开发计划
 

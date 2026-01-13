@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"nofx/logger"
 	"strconv"
@@ -1386,6 +1387,171 @@ func (t *OKXTrader) GetClosedPnL(startTime time.Time, limit int) ([]ClosedPnLRec
 	}
 
 	return records, nil
+}
+
+// PartialClose 部分平仓
+func (t *OKXTrader) PartialClose(symbol string, side string, percentage float64) (map[string]interface{}, error) {
+	if percentage <= 0 || percentage > 100 {
+		return nil, fmt.Errorf("平仓百分比必须在0-100之间: %.2f", percentage)
+	}
+
+	// 获取当前持仓
+	positions, err := t.GetPositions()
+	if err != nil {
+		return nil, fmt.Errorf("获取持仓失败: %w", err)
+	}
+
+	var currentPos *map[string]interface{}
+	for i, pos := range positions {
+		if pos["symbol"] == symbol {
+			if (side == "long" && pos["side"] == "long") || (side == "short" && pos["side"] == "short") {
+				currentPos = &positions[i]
+				break
+			}
+		}
+	}
+
+	if currentPos == nil {
+		return nil, fmt.Errorf("未找到 %s 的%s仓位", symbol, side)
+	}
+
+	// 计算部分平仓数量
+	currentQty := (*currentPos)["positionAmt"].(float64)
+	absCurrentQty := math.Abs(currentQty)
+	closeQty := absCurrentQty * (percentage / 100.0)
+
+	// 获取合约信息
+	inst, err := t.getInstrument(symbol)
+	if err != nil {
+		return nil, fmt.Errorf("获取合约信息失败: %w", err)
+	}
+
+	// 将数量(基础资产)转换为合约张数
+	contracts := closeQty / inst.CtVal
+	szStr := t.formatSize(contracts, inst)
+
+	logger.Infof("  📊 OKX PartialClose: symbol=%s, side=%s, percentage=%.2f%%, currentQty=%.6f, closeQty=%.6f, contracts=%.2f", symbol, side, percentage, absCurrentQty, closeQty, contracts)
+
+	instId := t.convertSymbol(symbol)
+
+	// 确定平仓方向
+	closeSide := "sell"
+	posSide := "long"
+	if side == "short" {
+		closeSide = "buy"
+		posSide = "short"
+	}
+
+	body := map[string]interface{}{
+		"instId":  instId,
+		"tdMode":  (*currentPos)["mgnMode"], // 使用仓位的实际保证金模式
+		"side":    closeSide,
+		"ordType": "market",
+		"sz":      szStr,
+		"clOrdId": genOkxClOrdID(),
+		"tag":     okxTag,
+	}
+
+	// 在双持模式下需要指定posSide
+	if t.positionMode == "long_short_mode" {
+		body["posSide"] = posSide
+	}
+
+	data, err := t.doRequest("POST", okxOrderPath, body)
+	if err != nil {
+		return nil, fmt.Errorf("部分平仓失败: %w", err)
+	}
+
+	var orders []struct {
+		OrdId   string `json:"ordId"`
+		ClOrdId string `json:"clOrdId"`
+		SCode   string `json:"sCode"`
+		SMsg    string `json:"sMsg"`
+	}
+
+	if err := json.Unmarshal(data, &orders); err != nil {
+		return nil, fmt.Errorf("解析订单响应失败: %w", err)
+	}
+
+	if len(orders) == 0 || orders[0].SCode != "0" {
+		msg := "未知错误"
+		if len(orders) > 0 {
+			msg = orders[0].SMsg
+		}
+		return nil, fmt.Errorf("部分平仓失败: %s", msg)
+	}
+
+	logger.Infof("✓ OKX 部分平仓成功: %s %s %.2f%%", symbol, side, percentage)
+
+	return map[string]interface{}{
+		"orderId":  orders[0].OrdId,
+		"symbol":   symbol,
+		"status":   "FILLED",
+		"quantity": szStr,
+		"percentage": percentage,
+	}, nil
+}
+
+// UpdateStopLoss 更新止损单
+func (t *OKXTrader) UpdateStopLoss(symbol string, positionSide string, newStopPrice float64) error {
+	// 首先取消当前的止损单
+	if err := t.CancelStopLossOrders(symbol); err != nil {
+		logger.Infof("  ⚠ 取消旧止损单失败（可能没有旧单）: %v", err)
+	}
+
+	// 获取当前持仓数量
+	positions, err := t.GetPositions()
+	if err != nil {
+		return fmt.Errorf("获取持仓失败: %w", err)
+	}
+
+	var currentQty float64
+	for _, pos := range positions {
+		if pos["symbol"] == symbol {
+			if (positionSide == "LONG" && pos["side"] == "long") || (positionSide == "SHORT" && pos["side"] == "short") {
+				currentQty = math.Abs(pos["positionAmt"].(float64))
+				break
+			}
+		}
+	}
+
+	if currentQty == 0 {
+		return fmt.Errorf("未找到 %s 的%s仓位", symbol, positionSide)
+	}
+
+	// 设置新的止损单
+	return t.SetStopLoss(symbol, positionSide, currentQty, newStopPrice)
+}
+
+// UpdateTakeProfit 更新止盈单
+func (t *OKXTrader) UpdateTakeProfit(symbol string, positionSide string, newTakeProfitPrice float64) error {
+	// 首先取消当前的止盈单
+	if err := t.CancelTakeProfitOrders(symbol); err != nil {
+		logger.Infof("  ⚠ 取消旧止盈单失败（可能没有旧单）: %v", err)
+	}
+
+	// 获取当前持仓数量
+	positions, err := t.GetPositions()
+	if err != nil {
+		return fmt.Errorf("获取持仓失败: %w", err)
+	}
+
+	var currentQty float64
+	for _, pos := range positions {
+		if pos["symbol"] == symbol {
+			if (positionSide == "LONG" && pos["side"] == "long") || (positionSide == "SHORT" && pos["side"] == "short") {
+				currentQty = math.Abs(pos["positionAmt"].(float64))
+				break
+			}
+		}
+	}
+
+	if currentQty == 0 {
+		return fmt.Errorf("未找到 %s 的%s仓位", symbol, positionSide)
+	}
+
+	// 设置新的止盈单
+	return t.SetTakeProfit(symbol, positionSide, currentQty, newTakeProfitPrice)
 }
 
 // GetOpenOrders gets all open/pending orders for a symbol

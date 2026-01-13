@@ -1105,3 +1105,132 @@ func (t *BybitTrader) GetOpenOrders(symbol string) ([]OpenOrder, error) {
 
 	return result, nil
 }
+
+// UpdateStopLoss 更新止损单
+func (t *BybitTrader) UpdateStopLoss(symbol string, positionSide string, newStopPrice float64) error {
+	// 首先取消当前的止损单
+	if err := t.CancelStopLossOrders(symbol); err != nil {
+		logger.Infof("  ⚠ 取消旧止损单失败（可能没有旧单）: %v", err)
+	}
+
+	// 获取当前持仓数量
+	positions, err := t.GetPositions()
+	if err != nil {
+		return fmt.Errorf("获取持仓失败: %w", err)
+	}
+
+	var currentQty float64
+	for _, pos := range positions {
+		if pos["symbol"] == symbol {
+			if (positionSide == "LONG" && pos["side"] == "long") || (positionSide == "SHORT" && pos["side"] == "short") {
+				currentQty = math.Abs(pos["positionAmt"].(float64))
+				break
+			}
+		}
+	}
+
+	if currentQty == 0 {
+		return fmt.Errorf("未找到 %s 的%s仓位", symbol, positionSide)
+	}
+
+	// 设置新的止损单
+	return t.SetStopLoss(symbol, positionSide, currentQty, newStopPrice)
+}
+
+// UpdateTakeProfit 更新止盈单
+func (t *BybitTrader) UpdateTakeProfit(symbol string, positionSide string, newTakeProfitPrice float64) error {
+	// 首先取消当前的止盈单
+	if err := t.CancelTakeProfitOrders(symbol); err != nil {
+		logger.Infof("  ⚠ 取消旧止盈单失败（可能没有旧单）: %v", err)
+	}
+
+	// 获取当前持仓数量
+	positions, err := t.GetPositions()
+	if err != nil {
+		return fmt.Errorf("获取持仓失败: %w", err)
+	}
+
+	var currentQty float64
+	for _, pos := range positions {
+		if pos["symbol"] == symbol {
+			if (positionSide == "LONG" && pos["side"] == "long") || (positionSide == "SHORT" && pos["side"] == "short") {
+				currentQty = math.Abs(pos["positionAmt"].(float64))
+				break
+			}
+		}
+	}
+
+	if currentQty == 0 {
+		return fmt.Errorf("未找到 %s 的%s仓位", symbol, positionSide)
+	}
+
+	// 设置新的止盈单
+	return t.SetTakeProfit(symbol, positionSide, currentQty, newTakeProfitPrice)
+}
+
+// PartialClose 部分平仓
+func (t *BybitTrader) PartialClose(symbol string, side string, percentage float64) (map[string]interface{}, error) {
+	if percentage <= 0 || percentage > 100 {
+		return nil, fmt.Errorf("平仓百分比必须在0-100之间: %.2f", percentage)
+	}
+
+	// 获取当前持仓
+	positions, err := t.GetPositions()
+	if err != nil {
+		return nil, fmt.Errorf("获取持仓失败: %w", err)
+	}
+
+	var currentPos *map[string]interface{}
+	for i, pos := range positions {
+		if pos["symbol"] == symbol {
+			if (side == "long" && pos["side"] == "long") || (side == "short" && pos["side"] == "short") {
+				currentPos = &positions[i]
+				break
+			}
+		}
+	}
+
+	if currentPos == nil {
+		return nil, fmt.Errorf("未找到 %s 的%s仓位", symbol, side)
+	}
+
+	// 计算部分平仓数量
+	currentQty := (*currentPos)["positionAmt"].(float64)
+	absCurrentQty := math.Abs(currentQty)
+	closeQty := absCurrentQty * (percentage / 100.0)
+
+	// 格式化数量
+	quantityStr, err := t.FormatQuantity(symbol, closeQty)
+	if err != nil {
+		return nil, err
+	}
+
+	// 确定平仓方向
+	closeSide := "Sell"
+	if side == "short" {
+		closeSide = "Buy"
+	}
+
+	// 执行平仓操作
+	params := map[string]interface{}{
+		"category":    "linear",
+		"symbol":      symbol,
+		"side":        closeSide,
+		"orderType":   "Market",
+		"qty":         quantityStr,
+		"positionIdx": 0,
+		"reduceOnly":  true,
+	}
+
+	result, err := t.client.NewUtaBybitServiceWithParams(params).PlaceOrder(context.Background())
+	if err != nil {
+		return nil, fmt.Errorf("部分平仓失败: %w", err)
+	}
+
+	logger.Infof("✓ [Bybit] 部分平仓成功: %s %s %.2f%% 数量: %s", symbol, side, percentage, quantityStr)
+
+	// 清除缓存
+	t.clearCache()
+
+	return t.parseOrderResult(result)
+}
