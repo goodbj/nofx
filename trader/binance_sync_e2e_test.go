@@ -25,7 +25,7 @@ func TestBinanceSyncE2E(t *testing.T) {
 	db := st.GormDB()
 
 	// Create trader
-	trader := NewFuturesTrader(apiKey, secretKey, "test-user")
+	trader := NewFuturesTrader(apiKey, secretKey, "test-user", "")
 
 	// Test parameters
 	traderID := "test-trader-id"
@@ -155,7 +155,7 @@ func TestBinanceSyncWithExistingData(t *testing.T) {
 	db := st.GormDB()
 	orderStore := st.Order()
 
-	trader := NewFuturesTrader(apiKey, secretKey, "test-user")
+	trader := NewFuturesTrader(apiKey, secretKey, "test-user", "")
 
 	traderID := "test-trader-id"
 	exchangeID := "test-exchange-id"

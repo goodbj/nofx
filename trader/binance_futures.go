@@ -5,13 +5,10 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
-<<<<<<< Updated upstream
-	"nofx/hook"
-	"nofx/logger"
-=======
 	"log"
 	"math"
->>>>>>> Stashed changes
+	"nofx/hook"
+	"nofx/logger"
 	"strconv"
 	"strings"
 	"sync"
@@ -67,8 +64,19 @@ type FuturesTrader struct {
 }
 
 // NewFuturesTrader creates futures trader
-func NewFuturesTrader(apiKey, secretKey string, userId string) *FuturesTrader {
-	client := futures.NewClient(apiKey, secretKey)
+func NewFuturesTrader(apiKey, secretKey, userId, customEndpoint string) *FuturesTrader {
+	var client *futures.Client
+	if customEndpoint != "" {
+		// Use custom endpoint if provided
+		client = futures.NewClientWithParams(futures.Params{
+			APIKey:    apiKey,
+			SecretKey: secretKey,
+			BaseURL:   customEndpoint,
+		})
+	} else {
+		// Use default endpoint
+		client = futures.NewClient(apiKey, secretKey)
+	}
 
 	hookRes := hook.HookExec[hook.NewBinanceTraderResult](hook.NEW_BINANCE_TRADER, userId, client)
 	if hookRes != nil && hookRes.GetResult() != nil {
@@ -721,42 +729,6 @@ func (t *FuturesTrader) CancelAllOrders(symbol string) error {
 	return nil
 }
 
-<<<<<<< Updated upstream
-// CancelStopOrders cancels take-profit/stop-loss orders for this symbol (used to adjust TP/SL positions)
-// Now uses both legacy API and new Algo Order API (Binance migrated stop orders to Algo system)
-func (t *FuturesTrader) CancelStopOrders(symbol string) error {
-	canceledCount := 0
-
-	// 1. Cancel legacy stop orders (for backward compatibility)
-	orders, err := t.client.NewListOpenOrdersService().
-		Symbol(symbol).
-		Do(context.Background())
-
-	if err == nil {
-		for _, order := range orders {
-			orderType := string(order.Type)
-
-			// Only cancel stop-loss and take-profit orders
-			// Use string comparison since OrderType constants were removed in v2.8.9
-			if orderType == "STOP_MARKET" ||
-				orderType == "TAKE_PROFIT_MARKET" ||
-				orderType == "STOP" ||
-				orderType == "TAKE_PROFIT" {
-
-				_, err := t.client.NewCancelOrderService().
-					Symbol(symbol).
-					OrderID(order.OrderID).
-					Do(context.Background())
-
-				if err != nil {
-					logger.Infof("  ⚠ Failed to cancel legacy order %d: %v", order.OrderID, err)
-					continue
-				}
-
-				canceledCount++
-				logger.Infof("  ✓ Canceled legacy stop order for %s (Order ID: %d, Type: %s)",
-					symbol, order.OrderID, orderType)
-=======
 // PartialClose 部分平仓
 func (t *FuturesTrader) PartialClose(symbol string, side string, percentage float64) (map[string]interface{}, error) {
 	if percentage <= 0 || percentage > 100 {
@@ -775,94 +747,10 @@ func (t *FuturesTrader) PartialClose(symbol string, side string, percentage floa
 			if (side == "long" && pos["side"] == "long") || (side == "short" && pos["side"] == "short") {
 				currentPos = &positions[i]
 				break
->>>>>>> Stashed changes
 			}
 		}
 	}
 
-<<<<<<< Updated upstream
-	// 2. Cancel Algo orders (new API)
-	err = t.client.NewCancelAllAlgoOpenOrdersService().
-		Symbol(symbol).
-		Do(context.Background())
-
-	if err != nil {
-		// Ignore "no algo orders" error
-		if !contains(err.Error(), "no algo") && !contains(err.Error(), "No algo") {
-			logger.Infof("  ⚠ Failed to cancel Algo orders: %v", err)
-		}
-	} else {
-		logger.Infof("  ✓ Canceled all Algo orders for %s", symbol)
-		canceledCount++
-	}
-
-	if canceledCount == 0 {
-		logger.Infof("  ℹ %s has no take-profit/stop-loss orders to cancel", symbol)
-	}
-
-	return nil
-}
-
-// GetOpenOrders gets all open/pending orders for a symbol
-func (t *FuturesTrader) GetOpenOrders(symbol string) ([]OpenOrder, error) {
-	var result []OpenOrder
-
-	// 1. Get legacy open orders
-	orders, err := t.client.NewListOpenOrdersService().
-		Symbol(symbol).
-		Do(context.Background())
-
-	if err != nil {
-		return nil, fmt.Errorf("failed to get open orders: %w", err)
-	}
-
-	for _, order := range orders {
-		price, _ := strconv.ParseFloat(order.Price, 64)
-		stopPrice, _ := strconv.ParseFloat(order.StopPrice, 64)
-		quantity, _ := strconv.ParseFloat(order.OrigQuantity, 64)
-
-		result = append(result, OpenOrder{
-			OrderID:      fmt.Sprintf("%d", order.OrderID),
-			Symbol:       order.Symbol,
-			Side:         string(order.Side),
-			PositionSide: string(order.PositionSide),
-			Type:         string(order.Type),
-			Price:        price,
-			StopPrice:    stopPrice,
-			Quantity:     quantity,
-			Status:       string(order.Status),
-		})
-	}
-
-	// 2. Get Algo orders (new API for stop-loss/take-profit)
-	algoOrders, err := t.client.NewListOpenAlgoOrdersService().
-		Symbol(symbol).
-		Do(context.Background())
-
-	if err == nil {
-		for _, algoOrder := range algoOrders {
-			triggerPrice, _ := strconv.ParseFloat(algoOrder.TriggerPrice, 64)
-			quantity, _ := strconv.ParseFloat(algoOrder.Quantity, 64)
-
-			result = append(result, OpenOrder{
-				OrderID:      fmt.Sprintf("%d", algoOrder.AlgoId),
-				Symbol:       algoOrder.Symbol,
-				Side:         string(algoOrder.Side),
-				PositionSide: string(algoOrder.PositionSide),
-				Type:         string(algoOrder.OrderType),
-				Price:        0, // Algo orders use stop price
-				StopPrice:    triggerPrice,
-				Quantity:     quantity,
-				Status:       "NEW",
-			})
-		}
-	}
-
-	return result, nil
-}
-
-// GetMarketPrice gets market price
-=======
 	if currentPos == nil {
 		return nil, fmt.Errorf("未找到 %s 的%s仓位", symbol, side)
 	}
@@ -977,7 +865,6 @@ func (t *FuturesTrader) UpdateTakeProfit(symbol string, positionSide string, new
 }
 
 // GetMarketPrice 获取市场价格
->>>>>>> Stashed changes
 func (t *FuturesTrader) GetMarketPrice(symbol string) (float64, error) {
 	prices, err := t.client.NewListPricesService().Symbol(symbol).Do(context.Background())
 	if err != nil {

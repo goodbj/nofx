@@ -599,20 +599,42 @@ func validateDecision(d *Decision, accountEquity float64, btcEthLeverage, altcoi
 			return fmt.Errorf("风险回报比过低(%.2f:1)，必须≥3.0:1 [风险:%.2f%% 收益:%.2f%%] [止损:%.2f 止盈:%.2f]",
 				riskRewardRatio, riskPercent, rewardPercent, d.StopLoss, d.TakeProfit)
 		}
+		// 验证附加约束
+		if d.MaxPositionUSD > 0 && d.PositionSizeUSD > d.MaxPositionUSD {
+			return fmt.Errorf("仓位金额超出最大限制: %.2f > %.2f", d.PositionSizeUSD, d.MaxPositionUSD)
+		}
+		if d.MaxDrawdown > 0 && d.MaxDrawdown > 50 {
+			return fmt.Errorf("最大回撤限制不能超过50%%: %.2f%%", d.MaxDrawdown)
+		}
+		if d.MinTargetProfit > 0 && riskRewardRatio < d.MinTargetProfit/100 {
+			return fmt.Errorf("预期收益率不达标: %.2f%% < %.2f%%", riskRewardRatio*100, d.MinTargetProfit)
+		}
 	case "update_stop_loss":
 		// 验证update_stop_loss操作
 		if d.NewStopLoss <= 0 {
 			return fmt.Errorf("新止损价格必须大于0: %.2f", d.NewStopLoss)
+		}
+		// 验证附加约束
+		if d.MaxDrawdown > 0 && d.MaxDrawdown > 50 {
+			return fmt.Errorf("最大回撤限制不能超过50%%: %.2f%%", d.MaxDrawdown)
 		}
 	case "update_take_profit":
 		// 验证update_take_profit操作
 		if d.NewTakeProfit <= 0 {
 			return fmt.Errorf("新止盈价格必须大于0: %.2f", d.NewTakeProfit)
 		}
+		// 验证附加约束
+		if d.MaxDrawdown > 0 && d.MaxDrawdown > 50 {
+			return fmt.Errorf("最大回撤限制不能超过50%%: %.2f%%", d.MaxDrawdown)
+		}
 	case "partial_close":
 		// 验证partial_close操作
 		if d.ClosePercentage <= 0 || d.ClosePercentage > 100 {
 			return fmt.Errorf("平仓百分比必须在0-100之间: %.2f", d.ClosePercentage)
+		}
+		// 验证附加约束
+		if d.MaxDrawdown > 0 && d.MaxDrawdown > 50 {
+			return fmt.Errorf("最大回撤限制不能超过50%%: %.2f%%", d.MaxDrawdown)
 		}
 	}
 

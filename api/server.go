@@ -644,7 +644,7 @@ func (s *Server) handleCreateTrader(c *gin.Context) {
 				for _, key := range balanceKeys {
 					if balance, ok := balanceInfo[key].(float64); ok && balance > 0 {
 						actualBalance = balance
-						logger.Infof("‚úì Queried exchange total equity (%s): %.2f USDT (user input: %.2f USDT)", key, actualBalance, req.InitialBalance)
+						logger.Infof("‚ú?Queried exchange total equity (%s): %.2f USDT (user input: %.2f USDT)", key, actualBalance, req.InitialBalance)
 						break
 					}
 				}
@@ -683,7 +683,7 @@ func (s *Server) handleCreateTrader(c *gin.Context) {
 	logger.Infof("üîß DEBUG: Preparing to call CreateTrader")
 	err = s.store.Trader().Create(traderRecord)
 	if err != nil {
-		logger.Infof("‚ùå Failed to create trader: %v", err)
+		logger.Infof("‚ù?Failed to create trader: %v", err)
 		SafeInternalError(c, "Failed to create trader", err)
 		return
 	}
@@ -698,7 +698,7 @@ func (s *Server) handleCreateTrader(c *gin.Context) {
 	}
 	logger.Infof("üîß DEBUG: LoadUserTraders completed")
 
-	logger.Infof("‚úì Trader created successfully: %s (model: %s, exchange: %s)", req.Name, req.AIModelID, req.ExchangeID)
+	logger.Infof("‚ú?Trader created successfully: %s (model: %s, exchange: %s)", req.Name, req.AIModelID, req.ExchangeID)
 
 	c.JSON(http.StatusCreated, gin.H{
 		"trader_id":   traderID,
@@ -856,13 +856,13 @@ func (s *Server) handleUpdateTrader(c *gin.Context) {
 			go func() {
 				logger.Infof("‚ñ∂Ô∏è Restarting trader %s with new config...", traderID)
 				if runErr := reloadedTrader.Run(); runErr != nil {
-					logger.Infof("‚ùå Trader %s runtime error: %v", traderID, runErr)
+					logger.Infof("‚ù?Trader %s runtime error: %v", traderID, runErr)
 				}
 			}()
 		}
 	}
 
-	logger.Infof("‚úì Trader updated successfully: %s (model: %s, exchange: %s, strategy: %s)", req.Name, req.AIModelID, req.ExchangeID, strategyID)
+	logger.Infof("‚ú?Trader updated successfully: %s (model: %s, exchange: %s, strategy: %s)", req.Name, req.AIModelID, req.ExchangeID, strategyID)
 
 	c.JSON(http.StatusOK, gin.H{
 		"trader_id":   traderID,
@@ -889,14 +889,14 @@ func (s *Server) handleDeleteTrader(c *gin.Context) {
 		status := trader.GetStatus()
 		if isRunning, ok := status["is_running"].(bool); ok && isRunning {
 			trader.Stop()
-			logger.Infof("‚èπ  Stopped running trader: %s", traderID)
+			logger.Infof("‚è? Stopped running trader: %s", traderID)
 		}
 	}
 
 	// Remove trader from memory
 	s.traderManager.RemoveTrader(traderID)
 
-	logger.Infof("‚úì Trader deleted: %s", traderID)
+	logger.Infof("‚ú?Trader deleted: %s", traderID)
 	c.JSON(http.StatusOK, gin.H{"message": "Trader deleted"})
 }
 
@@ -928,7 +928,7 @@ func (s *Server) handleStartTrader(c *gin.Context) {
 	// Load trader from database (always reload to get latest config)
 	logger.Infof("üîÑ Loading trader %s from database...", traderID)
 	if loadErr := s.traderManager.LoadUserTradersFromStore(s.store, userID); loadErr != nil {
-		logger.Infof("‚ùå Failed to load user traders: %v", loadErr)
+		logger.Infof("‚ù?Failed to load user traders: %v", loadErr)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to load trader: " + loadErr.Error()})
 		return
 	}
@@ -975,7 +975,7 @@ func (s *Server) handleStartTrader(c *gin.Context) {
 	go func() {
 		logger.Infof("‚ñ∂Ô∏è  Starting trader %s (%s)", traderID, trader.GetName())
 		if err := trader.Run(); err != nil {
-			logger.Infof("‚ùå Trader %s runtime error: %v", trader.GetName(), err)
+			logger.Infof("‚ù?Trader %s runtime error: %v", trader.GetName(), err)
 		}
 	}()
 
@@ -985,7 +985,7 @@ func (s *Server) handleStartTrader(c *gin.Context) {
 		logger.Infof("‚ö†Ô∏è  Failed to update trader status: %v", err)
 	}
 
-	logger.Infof("‚úì Trader %s started", trader.GetName())
+	logger.Infof("‚ú?Trader %s started", trader.GetName())
 	c.JSON(http.StatusOK, gin.H{"message": "Trader started"})
 }
 
@@ -1023,7 +1023,7 @@ func (s *Server) handleStopTrader(c *gin.Context) {
 		logger.Infof("‚ö†Ô∏è  Failed to update trader status: %v", err)
 	}
 
-	logger.Infof("‚èπ  Trader %s stopped", trader.GetName())
+	logger.Infof("‚è? Trader %s stopped", trader.GetName())
 	c.JSON(http.StatusOK, gin.H{"message": "Trader stopped"})
 }
 
@@ -1056,12 +1056,12 @@ func (s *Server) handleExecuteDecision(c *gin.Context) {
 	// Trigger decision immediately
 	result, err := trader.TriggerDecision()
 	if err != nil {
-		logger.Errorf("‚ùå Failed to trigger decision for trader %s: %v", trader.GetName(), err)
+		logger.Errorf("‚ù?Failed to trigger decision for trader %s: %v", trader.GetName(), err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to trigger decision"})
 		return
 	}
 
-	logger.Infof("‚úÖ Manual decision executed successfully for trader %s: %+v", trader.GetName(), result)
+	logger.Infof("‚ú?Manual decision executed successfully for trader %s: %+v", trader.GetName(), result)
 	c.JSON(http.StatusOK, gin.H{
 		"message": "Decision executed successfully",
 		"result": result,
@@ -1095,7 +1095,7 @@ func (s *Server) handleUpdateTraderPrompt(c *gin.Context) {
 	if err == nil {
 		trader.SetCustomPrompt(req.CustomPrompt)
 		trader.SetOverrideBasePrompt(req.OverrideBasePrompt)
-		logger.Infof("‚úì Updated trader %s custom prompt (override base=%v)", trader.GetName(), req.OverrideBasePrompt)
+		logger.Infof("‚ú?Updated trader %s custom prompt (override base=%v)", trader.GetName(), req.OverrideBasePrompt)
 	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "Custom prompt updated"})
@@ -1131,7 +1131,7 @@ func (s *Server) handleToggleCompetition(c *gin.Context) {
 	if !req.ShowInCompetition {
 		status = "hidden"
 	}
-	logger.Infof("‚úì Trader %s competition visibility updated: %s", traderID, status)
+	logger.Infof("‚ú?Trader %s competition visibility updated: %s", traderID, status)
 	c.JSON(http.StatusOK, gin.H{
 		"message":             "Competition visibility updated",
 		"show_in_competition": req.ShowInCompetition,
@@ -1246,20 +1246,20 @@ func (s *Server) handleSyncBalance(c *gin.Context) {
 
 	oldBalance := traderConfig.InitialBalance
 
-	// ‚úÖ Option C: Smart balance change detection
+	// ‚ú?Option C: Smart balance change detection
 	changePercent := ((actualBalance - oldBalance) / oldBalance) * 100
 	changeType := "increase"
 	if changePercent < 0 {
 		changeType = "decrease"
 	}
 
-	logger.Infof("‚úì Queried actual exchange balance: %.2f USDT (current config: %.2f USDT, change: %.2f%%)",
+	logger.Infof("‚ú?Queried actual exchange balance: %.2f USDT (current config: %.2f USDT, change: %.2f%%)",
 		actualBalance, oldBalance, changePercent)
 
 	// Update initial_balance in database
 	err = s.store.Trader().UpdateInitialBalance(userID, traderID, actualBalance)
 	if err != nil {
-		logger.Infof("‚ùå Failed to update initial_balance: %v", err)
+		logger.Infof("‚ù?Failed to update initial_balance: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update balance"})
 		return
 	}
@@ -1270,7 +1270,7 @@ func (s *Server) handleSyncBalance(c *gin.Context) {
 		logger.Infof("‚ö†Ô∏è Failed to reload user traders into memory: %v", err)
 	}
 
-	logger.Infof("‚úÖ Synced balance: %.2f ‚Üí %.2f USDT (%s %.2f%%)", oldBalance, actualBalance, changeType, changePercent)
+	logger.Infof("‚ú?Synced balance: %.2f ‚Ü?%.2f USDT (%s %.2f%%)", oldBalance, actualBalance, changeType, changePercent)
 
 	c.JSON(http.StatusOK, gin.H{
 		"message":        "Balance synced successfully",
@@ -1410,12 +1410,12 @@ func (s *Server) handleClosePosition(c *gin.Context) {
 	}
 
 	if closeErr != nil {
-		logger.Infof("‚ùå Close position failed: symbol=%s, side=%s, error=%v", req.Symbol, req.Side, closeErr)
+		logger.Infof("‚ù?Close position failed: symbol=%s, side=%s, error=%v", req.Symbol, req.Side, closeErr)
 		SafeInternalError(c, "Failed to close position", closeErr)
 		return
 	}
 
-	logger.Infof("‚úÖ Position closed successfully: symbol=%s, side=%s, qty=%.6f, result=%v", req.Symbol, req.Side, posQty, result)
+	logger.Infof("‚ú?Position closed successfully: symbol=%s, side=%s, qty=%.6f, result=%v", req.Symbol, req.Side, posQty, result)
 
 	// Record order to database (for chart markers and history)
 	s.recordClosePositionOrder(traderID, exchangeCfg.ID, exchangeCfg.ExchangeType, req.Symbol, req.Side, posQty, entryPrice, result)
@@ -1505,7 +1505,7 @@ func (s *Server) recordClosePositionOrder(traderID, exchangeID, exchangeType, sy
 		return
 	}
 
-	logger.Infof("  ‚úÖ Order recorded as FILLED: %s [%s] %s qty=%.6f price=%.6f", orderID, orderAction, symbol, quantity, exitPrice)
+	logger.Infof("  ‚ú?Order recorded as FILLED: %s [%s] %s qty=%.6f price=%.6f", orderID, orderAction, symbol, quantity, exitPrice)
 
 	// Create fill record immediately
 	tradeID := fmt.Sprintf("%s-%d", orderID, time.Now().UnixNano())
@@ -1531,7 +1531,7 @@ func (s *Server) recordClosePositionOrder(traderID, exchangeID, exchangeType, sy
 	if err := s.store.Order().CreateFill(fillRecord); err != nil {
 		logger.Infof("  ‚ö†Ô∏è Failed to record fill: %v", err)
 	} else {
-		logger.Infof("  ‚úÖ Fill record created: price=%.6f qty=%.6f", exitPrice, quantity)
+		logger.Infof("  ‚ú?Fill record created: price=%.6f qty=%.6f", exitPrice, quantity)
 	}
 }
 
@@ -1574,7 +1574,7 @@ func (s *Server) pollAndUpdateOrderStatus(orderRecordID int64, traderID, exchang
 					fee = commission
 				}
 
-				logger.Infof("  ‚úÖ Order filled: avgPrice=%.6f, qty=%.6f, fee=%.6f", actualPrice, actualQty, fee)
+				logger.Infof("  ‚ú?Order filled: avgPrice=%.6f, qty=%.6f, fee=%.6f", actualPrice, actualQty, fee)
 
 				// Update order status to FILLED
 				if err := s.store.Order().UpdateOrderStatus(orderRecordID, "FILLED", actualQty, actualPrice, fee); err != nil {
@@ -1648,7 +1648,7 @@ func (s *Server) handleGetModelConfigs(c *gin.Context) {
 	logger.Infof("üîç Querying AI model configs for user %s", userID)
 	models, err := s.store.AIModel().List(userID)
 	if err != nil {
-		logger.Infof("‚ùå Failed to get AI model configs: %v", err)
+		logger.Infof("‚ù?Failed to get AI model configs: %v", err)
 		SafeInternalError(c, "Failed to get AI model configs", err)
 		return
 	}
@@ -1669,7 +1669,7 @@ func (s *Server) handleGetModelConfigs(c *gin.Context) {
 		return
 	}
 
-	logger.Infof("‚úÖ Found %d AI model configs", len(models))
+	logger.Infof("‚ú?Found %d AI model configs", len(models))
 
 	// Convert to safe response structure, remove sensitive information
 	safeModels := make([]SafeModelConfig, len(models))
@@ -1705,7 +1705,7 @@ func (s *Server) handleUpdateModelConfigs(c *gin.Context) {
 	if !cfg.TransportEncryption {
 		// Transport encryption disabled, accept plain JSON
 		if err := json.Unmarshal(bodyBytes, &req); err != nil {
-			logger.Infof("‚ùå Failed to parse plain JSON request: %v", err)
+			logger.Infof("‚ù?Failed to parse plain JSON request: %v", err)
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request format"})
 			return
 		}
@@ -1714,14 +1714,14 @@ func (s *Server) handleUpdateModelConfigs(c *gin.Context) {
 		// Transport encryption enabled, require encrypted payload
 		var encryptedPayload crypto.EncryptedPayload
 		if err := json.Unmarshal(bodyBytes, &encryptedPayload); err != nil {
-			logger.Infof("‚ùå Failed to parse encrypted payload: %v", err)
+			logger.Infof("‚ù?Failed to parse encrypted payload: %v", err)
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request format, encrypted transmission required"})
 			return
 		}
 
 		// Verify encrypted data
 		if encryptedPayload.WrappedKey == "" {
-			logger.Infof("‚ùå Detected unencrypted request (UserID: %s)", userID)
+			logger.Infof("‚ù?Detected unencrypted request (UserID: %s)", userID)
 			c.JSON(http.StatusBadRequest, gin.H{
 				"error":   "This endpoint only supports encrypted transmission, please use encrypted client",
 				"code":    "ENCRYPTION_REQUIRED",
@@ -1733,14 +1733,14 @@ func (s *Server) handleUpdateModelConfigs(c *gin.Context) {
 		// Decrypt data
 		decrypted, err := s.cryptoHandler.cryptoService.DecryptSensitiveData(&encryptedPayload)
 		if err != nil {
-			logger.Infof("‚ùå Failed to decrypt model config (UserID: %s): %v", userID, err)
+			logger.Infof("‚ù?Failed to decrypt model config (UserID: %s): %v", userID, err)
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Failed to decrypt data"})
 			return
 		}
 
 		// Parse decrypted data
 		if err := json.Unmarshal([]byte(decrypted), &req); err != nil {
-			logger.Infof("‚ùå Failed to parse decrypted data: %v", err)
+			logger.Infof("‚ù?Failed to parse decrypted data: %v", err)
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Failed to parse decrypted data"})
 			return
 		}
@@ -1763,7 +1763,7 @@ func (s *Server) handleUpdateModelConfigs(c *gin.Context) {
 		// Don't return error here since model config was successfully updated to database
 	}
 
-	logger.Infof("‚úì AI model config updated: %+v", req.Models)
+	logger.Infof("‚ú?AI model config updated: %+v", req.Models)
 	c.JSON(http.StatusOK, gin.H{"message": "Model configuration updated"})
 }
 
@@ -1784,7 +1784,7 @@ func (s *Server) handleGetExchangeConfigs(c *gin.Context) {
 		return
 	}
 
-	logger.Infof("‚úÖ Found %d exchange configs", len(exchanges))
+	logger.Infof("‚ú?Found %d exchange configs", len(exchanges))
 
 	// Convert to safe response structure, remove sensitive information
 	safeExchanges := make([]SafeExchangeConfig, len(exchanges))
@@ -1825,7 +1825,7 @@ func (s *Server) handleUpdateExchangeConfigs(c *gin.Context) {
 	if !cfg.TransportEncryption {
 		// Transport encryption disabled, accept plain JSON
 		if err := json.Unmarshal(bodyBytes, &req); err != nil {
-			logger.Infof("‚ùå Failed to parse plain JSON request: %v", err)
+			logger.Infof("‚ù?Failed to parse plain JSON request: %v", err)
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request format"})
 			return
 		}
@@ -1834,14 +1834,14 @@ func (s *Server) handleUpdateExchangeConfigs(c *gin.Context) {
 		// Transport encryption enabled, require encrypted payload
 		var encryptedPayload crypto.EncryptedPayload
 		if err := json.Unmarshal(bodyBytes, &encryptedPayload); err != nil {
-			logger.Infof("‚ùå Failed to parse encrypted payload: %v", err)
+			logger.Infof("‚ù?Failed to parse encrypted payload: %v", err)
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request format, encrypted transmission required"})
 			return
 		}
 
 		// Verify encrypted data
 		if encryptedPayload.WrappedKey == "" {
-			logger.Infof("‚ùå Detected unencrypted request (UserID: %s)", userID)
+			logger.Infof("‚ù?Detected unencrypted request (UserID: %s)", userID)
 			c.JSON(http.StatusBadRequest, gin.H{
 				"error":   "This endpoint only supports encrypted transmission, please use encrypted client",
 				"code":    "ENCRYPTION_REQUIRED",
@@ -1853,14 +1853,14 @@ func (s *Server) handleUpdateExchangeConfigs(c *gin.Context) {
 		// Decrypt data
 		decrypted, err := s.cryptoHandler.cryptoService.DecryptSensitiveData(&encryptedPayload)
 		if err != nil {
-			logger.Infof("‚ùå Failed to decrypt exchange config (UserID: %s): %v", userID, err)
+			logger.Infof("‚ù?Failed to decrypt exchange config (UserID: %s): %v", userID, err)
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Failed to decrypt data"})
 			return
 		}
 
 		// Parse decrypted data
 		if err := json.Unmarshal([]byte(decrypted), &req); err != nil {
-			logger.Infof("‚ùå Failed to parse decrypted data: %v", err)
+			logger.Infof("‚ù?Failed to parse decrypted data: %v", err)
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Failed to parse decrypted data"})
 			return
 		}
@@ -1883,7 +1883,7 @@ func (s *Server) handleUpdateExchangeConfigs(c *gin.Context) {
 		// Don't return error here since exchange config was successfully updated to database
 	}
 
-	logger.Infof("‚úì Exchange config updated: %+v", req.Exchanges)
+	logger.Infof("‚ú?Exchange config updated: %+v", req.Exchanges)
 	c.JSON(http.StatusOK, gin.H{"message": "Exchange configuration updated"})
 }
 
@@ -1924,7 +1924,7 @@ func (s *Server) handleCreateExchange(c *gin.Context) {
 	if !cfg.TransportEncryption {
 		// Transport encryption disabled, accept plain JSON
 		if err := json.Unmarshal(bodyBytes, &req); err != nil {
-			logger.Infof("‚ùå Failed to parse plain JSON request: %v", err)
+			logger.Infof("‚ù?Failed to parse plain JSON request: %v", err)
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request format"})
 			return
 		}
@@ -1975,12 +1975,12 @@ func (s *Server) handleCreateExchange(c *gin.Context) {
 		req.LighterWalletAddr, req.LighterPrivateKey, req.LighterAPIKeyPrivateKey, req.LighterAPIKeyIndex,
 	)
 	if err != nil {
-		logger.Infof("‚ùå Failed to create exchange account: %v", err)
+		logger.Infof("‚ù?Failed to create exchange account: %v", err)
 		SafeInternalError(c, "Failed to create exchange account", err)
 		return
 	}
 
-	logger.Infof("‚úì Created exchange account: type=%s, name=%s, id=%s", req.ExchangeType, req.AccountName, id)
+	logger.Infof("‚ú?Created exchange account: type=%s, name=%s, id=%s", req.ExchangeType, req.AccountName, id)
 	c.JSON(http.StatusOK, gin.H{
 		"message": "Exchange account created",
 		"id":      id,
@@ -2018,12 +2018,12 @@ func (s *Server) handleDeleteExchange(c *gin.Context) {
 	// Delete exchange account
 	err = s.store.Exchange().Delete(userID, exchangeID)
 	if err != nil {
-		logger.Infof("‚ùå Failed to delete exchange account: %v", err)
+		logger.Infof("‚ù?Failed to delete exchange account: %v", err)
 		SafeInternalError(c, "Failed to delete exchange account", err)
 		return
 	}
 
-	logger.Infof("‚úì Deleted exchange account: id=%s", exchangeID)
+	logger.Infof("‚ú?Deleted exchange account: id=%s", exchangeID)
 	c.JSON(http.StatusOK, gin.H{"message": "Exchange account deleted"})
 }
 
@@ -2163,7 +2163,7 @@ func (s *Server) handleAccount(c *gin.Context) {
 		return
 	}
 
-	logger.Infof("‚úì Returning account info [%s]: equity=%.2f, available=%.2f, pnl=%.2f (%.2f%%)",
+	logger.Infof("‚ú?Returning account info [%s]: equity=%.2f, available=%.2f, pnl=%.2f (%.2f%%)",
 		trader.GetName(),
 		account["total_equity"],
 		account["available_balance"],
@@ -2581,7 +2581,7 @@ func (s *Server) getKlinesFromCoinank(symbol, interval, exchange string, limit i
 	}
 
 	// Convert coinank kline format to market.Kline format
-	// Coinank: Volume = BTC Êï∞Èáè, Quantity = USDT Êàê‰∫§È¢ù
+	// Coinank: Volume = BTC Êï∞Èáè, Quantity = USDT Êàê‰∫§È¢?
 	klines := make([]market.Kline, len(coinankKlines))
 	for i, ck := range coinankKlines {
 		klines[i] = market.Kline{
@@ -2591,7 +2591,7 @@ func (s *Server) getKlinesFromCoinank(symbol, interval, exchange string, limit i
 			Low:         ck.Low,
 			Close:       ck.Close,
 			Volume:      ck.Volume,   // BTC Êï∞Èáè
-			QuoteVolume: ck.Quantity, // USDT Êàê‰∫§È¢ù
+			QuoteVolume: ck.Quantity, // USDT Êàê‰∫§È¢?
 			CloseTime:   ck.EndTime,
 		}
 	}
@@ -2624,7 +2624,7 @@ func (s *Server) getKlinesFromAlpaca(symbol, interval string, limit int) ([]mark
 			Low:         bar.Low,
 			Close:       bar.Close,
 			Volume:      float64(bar.Volume),             // ËÇ°Êï∞
-			QuoteVolume: float64(bar.Volume) * bar.Close, // Êàê‰∫§È¢ù = ËÇ°Êï∞ * Êî∂Áõò‰ª∑ (USD)
+			QuoteVolume: float64(bar.Volume) * bar.Close, // Êàê‰∫§È¢?= ËÇ°Êï∞ * Êî∂Áõò‰ª?(USD)
 			CloseTime:   bar.Timestamp.UnixMilli(),
 		}
 	}
@@ -2706,7 +2706,7 @@ func (s *Server) getKlinesFromHyperliquid(symbol, interval string, limit int) ([
 			Low:         low,
 			Close:       close,
 			Volume:      volume,         // ÂêàÁ∫¶Êï∞Èáè
-			QuoteVolume: volume * close, // Êàê‰∫§È¢ù (USD)
+			QuoteVolume: volume * close, // Êàê‰∫§È¢?(USD)
 			CloseTime:   candle.CloseTime,
 		}
 	}
@@ -3305,7 +3305,7 @@ func (s *Server) handleResetPassword(c *gin.Context) {
 		return
 	}
 
-	logger.Infof("‚úì User %s password has been reset", user.Email)
+	logger.Infof("‚ú?User %s password has been reset", user.Email)
 	c.JSON(http.StatusOK, gin.H{"message": "Password reset successful, please login with new password"})
 }
 
@@ -3357,28 +3357,28 @@ func (s *Server) Start() error {
 	addr := fmt.Sprintf(":%d", s.port)
 	logger.Infof("üåê API server starting at http://localhost%s", addr)
 	logger.Infof("üìä API Documentation:")
-	logger.Infof("  ‚Ä¢ GET  /api/health           - Health check")
-	logger.Infof("  ‚Ä¢ GET  /api/traders          - Public AI trader leaderboard top 50 (no auth required)")
-	logger.Infof("  ‚Ä¢ GET  /api/competition      - Public competition data (no auth required)")
-	logger.Infof("  ‚Ä¢ GET  /api/top-traders      - Top 5 trader data (no auth required, for performance comparison)")
-	logger.Infof("  ‚Ä¢ GET  /api/equity-history?trader_id=xxx - Public return rate historical data (no auth required, for competition)")
-	logger.Infof("  ‚Ä¢ GET  /api/equity-history-batch?trader_ids=a,b,c - Batch get historical data (no auth required, performance comparison optimization)")
-	logger.Infof("  ‚Ä¢ GET  /api/traders/:id/public-config - Public trader config (no auth required, no sensitive info)")
-	logger.Infof("  ‚Ä¢ POST /api/traders          - Create new AI trader")
-	logger.Infof("  ‚Ä¢ DELETE /api/traders/:id    - Delete AI trader")
-	logger.Infof("  ‚Ä¢ POST /api/traders/:id/start - Start AI trader")
-	logger.Infof("  ‚Ä¢ POST /api/traders/:id/stop  - Stop AI trader")
-	logger.Infof("  ‚Ä¢ GET  /api/models           - Get AI model config")
-	logger.Infof("  ‚Ä¢ PUT  /api/models           - Update AI model config")
-	logger.Infof("  ‚Ä¢ GET  /api/exchanges        - Get exchange config")
-	logger.Infof("  ‚Ä¢ PUT  /api/exchanges        - Update exchange config")
-	logger.Infof("  ‚Ä¢ GET  /api/status?trader_id=xxx     - Specified trader's system status")
-	logger.Infof("  ‚Ä¢ GET  /api/account?trader_id=xxx    - Specified trader's account info")
-	logger.Infof("  ‚Ä¢ GET  /api/positions?trader_id=xxx  - Specified trader's position list")
-	logger.Infof("  ‚Ä¢ GET  /api/decisions?trader_id=xxx  - Specified trader's decision log")
-	logger.Infof("  ‚Ä¢ GET  /api/decisions/latest?trader_id=xxx - Specified trader's latest decisions")
-	logger.Infof("  ‚Ä¢ GET  /api/statistics?trader_id=xxx - Specified trader's statistics")
-	logger.Infof("  ‚Ä¢ GET  /api/performance?trader_id=xxx - Specified trader's AI learning performance analysis")
+	logger.Infof("  ‚Ä?GET  /api/health           - Health check")
+	logger.Infof("  ‚Ä?GET  /api/traders          - Public AI trader leaderboard top 50 (no auth required)")
+	logger.Infof("  ‚Ä?GET  /api/competition      - Public competition data (no auth required)")
+	logger.Infof("  ‚Ä?GET  /api/top-traders      - Top 5 trader data (no auth required, for performance comparison)")
+	logger.Infof("  ‚Ä?GET  /api/equity-history?trader_id=xxx - Public return rate historical data (no auth required, for competition)")
+	logger.Infof("  ‚Ä?GET  /api/equity-history-batch?trader_ids=a,b,c - Batch get historical data (no auth required, performance comparison optimization)")
+	logger.Infof("  ‚Ä?GET  /api/traders/:id/public-config - Public trader config (no auth required, no sensitive info)")
+	logger.Infof("  ‚Ä?POST /api/traders          - Create new AI trader")
+	logger.Infof("  ‚Ä?DELETE /api/traders/:id    - Delete AI trader")
+	logger.Infof("  ‚Ä?POST /api/traders/:id/start - Start AI trader")
+	logger.Infof("  ‚Ä?POST /api/traders/:id/stop  - Stop AI trader")
+	logger.Infof("  ‚Ä?GET  /api/models           - Get AI model config")
+	logger.Infof("  ‚Ä?PUT  /api/models           - Update AI model config")
+	logger.Infof("  ‚Ä?GET  /api/exchanges        - Get exchange config")
+	logger.Infof("  ‚Ä?PUT  /api/exchanges        - Update exchange config")
+	logger.Infof("  ‚Ä?GET  /api/status?trader_id=xxx     - Specified trader's system status")
+	logger.Infof("  ‚Ä?GET  /api/account?trader_id=xxx    - Specified trader's account info")
+	logger.Infof("  ‚Ä?GET  /api/positions?trader_id=xxx  - Specified trader's position list")
+	logger.Infof("  ‚Ä?GET  /api/decisions?trader_id=xxx  - Specified trader's decision log")
+	logger.Infof("  ‚Ä?GET  /api/decisions/latest?trader_id=xxx - Specified trader's latest decisions")
+	logger.Infof("  ‚Ä?GET  /api/statistics?trader_id=xxx - Specified trader's statistics")
+	logger.Infof("  ‚Ä?GET  /api/performance?trader_id=xxx - Specified trader's AI learning performance analysis")
 	logger.Info()
 
 	s.httpServer = &http.Server{

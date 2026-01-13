@@ -223,7 +223,7 @@ func NewAutoTrader(config AutoTraderConfig, st *store.Store, userID string) (*Au
 	switch config.Exchange {
 	case "binance":
 		logger.Infof("🏦 [%s] Using Binance Futures trading", config.Name)
-		trader = NewFuturesTrader(config.BinanceAPIKey, config.BinanceSecretKey, userID)
+		trader = NewFuturesTrader(config.BinanceAPIKey, config.BinanceSecretKey, userID, getBinanceCustomEndpointForAutoTrader(config))
 	case "bybit":
 		logger.Infof("🏦 [%s] Using Bybit Futures trading", config.Name)
 		trader = NewBybitTrader(config.BybitAPIKey, config.BybitSecretKey)
@@ -2252,5 +2252,15 @@ func getSideFromAction(action string) string {
 // GetOpenOrders returns open orders (pending SL/TP) from exchange
 func (at *AutoTrader) GetOpenOrders(symbol string) ([]OpenOrder, error) {
 	return at.trader.GetOpenOrders(symbol)
+}
+
+// getBinanceCustomEndpointForAutoTrader extracts the custom API endpoint for Binance from auto trader config
+func getBinanceCustomEndpointForAutoTrader(config *Config) string {
+	// Check if there's a custom endpoint stored in the configuration
+	// For now, we'll use the Testnet field to determine if we should use demo endpoint
+	if config.ExchangeTestnet {
+		return "https://testnet.binancefuture.com" // Binance testnet futures endpoint
+	}
+	return "" // Return empty string to use default endpoint
 }
 
