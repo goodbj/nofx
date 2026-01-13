@@ -79,6 +79,11 @@ type Decision struct {
 	NewStopLoss     float64 `json:"new_stop_loss,omitempty"`     // 新止损价格 (用于update_stop_loss)
 	NewTakeProfit   float64 `json:"new_take_profit,omitempty"`   // 新止盈价格 (用于update_take_profit)
 	ClosePercentage float64 `json:"close_percentage,omitempty"`  // 平仓百分比 (用于partial_close)
+	MaxDrawdown     float64 `json:"max_drawdown,omitempty"`      // 最大回撤限制（百分比）
+	MinTargetProfit float64 `json:"min_target_profit,omitempty"` // 最低目标利润（百分比）
+	MaxPositionUSD  float64 `json:"max_position_usd,omitempty"`  // 最大仓位金额限制
+	MaxDailyLoss    float64 `json:"max_daily_loss,omitempty"`    // 最大日亏损限制
+	TimeInForce     string  `json:"time_in_force,omitempty"`     // 订单时效类型（GTC, IOC, FOK等）
 	Confidence      int     `json:"confidence,omitempty"` // 信心度 (0-100)
 	RiskUSD         float64 `json:"risk_usd,omitempty"`   // 最大美元风险
 	Reasoning       string  `json:"reasoning"`
