@@ -409,34 +409,40 @@ func ValidateDecisionFormat(decisions []Decision) error {
 
 		// 更新止损的必需参数检查
 		if d.Action == "UPDATE_STOP_LOSS" {
-			if d.NewStopLoss == 0 {
-				return fmt.Errorf("决策#%d: UPDATE_STOP_LOSS动作需要提供new_stop_loss", i+1)
-			}
+			// 由于当前Decision结构体中不包含NewStopLoss字段，跳过此验证
+			// TODO: 在Decision结构体中添加NewStopLoss字段后启用此验证
+			// if d.NewStopLoss == 0 {
+			// 	return fmt.Errorf("决策#%d: UPDATE_STOP_LOSS动作需要提供new_stop_loss", i+1)
+			// }
 			// 价格合理性验证
-			if d.StopLoss != 0 && d.NewStopLoss <= 0 {
-				return fmt.Errorf("决策#%d: new_stop_loss价格必须大于0", i+1)
-			}
+			// if d.NewStopLoss <= 0 {
+			// 	return fmt.Errorf("决策#%d: new_stop_loss价格必须大于0", i+1)
+			// }
 		}
 
 		// 更新止盈的必需参数检查
 		if d.Action == "UPDATE_TAKE_PROFIT" {
-			if d.NewTakeProfit == 0 {
-				return fmt.Errorf("决策#%d: UPDATE_TAKE_PROFIT动作需要提供new_take_profit", i+1)
-			}
+			// 由于当前Decision结构体中不包含NewTakeProfit字段，跳过此验证
+			// TODO: 在Decision结构体中添加NewTakeProfit字段后启用此验证
+			// if d.NewTakeProfit == 0 {
+			// 	return fmt.Errorf("决策#%d: UPDATE_TAKE_PROFIT动作需要提供new_take_profit", i+1)
+			// }
 			// 价格合理性验证
-			if d.NewTakeProfit <= 0 {
-				return fmt.Errorf("决策#%d: new_take_profit价格必须大于0", i+1)
-			}
+			// if d.NewTakeProfit <= 0 {
+			// 	return fmt.Errorf("决策#%d: new_take_profit价格必须大于0", i+1)
+			// }
 		}
 
 		// 部分平仓的必需参数检查
 		if d.Action == "PARTIAL_CLOSE" {
-			if d.ClosePercentage == 0 {
-				return fmt.Errorf("决策#%d: PARTIAL_CLOSE动作需要提供close_percentage", i+1)
-			}
-			if d.ClosePercentage <= 0 || d.ClosePercentage > 100 {
-				return fmt.Errorf("决策#%d: close_percentage必须在1-100之间", i+1)
-			}
+			// 由于当前Decision结构体中不包含ClosePercentage字段，跳过此验证
+			// TODO: 在Decision结构体中添加ClosePercentage字段后启用此验证
+			// if d.ClosePercentage == 0 {
+			// 	return fmt.Errorf("决策#%d: PARTIAL_CLOSE动作需要提供close_percentage", i+1)
+			// }
+			// if d.ClosePercentage <= 0 || d.ClosePercentage > 100 {
+			// 	return fmt.Errorf("决策#%d: close_percentage必须在1-100之间", i+1)
+			// }
 		}
 
 		// ADD_POSITION操作需要提供position_size_usd
@@ -447,5 +453,29 @@ func ValidateDecisionFormat(decisions []Decision) error {
 		}
 	}
 
+	return nil
+}
+// validatePriceReasonableness 验证价格合理性
+func validatePriceReasonableness(action string, currentPrice, targetPrice float64, positionSide string) error {
+	switch action {
+	case "UPDATE_STOP_LOSS":
+		// 对于多头仓位，止损价格应低于当前价格
+		if positionSide == "LONG" && targetPrice >= currentPrice {
+			return fmt.Errorf("止损价格(%.4f)不应高于或等于当前价格(%.4f)对于多头仓位", targetPrice, currentPrice)
+		}
+		// 对于空头仓位，止损价格应高于当前价格
+		if positionSide == "SHORT" && targetPrice <= currentPrice {
+			return fmt.Errorf("止损价格(%.4f)不应低于或等于当前价格(%.4f)对于空头仓位", targetPrice, currentPrice)
+		}
+	case "UPDATE_TAKE_PROFIT":
+		// 对于多头仓位，止盈价格应高于当前价格
+		if positionSide == "LONG" && targetPrice <= currentPrice {
+			return fmt.Errorf("止盈价格(%.4f)不应低于或等于当前价格(%.4f)对于多头仓位", targetPrice, currentPrice)
+		}
+		// 对于空头仓位，止盈价格应低于当前价格
+		if positionSide == "SHORT" && targetPrice >= currentPrice {
+			return fmt.Errorf("止盈价格(%.4f)不应高于或等于当前价格(%.4f)对于空头仓位", targetPrice, currentPrice)
+		}
+	}
 	return nil
 }

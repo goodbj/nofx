@@ -130,13 +130,18 @@ type Context struct {
 // Decision AI trading decision
 type Decision struct {
 	Symbol string `json:"symbol"`
-	Action string `json:"action"` // "open_long", "open_short", "close_long", "close_short", "hold", "wait"
+	Action string `json:"action"` // "open_long", "open_short", "close_long", "close_short", "hold", "wait", "update_stop_loss", "update_take_profit", "partial_close"
 
 	// Opening position parameters
 	Leverage        int     `json:"leverage,omitempty"`
 	PositionSizeUSD float64 `json:"position_size_usd,omitempty"`
 	StopLoss        float64 `json:"stop_loss,omitempty"`
 	TakeProfit      float64 `json:"take_profit,omitempty"`
+
+	// Additional parameters for new action types
+	NewStopLoss     float64 `json:"new_stop_loss,omitempty"`     // New stop loss price (for update_stop_loss)
+	NewTakeProfit   float64 `json:"new_take_profit,omitempty"`   // New take profit price (for update_take_profit)
+	ClosePercentage float64 `json:"close_percentage,omitempty"`  // Close percentage (for partial_close)
 
 	// Common parameters
 	Confidence int     `json:"confidence,omitempty"` // Confidence level (0-100)

@@ -81,7 +81,7 @@ func Init() {
 		}
 	}
 
-	if v := os.Getenv("API_SERVER_PORT"); v != "" {
+	if v := os.Getenv("NOFX_BACKEND_PORT"); v != "" {
 		if port, err := strconv.Atoi(v); err == nil && port > 0 {
 			cfg.APIServerPort = port
 		}

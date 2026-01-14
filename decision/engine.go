@@ -6,7 +6,7 @@ import (
 	"log"
 	"nofx/market"
 	"nofx/mcp"
-	"nofx/pool"
+	"nofx/provider/nofxos"
 	"strings"
 	"time"
 )
@@ -187,7 +187,7 @@ func fetchMarketDataForContext(ctx *Context) error {
 	}
 
 	// 加载OI Top数据（不影响主流程）
-	oiPositions, err := pool.GetOITopPositions()
+	oiPositions, err := nofxos.DefaultClient().GetOITopPositions()
 	if err == nil {
 		for _, pos := range oiPositions {
 			// 标准化符号匹配
@@ -250,23 +250,21 @@ func buildSystemPrompt(accountEquity float64, btcEthLeverage, altcoinLeverage in
 		templateName = "default" // 默认使用 default 模板
 	}
 
-	template, err := GetPromptTemplate(templateName)
-	if err != nil {
-		// 如果模板不存在，记录错误并使用 default
-		log.Printf("⚠️  提示词模板 '%s' 不存在，使用 default: %v", templateName, err)
-		template, err = GetPromptTemplate("default")
-		if err != nil {
-			// 如果连 default 都不存在，使用内置的简化版本
-			log.Printf("❌ 无法加载任何提示词模板，使用内置简化版本")
-			sb.WriteString("你是专业的加密货币交易AI。请根据市场数据做出交易决策。\n\n")
-		} else {
-			sb.WriteString(template.Content)
-			sb.WriteString("\n\n")
-		}
-	} else {
-		sb.WriteString(template.Content)
-		sb.WriteString("\n\n")
-	}
+	// 临时实现：直接使用内置的基础提示词模板
+	sb.WriteString("你是专业的加密货币交易AI助手，负责分析市场数据并做出交易决策。\n")
+	sb.WriteString("\n")
+	sb.WriteString("## 你的任务\n")
+	sb.WriteString("1. 分析账户状态：评估当前风险水平、保证金使用率、持仓情况\n")
+	sb.WriteString("2. 分析当前持仓：判断是否需要止盈、止损、加仓或持有\n")
+	sb.WriteString("3. 分析候选币种：评估新的交易机会，结合技术分析和资金流向\n")
+	sb.WriteString("4. 做出决策：输出明确的交易决策，包含详细的推理过程\n")
+	sb.WriteString("\n")
+	sb.WriteString("## 重要原则\n")
+	sb.WriteString("- 风险优先：保证金使用率不得超过30%，单个持仓亏损达到-5%必须止损\n")
+	sb.WriteString("- 跟踪止盈：当持仓盈亏从峰值回撤30%时，考虑部分或全部止盈\n")
+	sb.WriteString("- 顺势交易：只在多个时间框架趋势一致时进场\n")
+	sb.WriteString("- 分批操作：分批建仓和止盈，只在盈利仓位上加仓\n")
+	sb.WriteString("\n")
 
 	// 2. 硬约束（风险控制）- 动态生成
 	sb.WriteString("# 硬约束（风险控制）\n\n")

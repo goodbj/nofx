@@ -17,6 +17,8 @@ import (
 	"os"
 	"strings"
 	"time"
+
+	"nofx/logger"
 )
 
 const (
@@ -82,6 +84,21 @@ func loadRSAPrivateKeyFromEnv() (*rsa.PrivateKey, error) {
 
 	// Handle newlines in environment variable (\n -> actual newline)
 	keyPEM = strings.ReplaceAll(keyPEM, "\\n", "\n")
+
+	// Check if the key is using the placeholder format and generate a new key if so
+	if strings.Contains(keyPEM, "YOUR_KEY_HERE") {
+		logger.Infof("RSA_PRIVATE_KEY placeholder detected, generating new RSA key...")
+		privateKeyPEM, _, err := GenerateKeyPair()
+		if err != nil {
+			return nil, fmt.Errorf("failed to generate RSA key pair: %w", err)
+		}
+		
+		// Update the environment variable with the new key
+		os.Setenv(EnvRSAPrivateKey, strings.ReplaceAll(privateKeyPEM, "\n", "\\n"))
+		
+		// Parse and return the newly generated key
+		return ParseRSAPrivateKeyFromPEM([]byte(privateKeyPEM))
+	}
 
 	return ParseRSAPrivateKeyFromPEM([]byte(keyPEM))
 }

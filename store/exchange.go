@@ -28,6 +28,7 @@ type Exchange struct {
 	SecretKey               crypto.EncryptedString `gorm:"column:secret_key;default:''" json:"secretKey"`
 	Passphrase              crypto.EncryptedString `gorm:"column:passphrase;default:''" json:"passphrase"`
 	Testnet                 bool            `gorm:"default:false" json:"testnet"`
+	CustomAPIURL            string          `gorm:"column:custom_api_url;default:''" json:"customApiUrl"`
 	HyperliquidWalletAddr   string          `gorm:"column:hyperliquid_wallet_addr;default:''" json:"hyperliquidWalletAddr"`
 	AsterUser               string          `gorm:"column:aster_user;default:''" json:"asterUser"`
 	AsterSigner             string          `gorm:"column:aster_signer;default:''" json:"asterSigner"`
@@ -180,7 +181,7 @@ func getExchangeNameAndType(exchangeType string) (name string, typ string) {
 
 // Create creates a new exchange account with UUID
 func (s *ExchangeStore) Create(userID, exchangeType, accountName string, enabled bool,
-	apiKey, secretKey, passphrase string, testnet bool,
+	apiKey, secretKey, passphrase string, testnet bool, customAPIURL string,
 	hyperliquidWalletAddr, asterUser, asterSigner, asterPrivateKey,
 	lighterWalletAddr, lighterPrivateKey, lighterApiKeyPrivateKey string, lighterApiKeyIndex int) (string, error) {
 
@@ -206,6 +207,7 @@ func (s *ExchangeStore) Create(userID, exchangeType, accountName string, enabled
 		SecretKey:               crypto.EncryptedString(secretKey),
 		Passphrase:              crypto.EncryptedString(passphrase),
 		Testnet:                 testnet,
+		CustomAPIURL:            customAPIURL,
 		HyperliquidWalletAddr:   hyperliquidWalletAddr,
 		AsterUser:               asterUser,
 		AsterSigner:             asterSigner,
@@ -223,7 +225,7 @@ func (s *ExchangeStore) Create(userID, exchangeType, accountName string, enabled
 }
 
 // Update updates exchange configuration by UUID
-func (s *ExchangeStore) Update(userID, id string, enabled bool, apiKey, secretKey, passphrase string, testnet bool,
+func (s *ExchangeStore) Update(userID, id string, enabled bool, apiKey, secretKey, passphrase string, testnet bool, customAPIURL string,
 	hyperliquidWalletAddr, asterUser, asterSigner, asterPrivateKey, lighterWalletAddr, lighterPrivateKey, lighterApiKeyPrivateKey string, lighterApiKeyIndex int) error {
 
 	logger.Debugf("🔧 ExchangeStore.Update: userID=%s, id=%s, enabled=%v", userID, id, enabled)
@@ -231,6 +233,7 @@ func (s *ExchangeStore) Update(userID, id string, enabled bool, apiKey, secretKe
 	updates := map[string]interface{}{
 		"enabled":                 enabled,
 		"testnet":                 testnet,
+		"custom_api_url":          customAPIURL,
 		"hyperliquid_wallet_addr": hyperliquidWalletAddr,
 		"aster_user":              asterUser,
 		"aster_signer":            asterSigner,
@@ -306,7 +309,7 @@ func (s *ExchangeStore) CreateLegacy(userID, id, name, typ string, enabled bool,
 
 	// Check if this is an old-style ID (exchange type as ID)
 	if id == "binance" || id == "bybit" || id == "okx" || id == "bitget" || id == "hyperliquid" || id == "aster" || id == "lighter" {
-		_, err := s.Create(userID, id, "Default", enabled, apiKey, secretKey, "", testnet,
+		_, err := s.Create(userID, id, "Default", enabled, apiKey, secretKey, "", testnet, "",
 			hyperliquidWalletAddr, asterUser, asterSigner, asterPrivateKey, "", "", "", 0)
 		return err
 	}

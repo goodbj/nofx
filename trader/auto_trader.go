@@ -2266,6 +2266,9 @@ func (at *AutoTrader) GetOpenOrders(symbol string) ([]OpenOrder, error) {
 // getBinanceCustomEndpointForAutoTrader extracts the custom API endpoint for Binance from auto trader config
 func getBinanceCustomEndpointForAutoTrader(config *AutoTraderConfig) string {
 	// Check if there's a custom endpoint stored in the configuration
+	if config.CustomAPIURL != "" {
+		return config.CustomAPIURL // Use custom endpoint if provided
+	}
 	// For now, we'll use the Testnet field to determine if we should use demo endpoint
 	if config.ExchangeTestnet {
 		return "https://testnet.binancefuture.com" // Binance testnet futures endpoint
@@ -2325,14 +2328,59 @@ func (at *AutoTrader) executeUpdateStopLossWithRecord(decision *kernel.Decision,
 		side = "SHORT"
 	}
 
+	// Get current market price for reference
+	marketData, err := market.Get(decision.Symbol)
+	if err != nil {
+		logger.Warnf("  ⚠️ Failed to get market data for %s: %v", decision.Symbol, err)
+	}
+
 	// Update stop loss
-	err = at.trader.UpdateStopLoss(decision.Symbol, side, qtyFloat, decision.NewStopLoss)
+	err = at.trader.UpdateStopLoss(decision.Symbol, side, decision.NewStopLoss)
 	if err != nil {
 		logger.Errorf("  ❌ Failed to update stop loss for %s: %v", decision.Symbol, err)
 		return fmt.Errorf("failed to update stop loss: %w", err)
 	}
 
 	logger.Infof("  ✓ Stop loss updated successfully for %s to %.4f", decision.Symbol, decision.NewStopLoss)
+
+	// Record the stop loss update action to database
+	if at.store != nil {
+		orderID := fmt.Sprintf("SL_%s_%d", decision.Symbol, time.Now().Unix())
+		// Record the stop loss update as an action
+		orderRecord := &store.TraderOrder{
+			TraderID:        at.id,
+			ExchangeID:      at.exchangeID,
+			ExchangeType:    at.exchange,
+			ExchangeOrderID: orderID,
+			Symbol:          decision.Symbol,
+			PositionSide:    side,
+			OrderAction:     "update_stop_loss",
+			Type:            "STOP_MARKET", // Or STOP_LIMIT depending on implementation
+			Side:            "STOP_LOSS", 
+			Quantity:        qtyFloat,
+			Price:           decision.NewStopLoss, // Target stop loss price
+			Status:          "UPDATED", // Status indicating the stop loss was updated
+			FilledQuantity:  0, // Not filled yet, just updated
+			AvgFillPrice:    0, // Will be filled when triggered
+			Commission:      0, // No commission for stop loss updates
+			FilledAt:        0, // Will be set when triggered
+			CreatedAt:       time.Now().UTC().UnixMilli(),
+			UpdatedAt:       time.Now().UTC().UnixMilli(),
+		}
+
+		// Add market price at time of update for reference
+		if marketData != nil {
+			orderRecord.AvgFillPrice = marketData.CurrentPrice // Current market price at update time
+		}
+
+		if err := at.store.Order().CreateOrder(orderRecord); err != nil {
+			logger.Infof("  ⚠️ Failed to record stop loss update: %v", err)
+		} else {
+			logger.Infof("  📊 Stop loss update recorded: %s new SL: %.4f, current price: %.4f", 
+				decision.Symbol, decision.NewStopLoss, orderRecord.AvgFillPrice)
+		}
+	}
+
 	return nil
 }
 
@@ -2388,14 +2436,59 @@ func (at *AutoTrader) executeUpdateTakeProfitWithRecord(decision *kernel.Decisio
 		side = "SHORT"
 	}
 
+	// Get current market price for reference
+	marketData, err := market.Get(decision.Symbol)
+	if err != nil {
+		logger.Warnf("  ⚠️ Failed to get market data for %s: %v", decision.Symbol, err)
+	}
+
 	// Update take profit
-	err = at.trader.UpdateTakeProfit(decision.Symbol, side, qtyFloat, decision.NewTakeProfit)
+	err = at.trader.UpdateTakeProfit(decision.Symbol, side, decision.NewTakeProfit)
 	if err != nil {
 		logger.Errorf("  ❌ Failed to update take profit for %s: %v", decision.Symbol, err)
 		return fmt.Errorf("failed to update take profit: %w", err)
 	}
 
 	logger.Infof("  ✓ Take profit updated successfully for %s to %.4f", decision.Symbol, decision.NewTakeProfit)
+
+	// Record the take profit update action to database
+	if at.store != nil {
+		orderID := fmt.Sprintf("TP_%s_%d", decision.Symbol, time.Now().Unix())
+		// Record the take profit update as an action
+		orderRecord := &store.TraderOrder{
+			TraderID:        at.id,
+			ExchangeID:      at.exchangeID,
+			ExchangeType:    at.exchange,
+			ExchangeOrderID: orderID,
+			Symbol:          decision.Symbol,
+			PositionSide:    side,
+			OrderAction:     "update_take_profit",
+			Type:            "TAKE_PROFIT_MARKET", // Or TAKE_PROFIT_LIMIT depending on implementation
+			Side:            "TAKE_PROFIT", 
+			Quantity:        qtyFloat,
+			Price:           decision.NewTakeProfit, // Target take profit price
+			Status:          "UPDATED", // Status indicating the take profit was updated
+			FilledQuantity:  0, // Not filled yet, just updated
+			AvgFillPrice:    0, // Will be filled when triggered
+			Commission:      0, // No commission for take profit updates
+			FilledAt:        0, // Will be set when triggered
+			CreatedAt:       time.Now().UTC().UnixMilli(),
+			UpdatedAt:       time.Now().UTC().UnixMilli(),
+		}
+
+		// Add market price at time of update for reference
+		if marketData != nil {
+			orderRecord.AvgFillPrice = marketData.CurrentPrice // Current market price at update time
+		}
+
+		if err := at.store.Order().CreateOrder(orderRecord); err != nil {
+			logger.Infof("  ⚠️ Failed to record take profit update: %v", err)
+		} else {
+			logger.Infof("  📊 Take profit update recorded: %s new TP: %.4f, current price: %.4f", 
+				decision.Symbol, decision.NewTakeProfit, orderRecord.AvgFillPrice)
+		}
+	}
+
 	return nil
 }
 
@@ -2448,8 +2541,14 @@ func (at *AutoTrader) executePartialCloseWithRecord(decision *kernel.Decision, a
 		side = "BUY"  // Buy to close short
 	}
 
+	// Get current market price for reference
+	marketData, err := market.Get(decision.Symbol)
+	if err != nil {
+		logger.Warnf("  ⚠️ Failed to get market data for %s: %v", decision.Symbol, err)
+	}
+
 	// Close partial position
-	order, err := at.trader.ClosePositionByQuantity(decision.Symbol, partialQty, side)
+	order, err := at.trader.PartialClose(decision.Symbol, side, decision.ClosePercentage)
 	if err != nil {
 		logger.Errorf("  ❌ Failed to partially close position for %s: %v", decision.Symbol, err)
 		return fmt.Errorf("failed to partially close position: %w", err)
@@ -2457,8 +2556,8 @@ func (at *AutoTrader) executePartialCloseWithRecord(decision *kernel.Decision, a
 
 	logger.Infof("  ✓ Partial close executed successfully for %s, %.4f quantity", decision.Symbol, partialQty)
 
-	// Record order to database
-	at.recordAndConfirmOrder(order, decision.Symbol, "partial_close", partialQty, 0, 0, decision.ClosePercentage)
+	// Record order to database with market price reference
+	at.recordAndConfirmOrder(order, decision.Symbol, "partial_close", partialQty, marketData.CurrentPrice, 0, decision.ClosePercentage)
 	return nil
 }
 

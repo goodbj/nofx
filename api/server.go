@@ -450,6 +450,7 @@ type SafeExchangeConfig struct {
 	Type                  string `json:"type"`          // "cex" or "dex"
 	Enabled               bool   `json:"enabled"`
 	Testnet               bool   `json:"testnet,omitempty"`
+	CustomAPIURL          string `json:"customApiUrl,omitempty"` // Custom API URL for exchange
 	HyperliquidWalletAddr string `json:"hyperliquidWalletAddr"` // Hyperliquid wallet address (not sensitive)
 	AsterUser             string `json:"asterUser"`             // Aster username (not sensitive)
 	AsterSigner           string `json:"asterSigner"`           // Aster signer (not sensitive)
@@ -472,6 +473,7 @@ type UpdateExchangeConfigRequest struct {
 		SecretKey               string `json:"secret_key"`
 		Passphrase              string `json:"passphrase"` // OKX specific
 		Testnet                 bool   `json:"testnet"`
+		CustomAPIURL            string `json:"custom_api_url"`
 		HyperliquidWalletAddr   string `json:"hyperliquid_wallet_addr"`
 		AsterUser               string `json:"aster_user"`
 		AsterSigner             string `json:"aster_signer"`
@@ -584,7 +586,9 @@ func (s *Server) handleCreateTrader(c *gin.Context) {
 		switch exchangeCfg.ExchangeType {
 		case "binance":
 			customEndpoint := ""
-			if exchangeCfg.Testnet {
+			if exchangeCfg.CustomAPIURL != "" {
+				customEndpoint = exchangeCfg.CustomAPIURL
+			} else if exchangeCfg.Testnet {
 				customEndpoint = "https://testnet.binancefuture.com"
 			}
 			tempTrader = trader.NewFuturesTrader(string(exchangeCfg.APIKey), string(exchangeCfg.SecretKey), userID, customEndpoint)
@@ -1173,7 +1177,9 @@ func (s *Server) handleSyncBalance(c *gin.Context) {
 	switch exchangeCfg.ExchangeType {
 	case "binance":
 		customEndpoint := ""
-		if exchangeCfg.Testnet {
+		if exchangeCfg.CustomAPIURL != "" {
+			customEndpoint = exchangeCfg.CustomAPIURL
+		} else if exchangeCfg.Testnet {
 			customEndpoint = "https://testnet.binancefuture.com"
 		}
 		tempTrader = trader.NewFuturesTrader(string(exchangeCfg.APIKey), string(exchangeCfg.SecretKey), userID, customEndpoint)
@@ -1329,7 +1335,9 @@ func (s *Server) handleClosePosition(c *gin.Context) {
 	switch exchangeCfg.ExchangeType {
 	case "binance":
 		customEndpoint := ""
-		if exchangeCfg.Testnet {
+		if exchangeCfg.CustomAPIURL != "" {
+			customEndpoint = exchangeCfg.CustomAPIURL
+		} else if exchangeCfg.Testnet {
 			customEndpoint = "https://testnet.binancefuture.com"
 		}
 		tempTrader = trader.NewFuturesTrader(string(exchangeCfg.APIKey), string(exchangeCfg.SecretKey), userID, customEndpoint)
@@ -1809,6 +1817,7 @@ func (s *Server) handleGetExchangeConfigs(c *gin.Context) {
 			Type:                  exchange.Type,
 			Enabled:               exchange.Enabled,
 			Testnet:               exchange.Testnet,
+			CustomAPIURL:          exchange.CustomAPIURL,
 			HyperliquidWalletAddr: exchange.HyperliquidWalletAddr,
 			AsterUser:             exchange.AsterUser,
 			AsterSigner:           exchange.AsterSigner,
@@ -1881,7 +1890,7 @@ func (s *Server) handleUpdateExchangeConfigs(c *gin.Context) {
 
 	// Update each exchange's configuration
 	for exchangeID, exchangeData := range req.Exchanges {
-		err := s.store.Exchange().Update(userID, exchangeID, exchangeData.Enabled, exchangeData.APIKey, exchangeData.SecretKey, exchangeData.Passphrase, exchangeData.Testnet, exchangeData.HyperliquidWalletAddr, exchangeData.AsterUser, exchangeData.AsterSigner, exchangeData.AsterPrivateKey, exchangeData.LighterWalletAddr, exchangeData.LighterPrivateKey, exchangeData.LighterAPIKeyPrivateKey, exchangeData.LighterAPIKeyIndex)
+		err := s.store.Exchange().Update(userID, exchangeID, exchangeData.Enabled, exchangeData.APIKey, exchangeData.SecretKey, exchangeData.Passphrase, exchangeData.Testnet, exchangeData.CustomAPIURL, exchangeData.HyperliquidWalletAddr, exchangeData.AsterUser, exchangeData.AsterSigner, exchangeData.AsterPrivateKey, exchangeData.LighterWalletAddr, exchangeData.LighterPrivateKey, exchangeData.LighterAPIKeyPrivateKey, exchangeData.LighterAPIKeyIndex)
 		if err != nil {
 			SafeInternalError(c, fmt.Sprintf("Update exchange %s", exchangeID), err)
 			return
@@ -1908,6 +1917,7 @@ type CreateExchangeRequest struct {
 	SecretKey               string `json:"secret_key"`
 	Passphrase              string `json:"passphrase"`
 	Testnet                 bool   `json:"testnet"`
+	CustomAPIURL            string `json:"custom_api_url"`
 	HyperliquidWalletAddr   string `json:"hyperliquid_wallet_addr"`
 	AsterUser               string `json:"aster_user"`
 	AsterSigner             string `json:"aster_signer"`
@@ -1982,7 +1992,7 @@ func (s *Server) handleCreateExchange(c *gin.Context) {
 	// Create new exchange account
 	id, err := s.store.Exchange().Create(
 		userID, req.ExchangeType, req.AccountName, req.Enabled,
-		req.APIKey, req.SecretKey, req.Passphrase, req.Testnet,
+		req.APIKey, req.SecretKey, req.Passphrase, req.Testnet, req.CustomAPIURL,
 		req.HyperliquidWalletAddr, req.AsterUser, req.AsterSigner, req.AsterPrivateKey,
 		req.LighterWalletAddr, req.LighterPrivateKey, req.LighterAPIKeyPrivateKey, req.LighterAPIKeyIndex,
 	)

@@ -58,7 +58,7 @@ export const useTradersConfigStore = create<TradersConfigState>((set, get) => ({
         return e.hyperliquidWalletAddr && e.hyperliquidWalletAddr.trim() !== ''
       }
       // 修复: 添加 enabled 判断,与原始逻辑保持一致
-      return e.enabled || (e.apiKey && e.apiKey.trim() !== '')
+      return e.enabled || (e.apiKey && e.apiKey.trim() !== '') || (e.customApiUrl && e.customApiUrl.trim() !== '')
     })
     set({ configuredExchanges })
   },

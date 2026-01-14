@@ -122,6 +122,7 @@ export interface Exchange {
   type: 'cex' | 'dex'
   enabled: boolean
   apiKey?: string
+  customApiUrl?: string
   secretKey?: string
   passphrase?: string            // OKX specific
   testnet?: boolean
@@ -146,6 +147,7 @@ export interface CreateExchangeRequest {
   secret_key?: string
   passphrase?: string
   testnet?: boolean
+  custom_api_url?: string
   hyperliquid_wallet_addr?: string
   aster_user?: string
   aster_signer?: string
@@ -195,6 +197,7 @@ export interface UpdateExchangeConfigRequest {
       secret_key: string
       passphrase?: string
       testnet?: boolean
+      custom_api_url?: string
       // Hyperliquid 特定字段
       hyperliquid_wallet_addr?: string
       // Aster 特定字段

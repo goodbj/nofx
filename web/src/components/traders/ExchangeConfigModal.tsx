@@ -38,6 +38,7 @@ interface ExchangeConfigModalProps {
     secretKey?: string,
     passphrase?: string, // OKX专用
     testnet?: boolean,
+    customApiUrl?: string,
     hyperliquidWalletAddr?: string,
     asterUser?: string,
     asterSigner?: string,
@@ -66,6 +67,7 @@ export function ExchangeConfigModal({
   const [secretKey, setSecretKey] = useState('')
   const [passphrase, setPassphrase] = useState('')
   const [testnet, setTestnet] = useState(false)
+  const [customApiUrl, setCustomApiUrl] = useState('')
   const [showGuide, setShowGuide] = useState(false)
   const [serverIP, setServerIP] = useState<{
     public_ip: string
@@ -139,6 +141,7 @@ export function ExchangeConfigModal({
       setSecretKey(selectedExchange.secretKey || '')
       setPassphrase('') // Don't load existing passphrase for security
       setTestnet(selectedExchange.testnet || false)
+      setCustomApiUrl(selectedExchange.customApiUrl || '')
 
       // Aster 字段
       setAsterUser(selectedExchange.asterUser || '')
@@ -281,13 +284,13 @@ export function ExchangeConfigModal({
       // 根据交易所类型验证不同字段
       if (currentExchangeType === 'binance') {
         if (!apiKey.trim() || !secretKey.trim()) return
-        await onSave(exchangeId, exchangeType, trimmedAccountName, apiKey.trim(), secretKey.trim(), '', testnet)
+        await onSave(exchangeId, exchangeType, trimmedAccountName, apiKey.trim(), secretKey.trim(), '', testnet, customApiUrl)
       } else if (currentExchangeType === 'okx') {
         if (!apiKey.trim() || !secretKey.trim() || !passphrase.trim()) return
-        await onSave(exchangeId, exchangeType, trimmedAccountName, apiKey.trim(), secretKey.trim(), passphrase.trim(), testnet)
+        await onSave(exchangeId, exchangeType, trimmedAccountName, apiKey.trim(), secretKey.trim(), passphrase.trim(), testnet, '')
       } else if (currentExchangeType === 'bitget') {
         if (!apiKey.trim() || !secretKey.trim() || !passphrase.trim()) return
-        await onSave(exchangeId, exchangeType, trimmedAccountName, apiKey.trim(), secretKey.trim(), passphrase.trim(), testnet)
+        await onSave(exchangeId, exchangeType, trimmedAccountName, apiKey.trim(), secretKey.trim(), passphrase.trim(), testnet, '')
       } else if (currentExchangeType === 'hyperliquid') {
         if (!apiKey.trim() || !hyperliquidWalletAddr.trim()) return // 验证私钥和钱包地址
         await onSave(
@@ -298,7 +301,15 @@ export function ExchangeConfigModal({
           '',
           '',
           testnet,
-          hyperliquidWalletAddr.trim()
+          '',
+          hyperliquidWalletAddr.trim(),
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          undefined
         )
       } else if (currentExchangeType === 'aster') {
         if (!asterUser.trim() || !asterSigner.trim() || !asterPrivateKey.trim())
@@ -311,10 +322,15 @@ export function ExchangeConfigModal({
           '',
           '',
           testnet,
+          '',
           undefined,
           asterUser.trim(),
           asterSigner.trim(),
-          asterPrivateKey.trim()
+          asterPrivateKey.trim(),
+          undefined,
+          undefined,
+          undefined,
+          undefined
         )
       } else if (currentExchangeType === 'lighter') {
         if (!lighterWalletAddr.trim() || !lighterApiKeyPrivateKey.trim()) return
@@ -326,6 +342,7 @@ export function ExchangeConfigModal({
           '',
           '',
           testnet,
+          '',
           undefined, // hyperliquidWalletAddr
           undefined, // asterUser
           undefined, // asterSigner
@@ -338,7 +355,7 @@ export function ExchangeConfigModal({
       } else {
         // 默认情况（其他CEX交易所）
         if (!apiKey.trim() || !secretKey.trim()) return
-        await onSave(exchangeId, exchangeType, trimmedAccountName, apiKey.trim(), secretKey.trim(), '', testnet)
+        await onSave(exchangeId, exchangeType, trimmedAccountName, apiKey.trim(), secretKey.trim(), '', testnet, '')
       }
     } finally {
       setIsSaving(false)
@@ -688,6 +705,33 @@ export function ExchangeConfigModal({
                           required
                         />
                       </div>
+
+                      {/* Custom API URL for Binance */}
+                      {currentExchangeType === 'binance' && (
+                        <div>
+                          <label
+                            className="block text-sm font-semibold mb-2"
+                            style={{ color: '#EAECEF' }}
+                          >
+                            {t('customAPIURL', language)}
+                          </label>
+                          <input
+                            type="text"
+                            value={customApiUrl}
+                            onChange={(e) => setCustomApiUrl(e.target.value)}
+                            placeholder={t('enterCustomAPIURL', language)}
+                            className="w-full px-3 py-2 rounded"
+                            style={{
+                              background: '#0B0E11',
+                              border: '1px solid #2B3139',
+                              color: '#EAECEF',
+                            }}
+                          />
+                          <div className="text-xs mt-1" style={{ color: '#848E9C' }}>
+                            {t('enterCustomAPIURL', language)}
+                          </div>
+                        </div>
+                      )}
 
                       {(currentExchangeType === 'okx' || currentExchangeType === 'bitget') && (
                         <div>
