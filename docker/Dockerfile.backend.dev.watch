@@ -1,9 +1,8 @@
-# docker/backend/Dockerfile
+# docker/backend/Dockerfile - Development with Hot Reload
 
 # ═══════════════════════════════════════════════════════════════
-# NOFX Backend Dockerfile (Go + TA-Lib)
-# Multi-stage build with shared TA-Lib compilation stage
-# Versions extracted as ARGs for maintainability
+# NOFX Backend Dockerfile (Go + TA-Lib) - Development Watch Version
+# Uses Air for hot reloading during development
 # ═══════════════════════════════════════════════════════════════
 
 ARG GO_VERSION=1.25-alpine
@@ -17,9 +16,10 @@ FROM alpine:${ALPINE_VERSION} AS ta-lib-builder
 ARG TA_LIB_VERSION
 
 RUN apk update && apk add --no-cache \
-    wget tar make gcc g++ musl-dev autoconf automake
+    curl tar make gcc g++ musl-dev autoconf automake
 
-RUN wget http://prdownloads.sourceforge.net/ta-lib/ta-lib-${TA_LIB_VERSION}-src.tar.gz && \
+# 使用curl下载TA-Lib
+RUN curl -L https://github.com/TA-Lib/ta-lib/releases/download/v${TA_LIB_VERSION}/ta-lib-${TA_LIB_VERSION}-src.tar.gz -o ta-lib-${TA_LIB_VERSION}-src.tar.gz && \
     tar -xzf ta-lib-${TA_LIB_VERSION}-src.tar.gz && \
     cd ta-lib && \
     if [ "$(uname -m)" = "aarch64" ]; then \
@@ -34,37 +34,54 @@ RUN wget http://prdownloads.sourceforge.net/ta-lib/ta-lib-${TA_LIB_VERSION}-src.
     cd .. && rm -rf ta-lib ta-lib-${TA_LIB_VERSION}-src.tar.gz
 
 # ──────────────────────────────────────────────────────────────
-# Backend Build Stage (Go Application)
+# Backend Build Stage (Go Application with Air)
 # ──────────────────────────────────────────────────────────────
 FROM golang:${GO_VERSION} AS backend-builder
 
-RUN apk update && apk add --no-cache git make gcc g++ musl-dev
+RUN apk update && apk add --no-cache git make gcc g++ musl-dev curl
+
+# 安装Air for hot reloading
+RUN go install github.com/air-verse/air@latest
 
 COPY --from=ta-lib-builder /usr/local /usr/local
 
 WORKDIR /app
+
+# Copy go mod files first
 COPY go.mod go.sum ./
 RUN go mod download
 
+# Copy source code
 COPY . .
-RUN CGO_ENABLED=1 GOOS=linux \
-    CGO_CFLAGS="-D_LARGEFILE64_SOURCE" \
-    go build -trimpath -ldflags="-s -w" -o nofx .
 
-# ──────────────────────────────────────────────────────────────
-# Runtime Stage (Minimal Executable Environment)
-# ──────────────────────────────────────────────────────────────
-FROM alpine:${ALPINE_VERSION}
-
-RUN apk update && apk add --no-cache ca-certificates tzdata sqlite
-
-COPY --from=ta-lib-builder /usr/local /usr/local
-WORKDIR /app
-COPY --from=backend-builder /app/nofx .
+# Create air configuration
+RUN echo '[build]' > .air.toml && \
+    echo '  bin = "./tmp/main"' >> .air.toml && \
+    echo '  cmd = "go build -o ./tmp/main ."' >> .air.toml && \
+    echo '  delay = 1000' >> .air.toml && \
+    echo '  exclude_dir = ["assets", "tmp", "vendor", "node_modules", "web"]' >> .air.toml && \
+    echo '  exclude_file = []' >> .air.toml && \
+    echo '  exclude_regex = ["_test.go"]' >> .air.toml && \
+    echo '  exclude_unchanged = false' >> .air.toml && \
+    echo '  follow_symlink = false' >> .air.toml && \
+    echo '  full_bin = ""' >> .air.toml && \
+    echo '  include_dir = []' >> .air.toml && \
+    echo '  include_ext = ["go", "tpl", "tmpl", "html", "env"]' >> .air.toml && \
+    echo '  kill_delay = "0s"' >> .air.toml && \
+    echo '  log = "build-errors.log"' >> .air.toml && \
+    echo '  send_interrupt = false' >> .air.toml && \
+    echo '  stop_on_error = false' >> .air.toml && \
+    echo '[color]' >> .air.toml && \
+    echo '  app = ""' >> .air.toml && \
+    echo '  build = "yellow"' >> .air.toml && \
+    echo '  main = "magenta"' >> .air.toml && \
+    echo '  runner = "green"' >> .air.toml && \
+    echo '  watcher = "cyan"' >> .air.toml && \
+    echo '[log]' >> .air.toml && \
+    echo '  time = false' >> .air.toml && \
+    echo '[misc]' >> .air.toml && \
+    echo '  clean_on_exit = false' >> .air.toml
 
 EXPOSE 8888
 
-HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
-  CMD wget --no-verbose --tries=1 --spider http://localhost:8888/api/health || exit 1
-
-CMD ["./nofx"]
+CMD ["air", "-c", ".air.toml"]
