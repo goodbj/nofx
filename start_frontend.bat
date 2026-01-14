@@ -3,7 +3,7 @@ chcp 65001 >nul
 setlocal
 
 echo 启动 NOFX 前端服务器...
-echo ==============================
+echo ============================ ==
 
 REM 检查是否已设置环境变量，如果没有则使用默认值
 if "%FRONTEND_PORT%"=="" set FRONTEND_PORT=3300

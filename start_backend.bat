@@ -15,7 +15,11 @@ REM 导航到项目目录
 cd /d "e:\AI\nofx"
 
 REM 启动后端服务器
-echo 启动命令: go run main.go
+REM echo 启动命令: go run main.go
+REM go run main.go
+
+cd e:\AI\nofx
+$env:CGO_ENABLED="1"
 go run main.go
 
 if errorlevel 1 (
