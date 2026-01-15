@@ -734,27 +734,106 @@ export function TraderDashboardPage({
                         style={{ animationDelay: '0.2s' }}
                     >
                         {/* Header */}
-                        <div className="flex items-center gap-3 mb-5 pb-4 border-b border-white/5 shrink-0">
-                            <div
-                                className="w-10 h-10 rounded-xl flex items-center justify-center text-xl shadow-[0_4px_14px_rgba(99,102,241,0.4)]"
-                                style={{
-                                    background: 'linear-gradient(135deg, #6366F1 0%, #8B5CF6 100%)',
+                        <div className="flex items-center justify-between gap-3 mb-3 pb-2 border-b border-white/5 shrink-0">
+                            <div className="flex items-center gap-3">
+                                <div
+                                    className="w-10 h-10 rounded-xl flex items-center justify-center text-xl shadow-[0_4px_14px_rgba(99,102,241,0.4)]"
+                                    style={{
+                                        background: 'linear-gradient(135deg, #6366F1 0%, #8B5CF6 100%)',
+                                    }}
+                                >
+                                    🧠
+                                </div>
+                                <div>
+                                    <h2 className="text-xl font-bold text-nofx-text-main">
+                                        {t('recentDecisions', language)}
+                                    </h2>
+                                    {decisions && decisions.length > 0 && (
+                                        <div className="text-xs text-nofx-text-muted">
+                                            {t('lastCycles', language, { count: decisions.length })}
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                            <button
+                                onClick={async () => {
+                                    if (!selectedTraderId) {
+                                        notify.error(language === 'zh' ? '请选择交易员' : 'Please select a trader');
+                                        return;
+                                    }
+                                                                    
+                                    if (manualScanCooldown) {
+                                        notify.error(language === 'zh' ? '操作过于频繁，请稍后再试' : 'Action too frequent, please try again later');
+                                        return;
+                                    }
+                                                                    
+                                    // 检查交易员状态
+                                    if (status && !status.is_running) {
+                                        notify.error(language === 'zh' ? '交易员未运行，无法手动触发扫盘' : 'Trader is not running, cannot trigger manual scan');
+                                        return;
+                                    }
+                                                                    
+                                    // 注意：AccountInfo 没有 account_status 字段，跳过此项检查
+                                                                    
+                                    setIsManualDecisionLoading(true);
+                                    try {
+                                        const result = await api.triggerDecision(selectedTraderId);
+                                        notify.success(language === 'zh' ? '手动扫盘已触发' : 'Manual scan triggered successfully');
+                                                                        
+                                        // 刷新相关数据
+                                        await Promise.all([
+                                            mutate(`positions-${selectedTraderId}`),
+                                            mutate(`account-${selectedTraderId}`),
+                                            mutate(`decisions-${selectedTraderId}`),
+                                            mutate(`position-history-${selectedTraderId}`),
+                                        ]);
+                                                                        
+                                        // 设置冷却时间（固定20秒）
+                                        const cooldownTime = 20000; // 固定20秒冷却时间
+                                                                        
+                                        setManualScanCooldown(true);
+                                        setTimeout(() => {
+                                            setManualScanCooldown(false);
+                                        }, Math.max(cooldownTime, 10000)); // 最少10秒冷却时间
+                                    } catch (error: any) {
+                                        console.error('手动扫盘失败:', error);
+                                                                        
+                                        // 检查错误类型，如果是网络连接问题，仍然允许AI分析
+                                        if (error.message.includes('connectex') || error.message.includes('connection failed')) {
+                                            notify.warning(language === 'zh' ? '网络连接问题，但AI分析可能仍在运行' : 'Network connection issue, but AI analysis may still run');
+                                        } else {
+                                            notify.error(language === 'zh' ? '手动扫盘失败: ' + error.message : 'Manual scan failed: ' + error.message);
+                                        }
+                                    } finally {
+                                        setIsManualDecisionLoading(false);
+                                    }
                                 }}
+                                disabled={!selectedTraderId || isManualDecisionLoading || manualScanCooldown}
+                                className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-all hover:scale-105 active:scale-95 nofx-glass border text-sm ${!selectedTraderId ? 'border-nofx-gray/30 text-nofx-gray/50' : 'border-nofx-blue/30 text-nofx-blue hover:bg-nofx-blue/10'} flex items-center gap-1`}
+                                title={!selectedTraderId ? '请先选择交易员' : manualScanCooldown ? '冷却中，请稍后再试' : '手动触发AI扫盘决策'}
                             >
-                                🧠
-                            </div>
-                            <div className="flex-1">
-                                <h2 className="text-xl font-bold text-nofx-text-main">
-                                    {t('recentDecisions', language)}
-                                </h2>
-                                {decisions && decisions.length > 0 && (
-                                    <div className="text-xs text-nofx-text-muted">
-                                        {t('lastCycles', language, { count: decisions.length })}
-                                    </div>
+                                {isManualDecisionLoading ? (
+                                    <>
+                                        <Loader2 className="w-4 h-4 animate-spin" />
+                                        {language === 'zh' ? '扫盘中...' : 'Scanning...'}
+                                    </>
+                                ) : manualScanCooldown ? (
+                                    <>
+                                        <span>⏳</span>
+                                        {language === 'zh' ? '冷却中...' : 'Cooldown...'}
+                                    </>
+                                ) : (
+                                    <>
+                                        <span>🔍</span>
+                                        {language === 'zh' ? '手动扫盘' : 'Manual Scan'}
+                                    </>
                                 )}
-                            </div>
-                            {/* Limit Selector */}
-                            <div className="flex gap-2">
+                            </button>
+                        </div>
+                                                
+                        {/* Controls Row */}
+                        <div className="flex items-center gap-2 mb-3">
+                            <div className="flex gap-2 flex-wrap">
                                 <input
                                     type="date"
                                     value={startDate}
@@ -801,64 +880,6 @@ export function TraderDashboardPage({
                                     title="Export advanced decision history with System/User Prompts and Chain of Thought"
                                 >
                                     📤 Export Adv. Decisions
-                                </button>
-                                <button
-                                    onClick={async () => {
-                                        if (!selectedTraderId) {
-                                            notify.error(language === 'zh' ? '请选择交易员' : 'Please select a trader');
-                                            return;
-                                        }
-                                                                    
-                                        if (manualScanCooldown) {
-                                            notify.error(language === 'zh' ? '操作过于频繁，请稍后再试' : 'Action too frequent, please try again later');
-                                            return;
-                                        }
-                                                                    
-                                        setIsManualDecisionLoading(true);
-                                        try {
-                                            const result = await api.triggerDecision(selectedTraderId);
-                                            notify.success(language === 'zh' ? '手动扫盘已触发' : 'Manual scan triggered successfully');
-                                                                        
-                                            // 刷新相关数据
-                                            await Promise.all([
-                                                mutate(`positions-${selectedTraderId}`),
-                                                mutate(`account-${selectedTraderId}`),
-                                                mutate(`decisions-${selectedTraderId}`),
-                                                mutate(`position-history-${selectedTraderId}`),
-                                            ]);
-                                                                        
-                                            // 设置冷却时间（20秒）
-                                            setManualScanCooldown(true);
-                                            setTimeout(() => {
-                                                setManualScanCooldown(false);
-                                            }, 20000); // 20秒冷却时间
-                                        } catch (error) {
-                                            console.error('手动扫盘失败:', error);
-                                            notify.error(language === 'zh' ? '手动扫盘失败' : 'Manual scan failed');
-                                        } finally {
-                                            setIsManualDecisionLoading(false);
-                                        }
-                                    }}
-                                    disabled={isManualDecisionLoading || manualScanCooldown || !selectedTraderId}
-                                    className="px-3 py-1.5 rounded-lg text-sm font-medium transition-all hover:scale-105 active:scale-95 nofx-glass border border-nofx-blue/30 text-nofx-blue hover:bg-nofx-blue/10 flex items-center gap-1"
-                                    title={manualScanCooldown ? '冷却中，请稍后再试' : '手动触发AI扫盘决策'}
-                                >
-                                    {isManualDecisionLoading ? (
-                                        <>
-                                            <Loader2 className="w-4 h-4 animate-spin" />
-                                            {language === 'zh' ? '扫盘中...' : 'Scanning...'}
-                                        </>
-                                    ) : manualScanCooldown ? (
-                                        <>
-                                            <span>⏳</span>
-                                            {language === 'zh' ? '冷却中...' : 'Cooldown...'}
-                                        </>
-                                    ) : (
-                                        <>
-                                            <span>🔍</span>
-                                            {language === 'zh' ? '手动扫盘' : 'Manual Scan'}
-                                        </>
-                                    )}
                                 </button>
                             </div>
                         </div>

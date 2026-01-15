@@ -8,7 +8,7 @@ services:
     restart: unless-stopped
     stop_grace_period: 30s
     ports:
-      - "8888:8888"  # 使用您指定的后端端口
+      - "${NOFX_BACKEND_PORT:-8888}:${NOFX_BACKEND_PORT:-8888}"  # 使用环境变量端口
       - "6060:6060"  # pprof profiling
     volumes:
       - .:/app  # 挂载源代码目录，实现热重载
@@ -25,11 +25,11 @@ services:
     environment:
       - TZ=${TZ:-Asia/Shanghai}
       - AI_MAX_TOKENS=8000
-      - NOFX_BACKEND_PORT=8888
+      - NOFX_BACKEND_PORT=${NOFX_BACKEND_PORT:-8888}
     networks:
       - nofx-network
     healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8888/api/health"]
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:${NOFX_BACKEND_PORT:-8888}/api/health"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -43,7 +43,7 @@ services:
     container_name: nofx-frontend-dev-watch
     restart: unless-stopped
     ports:
-      - "3300:5173"  # Vite dev server port
+      - "${NOFX_FRONTEND_PORT:-3300}:5173"  # Vite dev server port
     volumes:
       - ./web:/app  # 挂载前端源代码目录 for hot reload
       - /app/node_modules  # 卷挂载node_modules以避免覆盖容器中的依赖
