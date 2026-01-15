@@ -8,7 +8,7 @@ export default defineConfig({
     port: 3300,
     proxy: {
       '/api': {
-        target: 'http://localhost:8888',
+        target: 'http://nofx-dev-watch:8888',
         changeOrigin: true,
       },
     },

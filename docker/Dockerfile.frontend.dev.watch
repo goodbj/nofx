@@ -1,0 +1,34 @@
+# docker/frontend/Dockerfile - Development Watch Mode
+# Supports hot reloading for frontend development
+
+# ═══════════════════════════════════════════════════════════════
+# NOFX Frontend Development Dockerfile (Hot Reload Mode)
+# Uses Vite development server instead of static nginx
+# ═══════════════════════════════════════════════════════════════
+
+ARG NODE_VERSION=20-alpine
+
+# ──────────────────────────────────────────────────────────────
+# Development Stage (Vite Dev Server)
+# ──────────────────────────────────────────────────────────────
+FROM node:${NODE_VERSION} AS dev
+
+WORKDIR /app
+
+# Copy package files
+COPY web/package*.json ./
+
+# Install dependencies
+RUN npm ci
+
+# Copy source code
+COPY web/ ./
+
+# Expose port
+EXPOSE 5173
+
+# Update npm to latest version
+RUN npm install -g npm@latest
+
+# Start Vite development server with hot reload
+CMD ["npm", "run", "dev", "--", "--host", "0.0.0.0", "--port", "5173"]

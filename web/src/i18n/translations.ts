@@ -1139,6 +1139,8 @@ export const translations = {
       pnl: 'P&L',
       duration: 'Duration',
       closedAt: 'Closed At',
+      refresh: 'Refresh',
+      refreshing: 'Refreshing...',
     },
 
     // Debate Arena Page
@@ -2286,6 +2288,8 @@ export const translations = {
       pnl: '盈亏',
       duration: '持仓时长',
       closedAt: '平仓时间',
+      refresh: '刷新',
+      refreshing: '刷新中...',
     },
 
     // Debate Arena Page

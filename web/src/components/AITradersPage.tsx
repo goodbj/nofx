@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import useSWR from 'swr'
+import useSWR, { mutate } from 'swr'
 import { api } from '../lib/api'
 import type {
   TraderInfo,
@@ -538,10 +538,10 @@ export function AITradersPage({ onTraderSelect }: AITradersPageProps) {
         error: '更新配置失败',
       })
 
-      // 重新获取用户配置以确保数据同步
-      const refreshedItems = await config.refreshApi()
-      config.setItems(refreshedItems)
-
+      // 刷新SWR缓存以确保数据同步
+      await mutate('traders')
+      await mutate(config.type === 'model' ? 'models' : 'exchanges')
+      
       config.closeModal()
     } catch (error) {
       console.error(`Failed to delete ${config.type} config:`, error)
@@ -657,10 +657,10 @@ export function AITradersPage({ onTraderSelect }: AITradersPageProps) {
         error: '更新模型配置失败',
       })
 
-      // 重新获取用户配置以确保数据同步
-      const refreshedModels = await api.getModelConfigs()
-      setAllModels(refreshedModels)
-
+      // 刷新SWR缓存以确保数据同步
+      await mutate('traders')
+      await mutate('models')
+      
       setShowModelModal(false)
       setEditingModel(null)
     } catch (error) {
@@ -690,10 +690,10 @@ export function AITradersPage({ onTraderSelect }: AITradersPageProps) {
         error: language === 'zh' ? '删除交易所账户失败' : 'Failed to delete exchange account',
       })
 
-      // 重新获取用户配置以确保数据同步
-      const refreshedExchanges = await api.getExchangeConfigs()
-      setAllExchanges(refreshedExchanges)
-
+      // 刷新SWR缓存以确保数据同步
+      await mutate('traders')
+      await mutate('exchanges')
+      
       setShowExchangeModal(false)
       setEditingExchange(null)
     } catch (error) {
@@ -783,10 +783,10 @@ export function AITradersPage({ onTraderSelect }: AITradersPageProps) {
         })
       }
 
-      // 重新获取用户配置以确保数据同步
-      const refreshedExchanges = await api.getExchangeConfigs()
-      setAllExchanges(refreshedExchanges)
-
+      // 刷新SWR缓存以确保数据同步
+      await mutate('traders')
+      await mutate('exchanges')
+      
       setShowExchangeModal(false)
       setEditingExchange(null)
     } catch (error) {

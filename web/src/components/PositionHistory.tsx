@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from 'react'
+import useSWR from 'swr'
 import { api } from '../lib/api'
 import { useLanguage } from '../contexts/LanguageContext'
 import { t } from '../i18n/translations'
@@ -12,6 +13,8 @@ import type {
 
 interface PositionHistoryProps {
   traderId: string
+  onExport?: (traderId: string, traderName: string, startDate?: string, endDate?: string) => Promise<void>
+  traderName?: string
 }
 
 // Format number with proper decimals
@@ -340,47 +343,66 @@ function PositionRow({ position }: { position: HistoricalPosition }) {
   )
 }
 
-export function PositionHistory({ traderId }: PositionHistoryProps) {
+export function PositionHistory({ traderId, onExport, traderName }: PositionHistoryProps) {
   const { language } = useLanguage()
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
+  
+  // Get data from SWR
+  const {
+    data: historyData,
+    error: swrError,
+    mutate,
+    isValidating
+  } = useSWR(
+    traderId ? `position-history-${traderId}` : null,
+    () => api.getPositionHistory(traderId, 200),
+    {
+      revalidateOnFocus: false,
+      revalidateOnReconnect: true,
+      // 当组件卸载时不清除数据，避免切换trader时闪烁
+      revalidateOnMount: true,
+    }
+  )
+
   const [positions, setPositions] = useState<HistoricalPosition[]>([])
   const [stats, setStats] = useState<TraderStats | null>(null)
   const [symbolStats, setSymbolStats] = useState<SymbolStats[]>([])
   const [directionStats, setDirectionStats] = useState<DirectionStats[]>([])
+  
+  // 管理loading状态，考虑SWR状态
+  const loading = !historyData && !swrError && traderId !== undefined && traderId !== ''
 
   // Pagination state
   const [pageSize, setPageSize] = useState<number>(20)
   const [currentPage, setCurrentPage] = useState<number>(1)
+  const [showDateRange, setShowDateRange] = useState(false)
 
   // Filter state
   const [filterSymbol, setFilterSymbol] = useState<string>('all')
   const [filterSide, setFilterSide] = useState<string>('all')
   const [sortBy, setSortBy] = useState<'time' | 'pnl' | 'pnl_pct'>('time')
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc')
+  const [dateRange, setDateRange] = useState<{ start: string; end: string } | null>(null)
 
+  // Set local state when SWR data updates
   useEffect(() => {
-    const fetchData = async () => {
-      try {
-        setLoading(true)
-        setError(null)
-        // Fetch more data than needed to support filtering, but respect pageSize for initial load
-        const data = await api.getPositionHistory(traderId, Math.max(200, pageSize * 5))
-        setPositions(data.positions || [])
-        setStats(data.stats)
-        setSymbolStats(data.symbol_stats || [])
-        setDirectionStats(data.direction_stats || [])
-      } catch (err) {
-        setError(err instanceof Error ? err.message : 'Failed to load history')
-      } finally {
-        setLoading(false)
-      }
+    if (historyData) {
+      setPositions(historyData.positions || [])
+      setStats(historyData.stats)
+      setSymbolStats(historyData.symbol_stats || [])
+      setDirectionStats(historyData.direction_stats || [])
     }
+  }, [historyData])
 
+  // 当traderId变化时重置本地状态
+  useEffect(() => {
     if (traderId) {
-      fetchData()
+      // 保持loading状态直到新数据加载完成
+      setPositions([])
+      setStats(null)
+      setSymbolStats([])
+      setDirectionStats([])
     }
-  }, [traderId, pageSize])
+  }, [traderId])
 
   // Get unique symbols for filter
   const uniqueSymbols = useMemo(() => {
@@ -483,7 +505,7 @@ export function PositionHistory({ traderId }: PositionHistoryProps) {
     )
   }
 
-  if (error) {
+  if (swrError && !loading) {
     return (
       <div
         className="rounded-lg p-6 text-center"
@@ -493,7 +515,7 @@ export function PositionHistory({ traderId }: PositionHistoryProps) {
           color: '#F6465D',
         }}
       >
-        {error}
+        {swrError instanceof Error ? swrError.message : 'Failed to load history'}
       </div>
     )
   }
@@ -518,8 +540,65 @@ export function PositionHistory({ traderId }: PositionHistoryProps) {
     )
   }
 
+  const handleManualRefresh = () => {
+    mutate()
+  }
+
   return (
     <div className="space-y-6">
+      {/* Header with refresh and export buttons */}
+      <div className="flex items-center justify-between">
+        <h2 className="text-2xl font-bold" style={{ color: '#EAECEF' }}>
+          {t('positionHistory.title', language)}
+        </h2>
+        <div className="flex items-center gap-2">
+          {onExport && (
+            <button
+              onClick={() => onExport(traderId, traderName || '', dateRange?.start, dateRange?.end)}
+              disabled={loading}
+              className="px-4 py-2 rounded-lg text-sm font-medium transition-all hover:scale-105 active:scale-95"
+              style={{
+                background: 'rgba(14, 203, 129, 0.1)',
+                color: '#0ECB81',
+                border: '1px solid rgba(14, 203, 129, 0.3)',
+              }}
+              title="Export position history"
+            >
+              <div className="flex items-center gap-2">
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                </svg>
+                {t('positionHistory.export', language) || 'Export'}
+              </div>
+            </button>
+          )}
+          <button
+            onClick={handleManualRefresh}
+            disabled={loading}
+            className="px-4 py-2 rounded-lg text-sm font-medium transition-all hover:scale-105 active:scale-95"
+            style={{
+              background: 'rgba(240, 185, 11, 0.1)',
+              color: '#F0B90B',
+              border: '1px solid rgba(240, 185, 11, 0.3)',
+            }}
+            title="Refresh position history"
+          >
+            {loading ? (
+              <div className="flex items-center gap-2">
+                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-nofx-gold"></div>
+                {t('positionHistory.refreshing', language) || 'Refreshing...'}
+              </div>
+            ) : (
+              <div className="flex items-center gap-2">
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.418 0L17 9m0 0l-1 1v5a2 2 0 01-2 2H7a2 2 0 01-2-2v-5l-1-1m0-4l1-1h14l1 1m-1 4l-1 1v5a2 2 0 01-2 2H7a2 2 0 01-2-2v-5l-1-1" />
+                </svg>
+                {t('positionHistory.refresh', language) || 'Refresh'}
+              </div>
+            )}
+          </button>
+        </div>
+      </div>
       {/* Overall Stats - Row 1: Core Metrics */}
       {stats && (
         <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4">

@@ -673,6 +673,10 @@ export function ExchangeConfigModal({
                           type="password"
                           value={apiKey}
                           onChange={(e) => setApiKey(e.target.value)}
+                          onPaste={(e) => {
+                            setApiKey(e.clipboardData.getData('text'));
+                            e.preventDefault();
+                          }}
                           placeholder={t('enterAPIKey', language)}
                           className="w-full px-3 py-2 rounded"
                           style={{
@@ -695,6 +699,10 @@ export function ExchangeConfigModal({
                           type="password"
                           value={secretKey}
                           onChange={(e) => setSecretKey(e.target.value)}
+                          onPaste={(e) => {
+                            setSecretKey(e.clipboardData.getData('text'));
+                            e.preventDefault();
+                          }}
                           placeholder={t('enterSecretKey', language)}
                           className="w-full px-3 py-2 rounded"
                           style={{
@@ -719,6 +727,10 @@ export function ExchangeConfigModal({
                             type="text"
                             value={customApiUrl}
                             onChange={(e) => setCustomApiUrl(e.target.value)}
+                            onPaste={(e) => {
+                              setCustomApiUrl(e.clipboardData.getData('text'));
+                              e.preventDefault();
+                            }}
                             placeholder={t('enterCustomAPIURL', language)}
                             className="w-full px-3 py-2 rounded"
                             style={{
@@ -745,6 +757,10 @@ export function ExchangeConfigModal({
                             type="password"
                             value={passphrase}
                             onChange={(e) => setPassphrase(e.target.value)}
+                            onPaste={(e) => {
+                              setPassphrase(e.clipboardData.getData('text'));
+                              e.preventDefault();
+                            }}
                             placeholder={t('enterPassphrase', language)}
                             className="w-full px-3 py-2 rounded"
                             style={{
@@ -867,6 +883,10 @@ export function ExchangeConfigModal({
                         type="text"
                         value={asterUser}
                         onChange={(e) => setAsterUser(e.target.value)}
+                        onPaste={(e) => {
+                          setAsterUser(e.clipboardData.getData('text'));
+                          e.preventDefault();
+                        }}
                         placeholder={t('enterAsterUser', language)}
                         className="w-full px-3 py-2 rounded"
                         style={{
@@ -902,6 +922,10 @@ export function ExchangeConfigModal({
                         type="text"
                         value={asterSigner}
                         onChange={(e) => setAsterSigner(e.target.value)}
+                        onPaste={(e) => {
+                          setAsterSigner(e.clipboardData.getData('text'));
+                          e.preventDefault();
+                        }}
                         placeholder={t('enterAsterSigner', language)}
                         className="w-full px-3 py-2 rounded"
                         style={{
@@ -937,6 +961,10 @@ export function ExchangeConfigModal({
                         type="password"
                         value={asterPrivateKey}
                         onChange={(e) => setAsterPrivateKey(e.target.value)}
+                        onPaste={(e) => {
+                          setAsterPrivateKey(e.clipboardData.getData('text'));
+                          e.preventDefault();
+                        }}
                         placeholder={t('enterAsterPrivateKey', language)}
                         className="w-full px-3 py-2 rounded"
                         style={{
@@ -1070,6 +1098,10 @@ export function ExchangeConfigModal({
                         onChange={(e) =>
                           setHyperliquidWalletAddr(e.target.value)
                         }
+                        onPaste={(e) => {
+                          setHyperliquidWalletAddr(e.clipboardData.getData('text'));
+                          e.preventDefault();
+                        }}
                         placeholder={t(
                           'enterHyperliquidMainWalletAddress',
                           language
@@ -1130,6 +1162,10 @@ export function ExchangeConfigModal({
                         type="text"
                         value={lighterWalletAddr}
                         onChange={(e) => setLighterWalletAddr(e.target.value)}
+                        onPaste={(e) => {
+                          setLighterWalletAddr(e.clipboardData.getData('text'));
+                          e.preventDefault();
+                        }}
                         placeholder={t('enterLighterWalletAddress', language)}
                         className="w-full px-3 py-2 rounded"
                         style={{
@@ -1164,6 +1200,10 @@ export function ExchangeConfigModal({
                         type="password"
                         value={lighterApiKeyPrivateKey}
                         onChange={(e) => setLighterApiKeyPrivateKey(e.target.value)}
+                        onPaste={(e) => {
+                          setLighterApiKeyPrivateKey(e.clipboardData.getData('text'));
+                          e.preventDefault();
+                        }}
                         placeholder={t('enterLighterApiKeyPrivateKey', language)}
                         className="w-full px-3 py-2 rounded font-mono text-sm"
                         style={{
