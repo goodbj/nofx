@@ -3,6 +3,7 @@ package kernel
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 )
 
 // ============================================================================
@@ -397,8 +398,11 @@ func ValidateDecisionFormat(decisions []Decision) error {
 			return fmt.Errorf("决策#%d: 无效的action类型: %s", i+1, d.Action)
 		}
 
+		// 将动作转换为小写以便后续检查
+		actionLower := strings.ToLower(d.Action)
+				
 		// 开新仓位的必需参数检查
-		if d.Action == "OPEN_NEW" {
+		if actionLower == "open_new" {
 			if d.Leverage == 0 {
 				return fmt.Errorf("决策#%d: OPEN_NEW动作需要提供leverage", i+1)
 			}
@@ -406,51 +410,51 @@ func ValidateDecisionFormat(decisions []Decision) error {
 				return fmt.Errorf("决策#%d: OPEN_NEW动作需要提供position_size_usd", i+1)
 			}
 		}
-
+		
 		// 更新止损的必需参数检查
-		if d.Action == "UPDATE_STOP_LOSS" {
-			// 由于当前Decision结构体中不包含NewStopLoss字段，跳过此验证
-			// TODO: 在Decision结构体中添加NewStopLoss字段后启用此验证
-			// if d.NewStopLoss == 0 {
-			// 	return fmt.Errorf("决策#%d: UPDATE_STOP_LOSS动作需要提供new_stop_loss", i+1)
-			// }
+		if actionLower == "update_stop_loss" {
+			// 现在Decision结构体中已包含NewStopLoss字段，启用验证
+			if d.NewStopLoss == 0 {
+				return fmt.Errorf("决策#%d: UPDATE_STOP_LOSS动作需要提供new_stop_loss", i+1)
+			}
 			// 价格合理性验证
-			// if d.NewStopLoss <= 0 {
-			// 	return fmt.Errorf("决策#%d: new_stop_loss价格必须大于0", i+1)
-			// }
+			if d.NewStopLoss <= 0 {
+				return fmt.Errorf("决策#%d: new_stop_loss价格必须大于0", i+1)
+			}
 		}
-
+		
 		// 更新止盈的必需参数检查
-		if d.Action == "UPDATE_TAKE_PROFIT" {
-			// 由于当前Decision结构体中不包含NewTakeProfit字段，跳过此验证
-			// TODO: 在Decision结构体中添加NewTakeProfit字段后启用此验证
-			// if d.NewTakeProfit == 0 {
-			// 	return fmt.Errorf("决策#%d: UPDATE_TAKE_PROFIT动作需要提供new_take_profit", i+1)
-			// }
+		if actionLower == "update_take_profit" {
+			// 现在Decision结构体中已包含NewTakeProfit字段，启用验证
+			if d.NewTakeProfit == 0 {
+				return fmt.Errorf("决策#%d: UPDATE_TAKE_PROFIT动作需要提供new_take_profit", i+1)
+			}
 			// 价格合理性验证
-			// if d.NewTakeProfit <= 0 {
-			// 	return fmt.Errorf("决策#%d: new_take_profit价格必须大于0", i+1)
-			// }
+			if d.NewTakeProfit <= 0 {
+				return fmt.Errorf("决策#%d: new_take_profit价格必须大于0", i+1)
+			}
 		}
-
+		
 		// 部分平仓的必需参数检查
-		if d.Action == "PARTIAL_CLOSE" {
-			// 由于当前Decision结构体中不包含ClosePercentage字段，跳过此验证
-			// TODO: 在Decision结构体中添加ClosePercentage字段后启用此验证
-			// if d.ClosePercentage == 0 {
-			// 	return fmt.Errorf("决策#%d: PARTIAL_CLOSE动作需要提供close_percentage", i+1)
-			// }
-			// if d.ClosePercentage <= 0 || d.ClosePercentage > 100 {
-			// 	return fmt.Errorf("决策#%d: close_percentage必须在1-100之间", i+1)
-			// }
+		if actionLower == "partial_close" {
+			// 现在Decision结构体中已包含ClosePercentage字段，启用验证
+			if d.ClosePercentage == 0 {
+				return fmt.Errorf("决策#%d: PARTIAL_CLOSE动作需要提供close_percentage", i+1)
+			}
+			if d.ClosePercentage <= 0 || d.ClosePercentage > 100 {
+				return fmt.Errorf("决策#%d: close_percentage必须在1-100之间", i+1)
+			}
 		}
-
+		
 		// ADD_POSITION操作需要提供position_size_usd
-		if d.Action == "ADD_POSITION" {
+		if actionLower == "add_position" {
 			if d.PositionSizeUSD == 0 {
 				return fmt.Errorf("决策#%d: ADD_POSITION动作需要提供position_size_usd", i+1)
 			}
 		}
+				
+		// 更新决策结构体中的action为小写格式以匹配Decision结构体定义
+		d.Action = actionLower
 	}
 
 	return nil

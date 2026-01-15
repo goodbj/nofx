@@ -42,6 +42,21 @@ export function RiskControlEditor({
       minPositionSizeDesc: { zh: 'USDT 最小名义价值', en: 'Minimum notional value in USDT' },
       minConfidence: { zh: '最小信心度', en: 'Min Confidence' },
       minConfidenceDesc: { zh: 'AI 开仓信心度阈值', en: 'AI confidence threshold for entry' },
+      
+      // Additional risk controls
+      advancedRiskControls: { zh: '高级风险控制', en: 'Advanced Risk Controls' },
+      maxDailyTrades: { zh: '每日最大交易次数', en: 'Max Daily Trades' },
+      maxDailyTradesDesc: { zh: '每天允许的最大交易次数', en: 'Maximum number of trades per day' },
+      maxHourlyTrades: { zh: '每小时最大交易次数', en: 'Max Hourly Trades' },
+      maxHourlyTradesDesc: { zh: '每小时允许的最大交易次数', en: 'Maximum number of trades per hour' },
+      maxTradesPerSymbolPerHour: { zh: '每小时每品种最大交易次数', en: 'Max Trades Per Symbol Per Hour' },
+      maxTradesPerSymbolPerHourDesc: { zh: '每小时每个交易品种的最大交易次数', en: 'Maximum number of trades per symbol per hour' },
+      minHoldTimeMinutes: { zh: '最小持仓时间（分钟）', en: 'Min Hold Time (Minutes)' },
+      minHoldTimeMinutesDesc: { zh: '每个仓位的最小持仓时间（分钟）', en: 'Minimum holding time for each position in minutes' },
+      maxLossPerTradePercent: { zh: '单笔最大亏损百分比', en: 'Max Loss Per Trade (%)' },
+      maxLossPerTradePercentDesc: { zh: '单笔交易允许的最大亏损百分比', en: 'Maximum loss percentage allowed per trade' },
+      dailyLossLimitPercent: { zh: '每日亏损限制百分比', en: 'Daily Loss Limit (%)' },
+      dailyLossLimitPercentDesc: { zh: '每日总亏损限制的百分比', en: 'Daily total loss limit as percentage of account' },
     }
     return translations[key]?.[language] || key
   }
@@ -382,6 +397,188 @@ export function RiskControlEditor({
               <span className="w-12 text-center font-mono" style={{ color: '#0ECB81' }}>
                 {config.min_confidence ?? 75}
               </span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Advanced Risk Controls */}
+      <div>
+        <div className="flex items-center gap-2 mb-4">
+          <Shield className="w-5 h-5" style={{ color: '#F6465D' }} />
+          <h3 className="font-medium" style={{ color: '#EAECEF' }}>
+            {t('advancedRiskControls')}
+          </h3>
+        </div>
+
+        <div className="grid grid-cols-2 gap-4">
+          <div
+            className="p-4 rounded-lg"
+            style={{ background: '#0B0E11', border: '1px solid #2B3139' }}
+          >
+            <label className="block text-sm mb-1" style={{ color: '#EAECEF' }}>
+              {t('maxDailyTrades')}
+            </label>
+            <p className="text-xs mb-2" style={{ color: '#848E9C' }}>
+              {t('maxDailyTradesDesc')}
+            </p>
+            <input
+              type="number"
+              value={config.max_daily_trades ?? ''}
+              onChange={(e) =>
+                updateField('max_daily_trades', e.target.value ? parseInt(e.target.value) : undefined)
+              }
+              disabled={disabled}
+              min={0}
+              className="w-full px-3 py-2 rounded"
+              style={{
+                background: '#1E2329',
+                border: '1px solid #2B3139',
+                color: '#EAECEF',
+              }}
+            />
+          </div>
+
+          <div
+            className="p-4 rounded-lg"
+            style={{ background: '#0B0E11', border: '1px solid #2B3139' }}
+          >
+            <label className="block text-sm mb-1" style={{ color: '#EAECEF' }}>
+              {t('maxHourlyTrades')}
+            </label>
+            <p className="text-xs mb-2" style={{ color: '#848E9C' }}>
+              {t('maxHourlyTradesDesc')}
+            </p>
+            <input
+              type="number"
+              value={config.max_hourly_trades ?? ''}
+              onChange={(e) =>
+                updateField('max_hourly_trades', e.target.value ? parseInt(e.target.value) : undefined)
+              }
+              disabled={disabled}
+              min={0}
+              className="w-full px-3 py-2 rounded"
+              style={{
+                background: '#1E2329',
+                border: '1px solid #2B3139',
+                color: '#EAECEF',
+              }}
+            />
+          </div>
+
+          <div
+            className="p-4 rounded-lg"
+            style={{ background: '#0B0E11', border: '1px solid #2B3139' }}
+          >
+            <label className="block text-sm mb-1" style={{ color: '#EAECEF' }}>
+              {t('maxTradesPerSymbolPerHour')}
+            </label>
+            <p className="text-xs mb-2" style={{ color: '#848E9C' }}>
+              {t('maxTradesPerSymbolPerHourDesc')}
+            </p>
+            <input
+              type="number"
+              value={config.max_trades_per_symbol_per_hour ?? ''}
+              onChange={(e) =>
+                updateField('max_trades_per_symbol_per_hour', e.target.value ? parseInt(e.target.value) : undefined)
+              }
+              disabled={disabled}
+              min={0}
+              className="w-full px-3 py-2 rounded"
+              style={{
+                background: '#1E2329',
+                border: '1px solid #2B3139',
+                color: '#EAECEF',
+              }}
+            />
+          </div>
+
+          <div
+            className="p-4 rounded-lg"
+            style={{ background: '#0B0E11', border: '1px solid #2B3139' }}
+          >
+            <label className="block text-sm mb-1" style={{ color: '#EAECEF' }}>
+              {t('minHoldTimeMinutes')}
+            </label>
+            <p className="text-xs mb-2" style={{ color: '#848E9C' }}>
+              {t('minHoldTimeMinutesDesc')}
+            </p>
+            <input
+              type="number"
+              value={config.min_hold_time_minutes ?? ''}
+              onChange={(e) =>
+                updateField('min_hold_time_minutes', e.target.value ? parseInt(e.target.value) : undefined)
+              }
+              disabled={disabled}
+              min={0}
+              className="w-full px-3 py-2 rounded"
+              style={{
+                background: '#1E2329',
+                border: '1px solid #2B3139',
+                color: '#EAECEF',
+              }}
+            />
+          </div>
+
+          <div
+            className="p-4 rounded-lg"
+            style={{ background: '#0B0E11', border: '1px solid #2B3139' }}
+          >
+            <label className="block text-sm mb-1" style={{ color: '#EAECEF' }}>
+              {t('maxLossPerTradePercent')}
+            </label>
+            <p className="text-xs mb-2" style={{ color: '#848E9C' }}>
+              {t('maxLossPerTradePercentDesc')}
+            </p>
+            <div className="flex items-center">
+              <input
+                type="number"
+                value={config.max_loss_per_trade_percent ?? ''}
+                onChange={(e) =>
+                  updateField('max_loss_per_trade_percent', e.target.value ? parseFloat(e.target.value) : undefined)
+                }
+                disabled={disabled}
+                min={0}
+                step="any"
+                className="w-20 px-3 py-2 rounded mr-2"
+                style={{
+                  background: '#1E2329',
+                  border: '1px solid #2B3139',
+                  color: '#EAECEF',
+                }}
+              />
+              <span style={{ color: '#848E9C' }}>%</span>
+            </div>
+          </div>
+
+          <div
+            className="p-4 rounded-lg"
+            style={{ background: '#0B0E11', border: '1px solid #2B3139' }}
+          >
+            <label className="block text-sm mb-1" style={{ color: '#EAECEF' }}>
+              {t('dailyLossLimitPercent')}
+            </label>
+            <p className="text-xs mb-2" style={{ color: '#848E9C' }}>
+              {t('dailyLossLimitPercentDesc')}
+            </p>
+            <div className="flex items-center">
+              <input
+                type="number"
+                value={config.daily_loss_limit_percent ?? ''}
+                onChange={(e) =>
+                  updateField('daily_loss_limit_percent', e.target.value ? parseFloat(e.target.value) : undefined)
+                }
+                disabled={disabled}
+                min={0}
+                step="any"
+                className="w-20 px-3 py-2 rounded mr-2"
+                style={{
+                  background: '#1E2329',
+                  border: '1px solid #2B3139',
+                  color: '#EAECEF',
+                }}
+              />
+              <span style={{ color: '#848E9C' }}>%</span>
             </div>
           </div>
         </div>

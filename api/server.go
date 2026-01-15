@@ -173,6 +173,7 @@ func (s *Server) setupRoutes() {
 			protected.GET("/strategies", s.handleGetStrategies)
 			protected.GET("/strategies/active", s.handleGetActiveStrategy)
 			protected.GET("/strategies/default-config", s.handleGetDefaultStrategyConfig)
+			protected.GET("/strategies/annotated-config", s.handleGetAnnotatedStrategyConfig)
 			protected.POST("/strategies/preview-prompt", s.handlePreviewPrompt)
 			protected.POST("/strategies/test-run", s.handleStrategyTestRun)
 			protected.GET("/strategies/:id", s.handleGetStrategy)

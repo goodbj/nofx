@@ -180,6 +180,14 @@ type RiskControlConfig struct {
 	MinRiskRewardRatio float64 `json:"min_risk_reward_ratio"`
 	// Min AI confidence to open position (AI guided)
 	MinConfidence int `json:"min_confidence"`
+
+	// Additional risk controls (CODE ENFORCED)
+	MaxDailyTrades              int     `json:"max_daily_trades,omitempty"`              // Maximum trades per day
+	MaxHourlyTrades             int     `json:"max_hourly_trades,omitempty"`             // Maximum trades per hour
+	MaxTradesPerSymbolPerHour   int     `json:"max_trades_per_symbol_per_hour,omitempty"`  // Maximum trades per symbol per hour
+	MinHoldTimeMinutes          int     `json:"min_hold_time_minutes,omitempty"`         // Minimum hold time in minutes
+	MaxLossPerTradePercent      float64 `json:"max_loss_per_trade_percent,omitempty"`    // Maximum loss per trade as percentage
+	DailyLossLimitPercent       float64 `json:"daily_loss_limit_percent,omitempty"`      // Daily loss limit as percentage
 }
 
 // NewStrategyStore creates a new StrategyStore
@@ -265,6 +273,13 @@ func GetDefaultStrategyConfig(lang string) StrategyConfig {
 			MinPositionSize:                 12,  // Min 12 USDT per position (CODE ENFORCED)
 			MinRiskRewardRatio:              3.0, // Min 3:1 profit/loss ratio (AI guided)
 			MinConfidence:                   75,  // Min 75% confidence (AI guided)
+			// Additional risk controls (CODE ENFORCED)
+			MaxDailyTrades:              10,      // Maximum trades per day
+			MaxHourlyTrades:             3,       // Maximum trades per hour
+			MaxTradesPerSymbolPerHour:   1,       // Maximum trades per symbol per hour
+			MinHoldTimeMinutes:          8,       // Minimum hold time in minutes
+			MaxLossPerTradePercent:      3.0,     // Maximum loss per trade as percentage
+			DailyLossLimitPercent:       2.0,     // Daily loss limit as percentage
 		},
 	}
 

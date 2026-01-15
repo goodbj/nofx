@@ -95,6 +95,14 @@ type AutoTraderConfig struct {
 	StrategyConfig *store.StrategyConfig // Strategy configuration (includes coin sources, indicators, risk control, prompts, etc.)
 }
 
+// TradeRecord represents a single trade record for tracking purposes
+type TradeRecord struct {
+	Timestamp time.Time
+	Symbol    string
+	Action    string
+	PnL       float64
+}
+
 // AutoTrader automatic trader
 type AutoTrader struct {
 	id                    string // Trader unique identifier

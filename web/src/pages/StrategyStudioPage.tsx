@@ -371,6 +371,40 @@ export function StrategyStudioPage() {
     }
   }
 
+  // Download annotated strategy config template
+  const handleDownloadAnnotatedTemplate = async () => {
+    if (!token) return
+    
+    try {
+      const response = await fetch(`${API_BASE}/api/strategies/annotated-config?lang=${language}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      
+      if (!response.ok) {
+        throw new Error('Failed to fetch annotated template')
+      }
+      
+      const annotatedConfig = await response.json()
+      
+      // Create a downloadable file with annotations
+      const blob = new Blob([JSON.stringify(annotatedConfig, null, 2)], { type: 'application/json' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `strategy_config_annotated_template_${new Date().toISOString().split('T')[0]}.json`
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+      
+      notify.success(language === 'zh' ? '带注释的配置模板已下载' : 'Annotated config template downloaded')
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : 'Unknown error'
+      notify.error(errorMsg)
+      console.error('Failed to download annotated template:', err)
+    }
+  }
+
   // Save strategy
   const handleSaveStrategy = async () => {
     if (!token || !selectedStrategy || !editingConfig) return
@@ -668,6 +702,14 @@ export function StrategyStudioPage() {
             <div className="flex items-center justify-between mb-2 px-2">
               <span className="text-xs font-medium text-nofx-text-muted">{t('strategies')}</span>
               <div className="flex items-center gap-1">
+                {/* Download annotated template button */}
+                <button
+                  onClick={handleDownloadAnnotatedTemplate}
+                  className="p-1 rounded hover:bg-blue-500/20 transition-colors text-blue-400"
+                  title={language === 'zh' ? '下载带注释的配置模板' : 'Download annotated config template'}
+                >
+                  <Download className="w-4 h-4" />
+                </button>
                 {/* Import button with hidden file input */}
                 <label className="p-1 rounded hover:bg-white/10 transition-colors cursor-pointer text-nofx-text-muted hover:text-white" title={language === 'zh' ? '导入策略' : 'Import Strategy'}>
                   <Upload className="w-4 h-4" />

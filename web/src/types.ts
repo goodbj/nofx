@@ -568,6 +568,14 @@ export interface RiskControlConfig {
   min_position_size: number;       // Min position size in USDT (CODE ENFORCED)
   min_risk_reward_ratio: number;   // Min take_profit / stop_loss ratio (AI guided)
   min_confidence: number;          // Min AI confidence to open position (AI guided)
+
+  // Additional risk controls
+  max_daily_trades?: number;
+  max_hourly_trades?: number;
+  max_trades_per_symbol_per_hour?: number;
+  min_hold_time_minutes?: number;
+  max_loss_per_trade_percent?: number;
+  daily_loss_limit_percent?: number;
 }
 
 // Debate Arena Types
