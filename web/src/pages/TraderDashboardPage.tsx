@@ -593,7 +593,7 @@ export function TraderDashboardPage({
                                                     <th className="px-1 pb-3 font-semibold text-nofx-text-muted whitespace-nowrap text-right" title={t('quantity', language)}>{language === 'zh' ? '数量' : 'Qty'}</th>
                                                     <th className="px-1 pb-3 font-semibold text-nofx-text-muted whitespace-nowrap text-right hidden md:table-cell" title={t('positionValue', language)}>{language === 'zh' ? '价值' : 'Value'}</th>
                                                     <th className="px-1 pb-3 font-semibold text-nofx-text-muted whitespace-nowrap text-center hidden md:table-cell" title={t('leverage', language)}>{language === 'zh' ? '杠杆' : 'Lev.'}</th>
-                                                    <th className="px-1 pb-3 font-semibold text-nofx-text-muted whitespace-nowrap text-right" title={t('unrealizedPnL', language)}>{language === 'zh' ? '未实现盈亏' : 'uPnL'}</th>
+                                                    <th className="px-1 pb-3 font-semibold text-nofx-text-muted whitespace-nowrap text-right" title={t('unrealizedPnL', language)}>{language === 'zh' ? '盈亏（回报率）' : 'PnL (Return)'}</th>
                                                     <th className="px-1 pb-3 font-semibold text-nofx-text-muted whitespace-nowrap text-right hidden md:table-cell" title={t('liqPrice', language)}>{language === 'zh' ? '强平价' : 'Liq.'}</th>
                                                 </tr>
                                             </thead>
@@ -648,13 +648,20 @@ export function TraderDashboardPage({
                                                         <td className="px-1 py-3 font-mono font-bold whitespace-nowrap text-right text-nofx-text-main hidden md:table-cell">{(pos.quantity * pos.mark_price).toFixed(2)}</td>
                                                         <td className="px-1 py-3 font-mono whitespace-nowrap text-center text-nofx-gold hidden md:table-cell">{pos.leverage}x</td>
                                                         <td className="px-1 py-3 font-mono whitespace-nowrap text-right">
-                                                            <span
-                                                                className={`font-bold ${pos.unrealized_pnl >= 0 ? 'text-nofx-green shadow-nofx-green' : 'text-nofx-red shadow-nofx-red'}`}
-                                                                style={{ textShadow: pos.unrealized_pnl >= 0 ? '0 0 10px rgba(14,203,129,0.3)' : '0 0 10px rgba(246,70,93,0.3)' }}
-                                                            >
-                                                                {pos.unrealized_pnl >= 0 ? '+' : ''}
-                                                                {pos.unrealized_pnl.toFixed(2)}
-                                                            </span>
+                                                            <div className="flex items-center gap-1">
+                                                                <span
+                                                                    className={`font-bold ${pos.unrealized_pnl >= 0 ? 'text-nofx-green shadow-nofx-green' : 'text-nofx-red shadow-nofx-red'}`}
+                                                                    style={{ textShadow: pos.unrealized_pnl >= 0 ? '0 0 10px rgba(14,203,129,0.3)' : '0 0 10px rgba(246,70,93,0.3)' }}
+                                                                >
+                                                                    {pos.unrealized_pnl >= 0 ? '+' : ''}
+                                                                    {pos.unrealized_pnl.toFixed(2)}
+                                                                </span>
+                                                                <span className="text-[10px] text-nofx-text-muted">
+                                                                    {pos.entry_price && pos.mark_price && pos.entry_price !== 0 
+                                                                        ? `(${((pos.mark_price - pos.entry_price) / pos.entry_price * 100).toFixed(2)}%)`
+                                                                        : '(0.00%)'}
+                                                                </span>
+                                                            </div>
                                                         </td>
                                                         <td className="px-1 py-3 font-mono whitespace-nowrap text-right text-nofx-text-muted hidden md:table-cell">{pos.liquidation_price.toFixed(4)}</td>
                                                     </tr>
