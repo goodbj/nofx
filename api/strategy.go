@@ -379,95 +379,112 @@ func (s *Server) handleGetAnnotatedStrategyConfig(c *gin.Context) {
 	// Create annotated configuration template
 	annotatedConfig := gin.H{
 		"// strategy_config_explanation": "策略配置文件结构说明",
-		"// version": "1.0",
-		"// last_updated": "2025-12-19",
-		
-		"name": "策略名称",
+		"// version":                     "1.0",
+		"// last_updated":                "2025-12-19",
+
+		"name":        "策略名称",
 		"description": "策略描述",
 		"config": gin.H{
 			"coin_source": gin.H{
 				"// coin_source_explanation": "币种来源配置",
-				"source_type": "static|ai500|oi_top|mixed",
-				"symbols": []string{"BTCUSDT", "ETHUSDT"},
-				"limit": 10,
+				"source_type":                "static|ai500|oi_top|mixed",
+				"symbols":                    []string{"BTCUSDT", "ETHUSDT"},
+				"limit":                      10,
 			},
-			
+
 			"indicators": gin.H{
 				"// indicators_explanation": "技术指标配置",
-				"enable_ema": true,
-				"enable_macd": true,
-				"enable_rsi": true,
-				"enable_atr": true,
-				"enable_boll": true,
-				"enable_volume": true,
-				"enable_oi": true,
-				"enable_funding_rate": true,
+				"enable_ema":                true,
+				"enable_macd":               true,
+				"enable_rsi":                true,
+				"enable_atr":                true,
+				"enable_boll":               true,
+				"enable_volume":             true,
+				"enable_oi":                 true,
+				"enable_funding_rate":       true,
 				"klines": gin.H{
-					"primary_timeframe": "4h",
-					"secondary_timeframes": []string{"1h", "1d"},
+					"primary_timeframe":      "5m",
+					"primary_count":          120,
+					"longer_timeframe":       "4h",
+					"longer_count":           30,
+					"enable_multi_timeframe": true,
+					"selected_timeframes":    []string{"5m", "15m", "1h", "4h"},
+					"timeframe_counts": gin.H{
+						"1m":  120,
+						"3m":  120,
+						"5m":  120,
+						"15m": 80,
+						"30m": 60,
+						"1h":  50,
+						"2h":  40,
+						"4h":  30,
+						"1d":  20,
+						"1w":  10,
+					},
+					"trading_style_preset": "short",
 				},
 			},
-			
+
 			"risk_control": gin.H{
 				"// risk_control_explanation": "风险控制配置",
-				
-				"// position_limits": "仓位限制（代码强制执行）",
-				"max_positions": 3,
+
+				"// position_limits":    "仓位限制（代码强制执行）",
+				"max_positions":         3,
 				"// max_positions_desc": "最大同时持仓数量",
-				
-				"// trading_leverage": "交易杠杆（AI指导）",
-				"btc_eth_max_leverage": 5,
+
+				"// trading_leverage":          "交易杠杆（AI指导）",
+				"btc_eth_max_leverage":         5,
 				"// btc_eth_max_leverage_desc": "BTC/ETH最大交易所杠杆倍数",
-				"altcoin_max_leverage": 5,
+				"altcoin_max_leverage":         5,
 				"// altcoin_max_leverage_desc": "山寨币最大交易所杠杆倍数",
-				
-				"// position_value_ratio": "仓位价值比例（代码强制执行）",
-				"btc_eth_max_position_value_ratio": 5.0,
+
+				"// position_value_ratio":                  "仓位价值比例（代码强制执行）",
+				"btc_eth_max_position_value_ratio":         5.0,
 				"// btc_eth_max_position_value_ratio_desc": "BTC/ETH单仓位最大名义价值与账户净值的比例",
-				"altcoin_max_position_value_ratio": 1.0,
+				"altcoin_max_position_value_ratio":         1.0,
 				"// altcoin_max_position_value_ratio_desc": "山寨币单仓位最大名义价值与账户净值的比例",
-				
-				"// risk_parameters": "风险参数（AI指导）",
-				"max_margin_usage": 0.9,
-				"// max_margin_usage_desc": "最大保证金使用率，如0.9表示90%",
-				"min_position_size": 12,
-				"// min_position_size_desc": "最小仓位规模，单位USDT",
-				"min_risk_reward_ratio": 3.0,
+
+				"// risk_parameters":            "风险参数（AI指导）",
+				"max_margin_usage":              0.9,
+				"// max_margin_usage_desc":      "最大保证金使用率，如0.9表示90%",
+				"min_position_size":             12,
+				"// min_position_size_desc":     "最小仓位规模，单位USDT",
+				"min_risk_reward_ratio":         3.0,
 				"// min_risk_reward_ratio_desc": "最小风险回报比，即止盈/止损的最小比例",
-				"min_confidence": 75,
-				"// min_confidence_desc": "AI开仓的最小信心度百分比",
-				
-				"// additional_risk_controls": "附加风险控制（代码强制执行）",
-				"max_daily_trades": 10,
-				"// max_daily_trades_desc": "每日最大交易次数",
-				"max_hourly_trades": 3,
-				"// max_hourly_trades_desc": "每小时最大交易次数",
-				"max_trades_per_symbol_per_hour": 1,
+				"min_confidence":                75,
+				"// min_confidence_desc":        "AI开仓的最小信心度百分比",
+
+				"// additional_risk_controls":            "附加风险控制（代码强制执行）",
+				"max_daily_trades":                       10,
+				"// max_daily_trades_desc":               "每日最大交易次数",
+				"max_hourly_trades":                      3,
+				"// max_hourly_trades_desc":              "每小时最大交易次数",
+				"max_trades_per_symbol_per_hour":         1,
 				"// max_trades_per_symbol_per_hour_desc": "每小时每交易品种最大交易次数",
-				"min_hold_time_minutes": 8,
-				"// min_hold_time_minutes_desc": "最小持仓时间，单位分钟",
-				"max_loss_per_trade_percent": 3.0,
-				"// max_loss_per_trade_percent_desc": "单笔交易最大亏损百分比",
-				"daily_loss_limit_percent": 2.0,
-				"// daily_loss_limit_percent_desc": "每日总亏损限制百分比",
+				"min_hold_time_minutes":                  8,
+				"// min_hold_time_minutes_desc":          "最小持仓时间，单位分钟",
+				"max_loss_per_trade_percent":             3.0,
+				"// max_loss_per_trade_percent_desc":     "单笔交易最大亏损百分比",
+				"daily_loss_limit_percent":               2.0,
+				"// daily_loss_limit_percent_desc":       "每日总亏损限制百分比",
 			},
-			
+
 			"prompt_sections": gin.H{
 				"// prompt_sections_explanation": "AI提示词配置",
-				"enable_technical_analysis": true,
-				"enable_market_sentiment": true,
-				"enable_risk_management": true,
-				"custom_prompt_additions": []string{},
+				"enable_technical_analysis":      true,
+				"enable_market_sentiment":        true,
+				"enable_risk_management":         true,
+				"custom_prompt_additions":        []string{},
 			},
-			
+
 			"publish_settings": gin.H{
 				"// publish_settings_explanation": "发布设置",
-				"allow_public_sharing": false,
-				"allow_cloning": true,
-				"share_performance_data": false,
+				"allow_public_sharing":            false,
+				"allow_cloning":                   true,
+				"share_performance_data":          false,
 			},
 		},
-		
+
 		"// usage_notes": []string{
 			"1. 代码强制执行的参数会在交易引擎中被强制遵守",
 			"2. AI指导的参数会作为AI决策的参考依据",
@@ -488,9 +505,9 @@ func (s *Server) handlePreviewPrompt(c *gin.Context) {
 	}
 
 	var req struct {
-		Config          store.StrategyConfig `json:"config" binding:"required"`
-		AccountEquity   float64              `json:"account_equity"`
-		PromptVariant   string               `json:"prompt_variant"`
+		Config        store.StrategyConfig `json:"config" binding:"required"`
+		AccountEquity float64              `json:"account_equity"`
+		PromptVariant string               `json:"prompt_variant"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -570,6 +587,10 @@ func (s *Server) handleStrategyTestRun(c *gin.Context) {
 	timeframes := req.Config.Indicators.Klines.SelectedTimeframes
 	primaryTimeframe := req.Config.Indicators.Klines.PrimaryTimeframe
 	klineCount := req.Config.Indicators.Klines.PrimaryCount
+	timeframeCounts := req.Config.Indicators.Klines.TimeframeCounts
+	if timeframeCounts == nil {
+		timeframeCounts = make(map[string]int)
+	}
 
 	// If no timeframes selected, use default values
 	if len(timeframes) == 0 {
@@ -592,10 +613,10 @@ func (s *Server) handleStrategyTestRun(c *gin.Context) {
 
 	fmt.Printf("📊 Using timeframes: %v, primary: %s, kline count: %d\n", timeframes, primaryTimeframe, klineCount)
 
-	// Get real market data (using multiple timeframes)
+	// Get real market data (using multiple timeframes with individual counts)
 	marketDataMap := make(map[string]*market.Data)
 	for _, coin := range candidates {
-		data, err := market.GetWithTimeframes(coin.Symbol, timeframes, primaryTimeframe, klineCount)
+		data, err := market.GetWithTimeframesAndCounts(coin.Symbol, timeframes, primaryTimeframe, timeframeCounts)
 		if err != nil {
 			// If getting data for a coin fails, log but continue
 			fmt.Printf("⚠️  Failed to get market data for %s: %v\n", coin.Symbol, err)
@@ -750,4 +771,3 @@ func (s *Server) runRealAITest(userID, modelID, systemPrompt, userPrompt string)
 
 	return response, nil
 }
-

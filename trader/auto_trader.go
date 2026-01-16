@@ -103,6 +103,17 @@ type TraderTradeRecord struct {
 	PnL       float64
 }
 
+// TradeFrequencyTracker tracks trade counts for enforcing frequency limits
+type TradeFrequencyTracker struct {
+	dailyTrades           int
+	hourlyTrades          int
+	symbolHourlyTrades    map[string]int // Count per symbol per hour
+	dailyResetTime        time.Time
+	hourlyResetTime       time.Time
+	symbolHourlyResetTime time.Time
+	mutex                 sync.RWMutex
+}
+
 // AutoTrader automatic trader
 type AutoTrader struct {
 	id                    string // Trader unique identifier
@@ -124,18 +135,19 @@ type AutoTrader struct {
 	lastResetTime         time.Time
 	stopUntil             time.Time
 	isRunning             bool
-	isRunningMutex        sync.RWMutex       // Mutex to protect isRunning flag
-	executionMutex        sync.Mutex         // Mutex to prevent concurrent executions (for manual scans)
-	isExecuting           bool               // Flag to indicate if a decision cycle is currently executing
-	startTime             time.Time          // System start time
-	callCount             int                // AI call count
-	positionFirstSeenTime map[string]int64   // Position first seen time (symbol_side -> timestamp in milliseconds)
-	stopMonitorCh         chan struct{}      // Used to stop monitoring goroutine
-	monitorWg             sync.WaitGroup     // Used to wait for monitoring goroutine to finish
-	peakPnLCache          map[string]float64 // Peak profit cache (symbol -> peak P&L percentage)
-	peakPnLCacheMutex     sync.RWMutex       // Cache read-write lock
-	lastBalanceSyncTime   time.Time          // Last balance sync time
-	userID                string             // User ID
+	isRunningMutex        sync.RWMutex           // Mutex to protect isRunning flag
+	executionMutex        sync.Mutex             // Mutex to prevent concurrent executions (for manual scans)
+	isExecuting           bool                   // Flag to indicate if a decision cycle is currently executing
+	startTime             time.Time              // System start time
+	callCount             int                    // AI call count
+	positionFirstSeenTime map[string]int64       // Position first seen time (symbol_side -> timestamp in milliseconds)
+	stopMonitorCh         chan struct{}          // Used to stop monitoring goroutine
+	monitorWg             sync.WaitGroup         // Used to wait for monitoring goroutine to finish
+	peakPnLCache          map[string]float64     // Peak profit cache (symbol -> peak P&L percentage)
+	peakPnLCacheMutex     sync.RWMutex           // Cache read-write lock
+	lastBalanceSyncTime   time.Time              // Last balance sync time
+	userID                string                 // User ID
+	tradeFrequencyTracker *TradeFrequencyTracker // Tracks trade frequencies for limits
 }
 
 // NewAutoTrader creates an automatic trader
@@ -351,6 +363,14 @@ func NewAutoTrader(config AutoTraderConfig, st *store.Store, userID string) (*Au
 		peakPnLCacheMutex:     sync.RWMutex{},
 		lastBalanceSyncTime:   time.Now(),
 		userID:                userID,
+		tradeFrequencyTracker: &TradeFrequencyTracker{
+			dailyTrades:           0,
+			hourlyTrades:          0,
+			symbolHourlyTrades:    make(map[string]int),
+			dailyResetTime:        time.Now(),
+			hourlyResetTime:       time.Now(),
+			symbolHourlyResetTime: time.Now(),
+		},
 	}, nil
 }
 
@@ -1118,6 +1138,11 @@ func (at *AutoTrader) runCycleWithExecutionLock() error {
 func (at *AutoTrader) executeOpenLongWithRecord(decision *kernel.Decision, actionRecord *store.DecisionAction) error {
 	logger.Infof("  📈 Open long: %s", decision.Symbol)
 
+	// [CODE ENFORCED] Check trade frequency limits
+	if err := at.enforceTradeFrequencyLimits(decision.Symbol); err != nil {
+		return err
+	}
+
 	// ⚠️ Get current positions for multiple checks
 	positions, err := at.trader.GetPositions()
 	if err != nil {
@@ -1234,6 +1259,11 @@ func (at *AutoTrader) executeOpenLongWithRecord(decision *kernel.Decision, actio
 // executeOpenShortWithRecord executes open short position and records detailed information
 func (at *AutoTrader) executeOpenShortWithRecord(decision *kernel.Decision, actionRecord *store.DecisionAction) error {
 	logger.Infof("  📉 Open short: %s", decision.Symbol)
+
+	// [CODE ENFORCED] Check trade frequency limits
+	if err := at.enforceTradeFrequencyLimits(decision.Symbol); err != nil {
+		return err
+	}
 
 	// ⚠️ Get current positions for multiple checks
 	positions, err := at.trader.GetPositions()
@@ -1352,6 +1382,11 @@ func (at *AutoTrader) executeOpenShortWithRecord(decision *kernel.Decision, acti
 func (at *AutoTrader) executeCloseLongWithRecord(decision *kernel.Decision, actionRecord *store.DecisionAction) error {
 	logger.Infof("  🔄 Close long: %s", decision.Symbol)
 
+	// [CODE ENFORCED] Check trade frequency limits
+	if err := at.enforceTradeFrequencyLimits(decision.Symbol); err != nil {
+		return err
+	}
+
 	// Get current price
 	marketData, err := market.Get(decision.Symbol)
 	if err != nil {
@@ -1415,6 +1450,11 @@ func (at *AutoTrader) executeCloseLongWithRecord(decision *kernel.Decision, acti
 // executeCloseShortWithRecord executes close short position and records detailed information
 func (at *AutoTrader) executeCloseShortWithRecord(decision *kernel.Decision, actionRecord *store.DecisionAction) error {
 	logger.Infof("  🔄 Close short: %s", decision.Symbol)
+
+	// [CODE ENFORCED] Check trade frequency limits
+	if err := at.enforceTradeFrequencyLimits(decision.Symbol); err != nil {
+		return err
+	}
 
 	// Get current price
 	marketData, err := market.Get(decision.Symbol)
@@ -2322,6 +2362,75 @@ func (at *AutoTrader) enforceMaxPositions(currentPositionCount int) error {
 	return nil
 }
 
+// enforceTradeFrequencyLimits checks trade frequency limits (CODE ENFORCED)
+func (at *AutoTrader) enforceTradeFrequencyLimits(symbol string) error {
+	if at.config.StrategyConfig == nil {
+		return nil
+	}
+
+	// Get the trade frequency limits from the strategy config
+	riskControl := at.config.StrategyConfig.RiskControl
+	maxDailyTrades := riskControl.MaxDailyTrades
+	maxHourlyTrades := riskControl.MaxHourlyTrades
+	maxTradesPerSymbolPerHour := riskControl.MaxTradesPerSymbolPerHour
+
+	// Skip enforcement if all limits are disabled (set to 0 or less)
+	if maxDailyTrades <= 0 && maxHourlyTrades <= 0 && maxTradesPerSymbolPerHour <= 0 {
+		return nil
+	}
+
+	tracker := at.tradeFrequencyTracker
+	tracker.mutex.Lock()
+	defer tracker.mutex.Unlock()
+
+	// Reset counters if necessary
+	currentTime := time.Now()
+
+	// Reset daily counter if day has changed
+	if currentTime.Day() != tracker.dailyResetTime.Day() ||
+		currentTime.Month() != tracker.dailyResetTime.Month() ||
+		currentTime.Year() != tracker.dailyResetTime.Year() {
+		tracker.dailyTrades = 0
+		tracker.dailyResetTime = currentTime
+	}
+
+	// Reset hourly counter if hour has changed
+	if currentTime.Hour() != tracker.hourlyResetTime.Hour() ||
+		currentTime.Day() != tracker.hourlyResetTime.Day() ||
+		currentTime.Month() != tracker.hourlyResetTime.Month() ||
+		currentTime.Year() != tracker.hourlyResetTime.Year() {
+		tracker.hourlyTrades = 0
+		tracker.symbolHourlyTrades = make(map[string]int) // Reset symbol-specific counters
+		tracker.hourlyResetTime = currentTime
+		tracker.symbolHourlyResetTime = currentTime
+	}
+
+	// Check daily trade limit
+	if maxDailyTrades > 0 && tracker.dailyTrades >= maxDailyTrades {
+		return fmt.Errorf("❌ [RISK CONTROL] Daily trade limit reached (%d/%d)", tracker.dailyTrades, maxDailyTrades)
+	}
+
+	// Check hourly trade limit
+	if maxHourlyTrades > 0 && tracker.hourlyTrades >= maxHourlyTrades {
+		return fmt.Errorf("❌ [RISK CONTROL] Hourly trade limit reached (%d/%d)", tracker.hourlyTrades, maxHourlyTrades)
+	}
+
+	// Check symbol-specific hourly trade limit
+	if maxTradesPerSymbolPerHour > 0 {
+		symbolTrades := tracker.symbolHourlyTrades[symbol]
+		if symbolTrades >= maxTradesPerSymbolPerHour {
+			return fmt.Errorf("❌ [RISK CONTROL] Symbol '%s' hourly trade limit reached (%d/%d)", symbol, symbolTrades, maxTradesPerSymbolPerHour)
+		}
+	}
+
+	// If we pass all checks, increment the counters
+	tracker.dailyTrades++
+	tracker.hourlyTrades++
+	tracker.symbolHourlyTrades[symbol]++
+
+	return nil
+}
+
 // getSideFromAction converts order action to side (BUY/SELL)
 func getSideFromAction(action string) string {
 	switch action {
@@ -2355,6 +2464,11 @@ func getBinanceCustomEndpointForAutoTrader(config *AutoTraderConfig) string {
 // executeUpdateStopLossWithRecord executes update stop loss and records detailed information
 func (at *AutoTrader) executeUpdateStopLossWithRecord(decision *kernel.Decision, actionRecord *store.DecisionAction) error {
 	logger.Infof("  🔄 Update stop loss: %s to %.4f", decision.Symbol, decision.NewStopLoss)
+
+	// [CODE ENFORCED] Check trade frequency limits
+	if err := at.enforceTradeFrequencyLimits(decision.Symbol); err != nil {
+		return err
+	}
 
 	// Get current positions to determine quantity and side
 	positions, err := at.trader.GetPositions()
@@ -2464,6 +2578,11 @@ func (at *AutoTrader) executeUpdateStopLossWithRecord(decision *kernel.Decision,
 func (at *AutoTrader) executeUpdateTakeProfitWithRecord(decision *kernel.Decision, actionRecord *store.DecisionAction) error {
 	logger.Infof("  🔄 Update take profit: %s to %.4f", decision.Symbol, decision.NewTakeProfit)
 
+	// [CODE ENFORCED] Check trade frequency limits
+	if err := at.enforceTradeFrequencyLimits(decision.Symbol); err != nil {
+		return err
+	}
+
 	// Get current positions to determine quantity and side
 	positions, err := at.trader.GetPositions()
 	if err != nil {
@@ -2571,6 +2690,11 @@ func (at *AutoTrader) executeUpdateTakeProfitWithRecord(decision *kernel.Decisio
 // executePartialCloseWithRecord executes partial close and records detailed information
 func (at *AutoTrader) executePartialCloseWithRecord(decision *kernel.Decision, actionRecord *store.DecisionAction) error {
 	logger.Infof("  🔄 Partial close: %s, %.2f%%", decision.Symbol, decision.ClosePercentage)
+
+	// [CODE ENFORCED] Check trade frequency limits
+	if err := at.enforceTradeFrequencyLimits(decision.Symbol); err != nil {
+		return err
+	}
 
 	// Get current positions to determine quantity and side
 	positions, err := at.trader.GetPositions()

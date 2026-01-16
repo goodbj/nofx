@@ -21,8 +21,8 @@ type Strategy struct {
 	Description   string    `gorm:"default:''" json:"description"`
 	IsActive      bool      `gorm:"column:is_active;default:false;index" json:"is_active"`
 	IsDefault     bool      `gorm:"column:is_default;default:false" json:"is_default"`
-	IsPublic      bool      `gorm:"column:is_public;default:false;index" json:"is_public"`       // whether visible in strategy market
-	ConfigVisible bool      `gorm:"column:config_visible;default:true" json:"config_visible"`    // whether config details are visible
+	IsPublic      bool      `gorm:"column:is_public;default:false;index" json:"is_public"`    // whether visible in strategy market
+	ConfigVisible bool      `gorm:"column:config_visible;default:true" json:"config_visible"` // whether config details are visible
 	Config        string    `gorm:"not null;default:'{}'" json:"config"`
 	CreatedAt     time.Time `json:"created_at"`
 	UpdatedAt     time.Time `json:"updated_at"`
@@ -89,7 +89,7 @@ type IndicatorConfig struct {
 	EnableMACD        bool `json:"enable_macd"`
 	EnableRSI         bool `json:"enable_rsi"`
 	EnableATR         bool `json:"enable_atr"`
-	EnableBOLL        bool `json:"enable_boll"`         // Bollinger Bands
+	EnableBOLL        bool `json:"enable_boll"` // Bollinger Bands
 	EnableVolume      bool `json:"enable_volume"`
 	EnableOI          bool `json:"enable_oi"`           // open interest
 	EnableFundingRate bool `json:"enable_funding_rate"` // funding rate
@@ -143,14 +143,18 @@ type KlineConfig struct {
 	EnableMultiTimeframe bool `json:"enable_multi_timeframe"`
 	// selected timeframe list (new: supports multi-timeframe selection)
 	SelectedTimeframes []string `json:"selected_timeframes,omitempty"`
+	// custom K-line counts for each timeframe
+	TimeframeCounts map[string]int `json:"timeframe_counts,omitempty"`
+	// trading style preset ("short", "medium", "long")
+	TradingStylePreset string `json:"trading_style_preset,omitempty"`
 }
 
 // ExternalDataSource external data source configuration
 type ExternalDataSource struct {
-	Name        string            `json:"name"`         // data source name
-	Type        string            `json:"type"`         // type: "api" | "webhook"
-	URL         string            `json:"url"`          // API URL
-	Method      string            `json:"method"`       // HTTP method
+	Name        string            `json:"name"`   // data source name
+	Type        string            `json:"type"`   // type: "api" | "webhook"
+	URL         string            `json:"url"`    // API URL
+	Method      string            `json:"method"` // HTTP method
 	Headers     map[string]string `json:"headers,omitempty"`
 	DataPath    string            `json:"data_path,omitempty"`    // JSON data path
 	RefreshSecs int               `json:"refresh_secs,omitempty"` // refresh interval (seconds)
@@ -182,12 +186,12 @@ type RiskControlConfig struct {
 	MinConfidence int `json:"min_confidence"`
 
 	// Additional risk controls (CODE ENFORCED)
-	MaxDailyTrades              int     `json:"max_daily_trades,omitempty"`              // Maximum trades per day
-	MaxHourlyTrades             int     `json:"max_hourly_trades,omitempty"`             // Maximum trades per hour
-	MaxTradesPerSymbolPerHour   int     `json:"max_trades_per_symbol_per_hour,omitempty"`  // Maximum trades per symbol per hour
-	MinHoldTimeMinutes          int     `json:"min_hold_time_minutes,omitempty"`         // Minimum hold time in minutes
-	MaxLossPerTradePercent      float64 `json:"max_loss_per_trade_percent,omitempty"`    // Maximum loss per trade as percentage
-	DailyLossLimitPercent       float64 `json:"daily_loss_limit_percent,omitempty"`      // Daily loss limit as percentage
+	MaxDailyTrades            int     `json:"max_daily_trades,omitempty"`               // Maximum trades per day
+	MaxHourlyTrades           int     `json:"max_hourly_trades,omitempty"`              // Maximum trades per hour
+	MaxTradesPerSymbolPerHour int     `json:"max_trades_per_symbol_per_hour,omitempty"` // Maximum trades per symbol per hour
+	MinHoldTimeMinutes        int     `json:"min_hold_time_minutes,omitempty"`          // Minimum hold time in minutes
+	MaxLossPerTradePercent    float64 `json:"max_loss_per_trade_percent,omitempty"`     // Maximum loss per trade as percentage
+	DailyLossLimitPercent     float64 `json:"daily_loss_limit_percent,omitempty"`       // Daily loss limit as percentage
 }
 
 // NewStrategyStore creates a new StrategyStore
@@ -230,6 +234,19 @@ func GetDefaultStrategyConfig(lang string) StrategyConfig {
 				LongerCount:          10,
 				EnableMultiTimeframe: true,
 				SelectedTimeframes:   []string{"5m", "15m", "1h", "4h"},
+				TimeframeCounts: map[string]int{
+					"1m":  120,
+					"3m":  120,
+					"5m":  120,
+					"15m": 80,
+					"30m": 60,
+					"1h":  50,
+					"2h":  40,
+					"4h":  30,
+					"1d":  20,
+					"1w":  10,
+				},
+				TradingStylePreset: "short",
 			},
 			EnableRawKlines:   true, // Required - raw OHLCV data for AI analysis
 			EnableEMA:         false,
@@ -264,22 +281,22 @@ func GetDefaultStrategyConfig(lang string) StrategyConfig {
 			PriceRankingLimit:    10,
 		},
 		RiskControl: RiskControlConfig{
-			MaxPositions:                    3,   // Max 3 coins simultaneously (CODE ENFORCED)
-			BTCETHMaxLeverage:               5,   // BTC/ETH exchange leverage (AI guided)
-			AltcoinMaxLeverage:              5,   // Altcoin exchange leverage (AI guided)
-			BTCETHMaxPositionValueRatio:     5.0, // BTC/ETH: max position = 5x equity (CODE ENFORCED)
-			AltcoinMaxPositionValueRatio:    1.0, // Altcoin: max position = 1x equity (CODE ENFORCED)
-			MaxMarginUsage:                  0.9, // Max 90% margin usage (CODE ENFORCED)
-			MinPositionSize:                 12,  // Min 12 USDT per position (CODE ENFORCED)
-			MinRiskRewardRatio:              3.0, // Min 3:1 profit/loss ratio (AI guided)
-			MinConfidence:                   75,  // Min 75% confidence (AI guided)
+			MaxPositions:                 3,   // Max 3 coins simultaneously (CODE ENFORCED)
+			BTCETHMaxLeverage:            5,   // BTC/ETH exchange leverage (AI guided)
+			AltcoinMaxLeverage:           5,   // Altcoin exchange leverage (AI guided)
+			BTCETHMaxPositionValueRatio:  5.0, // BTC/ETH: max position = 5x equity (CODE ENFORCED)
+			AltcoinMaxPositionValueRatio: 1.0, // Altcoin: max position = 1x equity (CODE ENFORCED)
+			MaxMarginUsage:               0.9, // Max 90% margin usage (CODE ENFORCED)
+			MinPositionSize:              12,  // Min 12 USDT per position (CODE ENFORCED)
+			MinRiskRewardRatio:           3.0, // Min 3:1 profit/loss ratio (AI guided)
+			MinConfidence:                75,  // Min 75% confidence (AI guided)
 			// Additional risk controls (CODE ENFORCED)
-			MaxDailyTrades:              10,      // Maximum trades per day
-			MaxHourlyTrades:             3,       // Maximum trades per hour
-			MaxTradesPerSymbolPerHour:   1,       // Maximum trades per symbol per hour
-			MinHoldTimeMinutes:          8,       // Minimum hold time in minutes
-			MaxLossPerTradePercent:      3.0,     // Maximum loss per trade as percentage
-			DailyLossLimitPercent:       2.0,     // Daily loss limit as percentage
+			MaxDailyTrades:            10,  // Maximum trades per day
+			MaxHourlyTrades:           3,   // Maximum trades per hour
+			MaxTradesPerSymbolPerHour: 1,   // Maximum trades per symbol per hour
+			MinHoldTimeMinutes:        8,   // Minimum hold time in minutes
+			MaxLossPerTradePercent:    3.0, // Maximum loss per trade as percentage
+			DailyLossLimitPercent:     2.0, // Daily loss limit as percentage
 		},
 	}
 

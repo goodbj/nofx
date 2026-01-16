@@ -55,6 +55,19 @@ export function IndicatorEditor({
       intraday: { zh: '日内', en: 'Intraday' },
       swing: { zh: '波段', en: 'Swing' },
       position: { zh: '趋势', en: 'Position' },
+      // Multi-timeframe configuration
+      multiTimeframeConfig: { zh: '多周期配置', en: 'Multi-timeframe Config' },
+      quickPreset: { zh: '快速预设', en: 'Quick Preset' },
+      quickPresetDesc: { zh: '按交易风格快速设置各级别K线数量', en: 'Quick set K-line counts by trading style' },
+      timeframeSpecific: { zh: '周期独立设置', en: 'Timeframe Specific' },
+      timeframeSpecificDesc: { zh: '为每个时间周期单独设置K线数量', en: 'Set K-line counts for each timeframe separately' },
+      tradingStyleShort: { zh: '短线交易', en: 'Short-term Trading' },
+      tradingStyleMedium: { zh: '中线波段', en: 'Medium-term Swing' },
+      tradingStyleLong: { zh: '长线投资', en: 'Long-term Investment' },
+      globalSetting: { zh: '全局设置', en: 'Global Setting' },
+      globalSettingDesc: { zh: '为所有时间周期设置统一的K线数量', en: 'Set unified K-line count for all timeframes' },
+      applyToAll: { zh: '应用到全部', en: 'Apply to All' },
+      applyGlobalCount: { zh: '应用到所有选中周期', en: 'Apply to Selected Timeframes' },
 
       // Data types
       rawKlines: { zh: 'OHLCV 原始 K 线', en: 'Raw OHLCV K-lines' },
@@ -187,6 +200,148 @@ export function IndicatorEditor({
   // Check if any NofxOS feature is enabled
   const hasNofxosEnabled = config.enable_quant_data || config.enable_oi_ranking || config.enable_netflow_ranking || config.enable_price_ranking
   const hasApiKey = !!config.nofxos_api_key
+
+  // Helper functions for multi-timeframe configuration
+  const getDefaultTimeframeCounts = (): Record<string, number> => ({
+    '1m': 120,
+    '3m': 120,
+    '5m': 120,
+    '15m': 80,
+    '30m': 60,
+    '1h': 50,
+    '2h': 40,
+    '4h': 30,
+    '6h': 25,
+    '8h': 20,
+    '12h': 15,
+    '1d': 20,
+    '3d': 10,
+    '1w': 10,
+  });
+
+  // Short-term trading preset
+  const getShortTermPreset = (): Record<string, number> => ({
+    '1m': 120,  // Cover ~2 hours
+    '3m': 120,  // Cover ~6 hours
+    '5m': 150,  // Cover ~12.5 hours
+    '15m': 100, // Cover ~25 hours
+    '30m': 80,  // Cover ~2 days
+    '1h': 60,   // Cover ~2.5 days
+    '2h': 40,   // Cover ~3.3 days
+    '4h': 25,   // Cover ~4.2 days
+    '6h': 20,   // Cover ~5 days
+    '8h': 15,   // Cover ~5 days
+    '12h': 10,  // Cover ~5 days
+    '1d': 7,    // Cover ~1 week
+    '3d': 5,    // Cover ~3 weeks
+    '1w': 4,    // Cover ~1 month
+  });
+
+  // Medium-term trading preset
+  const getMediumTermPreset = (): Record<string, number> => ({
+    '1m': 60,   // Cover ~1 hour
+    '3m': 80,   // Cover ~4 hours
+    '5m': 100,  // Cover ~8.3 hours
+    '15m': 120, // Cover ~30 hours
+    '30m': 100, // Cover ~5 days
+    '1h': 80,   // Cover ~3.3 days
+    '2h': 60,   // Cover ~5 days
+    '4h': 60,   // Cover ~10 days
+    '6h': 40,   // Cover ~10 days
+    '8h': 30,   // Cover ~10 days
+    '12h': 20,  // Cover ~10 days
+    '1d': 30,   // Cover ~1 month
+    '3d': 15,   // Cover ~45 days
+    '1w': 12,   // Cover ~3 months
+  });
+
+  // Long-term trading preset
+  const getLongTermPreset = (): Record<string, number> => ({
+    '1m': 30,   // Cover ~30 mins
+    '3m': 40,   // Cover ~2 hours
+    '5m': 60,   // Cover ~5 hours
+    '15m': 80,  // Cover ~20 hours
+    '30m': 60,  // Cover ~3 days
+    '1h': 50,   // Cover ~2 days
+    '2h': 40,   // Cover ~3.3 days
+    '4h': 40,   // Cover ~6.7 days
+    '6h': 30,   // Cover ~7.5 days
+    '8h': 25,   // Cover ~8.3 days
+    '12h': 20,  // Cover ~10 days
+    '1d': 120,  // Cover ~4 months
+    '3d': 60,   // Cover ~6 months
+    '1w': 52,   // Cover ~1 year
+  });
+
+  // Apply trading style preset
+  const applyTradingStylePreset = (style: string) => {
+    if (disabled) return;
+    let newCounts: Record<string, number> = {};
+    
+    switch (style) {
+      case 'short':
+        newCounts = getShortTermPreset();
+        break;
+      case 'medium':
+        newCounts = getMediumTermPreset();
+        break;
+      case 'long':
+        newCounts = getLongTermPreset();
+        break;
+      default:
+        newCounts = getDefaultTimeframeCounts();
+    }
+    
+    onChange({
+      ...config,
+      klines: {
+        ...config.klines,
+        timeframe_counts: newCounts,
+        trading_style_preset: style,
+      },
+    });
+  };
+
+  // Update count for a specific timeframe
+  const updateTimeframeCount = (timeframe: string, count: number) => {
+    if (disabled) return;
+    const currentCounts = config.klines.timeframe_counts || getDefaultTimeframeCounts();
+    const newCounts = { ...currentCounts, [timeframe]: count };
+    
+    onChange({
+      ...config,
+      klines: {
+        ...config.klines,
+        timeframe_counts: newCounts,
+      },
+    });
+  };
+
+  // Get count for a specific timeframe
+  const getTimeframeCount = (timeframe: string): number => {
+    const currentCounts = config.klines.timeframe_counts || getDefaultTimeframeCounts();
+    return currentCounts[timeframe] || 30; // Default to 30 if not set
+  };
+
+  // Apply global count to all selected timeframes
+  const applyGlobalCount = (count: number) => {
+    if (disabled) return;
+    const selectedTimeframes = config.klines.selected_timeframes || [config.klines.primary_timeframe];
+    const currentCounts = config.klines.timeframe_counts || getDefaultTimeframeCounts();
+    const newCounts = { ...currentCounts };
+    
+    selectedTimeframes.forEach(tf => {
+      newCounts[tf] = count;
+    });
+    
+    onChange({
+      ...config,
+      klines: {
+        ...config.klines,
+        timeframe_counts: newCounts,
+      },
+    });
+  };
 
   return (
     <div className="space-y-5">
@@ -643,6 +798,139 @@ export function IndicatorEditor({
                   </div>
                 )
               })}
+            </div>
+          </div>
+
+          {/* Multi-timeframe Configuration */}
+          <div className="mt-4 pt-4 border-t" style={{ borderColor: '#2B3139' }}>
+            <div className="mb-3">
+              <h4 className="text-sm font-medium" style={{ color: '#EAECEF' }}>{t('multiTimeframeConfig')}</h4>
+              <p className="text-[10px]" style={{ color: '#848E9C' }}>{t('timeframesDesc')}</p>
+            </div>
+
+            {/* Quick Preset Selector */}
+            <div className="mb-4">
+              <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-medium" style={{ color: '#EAECEF' }}>{t('quickPreset')}</span>
+                </div>
+              </div>
+              <p className="text-[10px] mb-2" style={{ color: '#5E6673' }}>{t('quickPresetDesc')}</p>
+              
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => applyTradingStylePreset('short')}
+                  disabled={disabled}
+                  className={`px-3 py-1.5 rounded text-xs font-medium transition-all ${config.klines.trading_style_preset === 'short' ? 'ring-2 ring-yellow-500' : ''}`}
+                  style={{
+                    background: config.klines.trading_style_preset === 'short' ? 'rgba(246, 70, 93, 0.2)' : 'rgba(30, 35, 41, 0.8)',
+                    border: config.klines.trading_style_preset === 'short' ? '1px solid #F6465D' : '1px solid #2B3139',
+                    color: config.klines.trading_style_preset === 'short' ? '#F6465D' : '#EAECEF',
+                  }}
+                >
+                  {t('tradingStyleShort')}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => applyTradingStylePreset('medium')}
+                  disabled={disabled}
+                  className={`px-3 py-1.5 rounded text-xs font-medium transition-all ${config.klines.trading_style_preset === 'medium' ? 'ring-2 ring-yellow-500' : ''}`}
+                  style={{
+                    background: config.klines.trading_style_preset === 'medium' ? 'rgba(240, 185, 11, 0.2)' : 'rgba(30, 35, 41, 0.8)',
+                    border: config.klines.trading_style_preset === 'medium' ? '1px solid #F0B90B' : '1px solid #2B3139',
+                    color: config.klines.trading_style_preset === 'medium' ? '#F0B90B' : '#EAECEF',
+                  }}
+                >
+                  {t('tradingStyleMedium')}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => applyTradingStylePreset('long')}
+                  disabled={disabled}
+                  className={`px-3 py-1.5 rounded text-xs font-medium transition-all ${config.klines.trading_style_preset === 'long' ? 'ring-2 ring-yellow-500' : ''}`}
+                  style={{
+                    background: config.klines.trading_style_preset === 'long' ? 'rgba(14, 203, 129, 0.2)' : 'rgba(30, 35, 41, 0.8)',
+                    border: config.klines.trading_style_preset === 'long' ? '1px solid #0ECB81' : '1px solid #2B3139',
+                    color: config.klines.trading_style_preset === 'long' ? '#0ECB81' : '#EAECEF',
+                  }}
+                >
+                  {t('tradingStyleLong')}
+                </button>
+              </div>
+            </div>
+
+            {/* Timeframe-Specific Configuration */}
+            <div className="mb-4">
+              <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-medium" style={{ color: '#EAECEF' }}>{t('timeframeSpecific')}</span>
+                </div>
+              </div>
+              <p className="text-[10px] mb-3" style={{ color: '#5E6673' }}>{t('timeframeSpecificDesc')}</p>
+              
+              <div className="space-y-2 max-h-60 overflow-y-auto pr-2">
+                {allTimeframes.map((tf) => {
+                  const isSelected = selectedTimeframes.includes(tf.value);
+                  if (!isSelected) return null; // Only show selected timeframes
+                  
+                  return (
+                    <div key={`tf-${tf.value}`} className="flex items-center gap-2 p-2 rounded" style={{ background: 'rgba(30, 35, 41, 0.5)', border: '1px solid #2B3139' }}>
+                      <span className="text-xs w-16 flex-shrink-0" style={{ color: categoryColors[tf.category] }}>
+                        {tf.label}
+                      </span>
+                      <span className="text-[10px] flex-shrink-0" style={{ color: '#848E9C' }}>{t('klineCount')}:</span>
+                      <input
+                        type="number"
+                        value={getTimeframeCount(tf.value)}
+                        onChange={(e) => updateTimeframeCount(tf.value, parseInt(e.target.value) || 30)}
+                        disabled={disabled}
+                        min={5}
+                        max={200}
+                        className="w-16 px-2 py-1 rounded text-xs text-center"
+                        style={{ background: '#1E2329', border: '1px solid #2B3139', color: '#EAECEF' }}
+                      />
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Global Setting */}
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-medium" style={{ color: '#EAECEF' }}>{t('globalSetting')}</span>
+                </div>
+              </div>
+              <p className="text-[10px] mb-2" style={{ color: '#5E6673' }}>{t('globalSettingDesc')}</p>
+              
+              <div className="flex items-center gap-2">
+                <span className="text-[10px]" style={{ color: '#848E9C' }}>{t('klineCount')}:</span>
+                <input
+                  type="number"
+                  value={config.klines.primary_count || 30}
+                  onChange={(e) => applyGlobalCount(parseInt(e.target.value) || 30)}
+                  disabled={disabled}
+                  min={10}
+                  max={200}
+                  className="w-20 px-2 py-1 rounded text-xs text-center"
+                  style={{ background: '#1E2329', border: '1px solid #2B3139', color: '#EAECEF' }}
+                />
+                <button
+                  type="button"
+                  onClick={() => applyGlobalCount(config.klines.primary_count || 30)}
+                  disabled={disabled}
+                  className="px-3 py-1 rounded text-xs font-medium transition-all"
+                  style={{
+                    background: 'rgba(96, 165, 250, 0.2)',
+                    border: '1px solid #60a5fa',
+                    color: '#60a5fa',
+                  }}
+                >
+                  {t('applyToAll')}
+                </button>
+              </div>
             </div>
           </div>
         </div>

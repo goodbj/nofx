@@ -247,6 +247,20 @@ func Get(symbol string) (*Data, error) {
 // primaryTimeframe: primary timeframe (used for calculating current indicators), defaults to timeframes[0]
 // count: number of K-lines for each timeframe
 func GetWithTimeframes(symbol string, timeframes []string, primaryTimeframe string, count int) (*Data, error) {
+	// NOTE: This function is deprecated. Use GetWithTimeframesAndCounts instead.
+	// For backward compatibility, we'll use the same count for all timeframes
+	timeframeCounts := make(map[string]int)
+	for _, tf := range timeframes {
+		timeframeCounts[tf] = count
+	}
+	return GetWithTimeframesAndCounts(symbol, timeframes, primaryTimeframe, timeframeCounts)
+}
+
+// GetWithTimeframesAndCounts retrieves market data for specified multiple timeframes with individual counts
+// timeframes: list of timeframes, e.g. ["5m", "15m", "1h", "4h"]
+// primaryTimeframe: primary timeframe (used for calculating current indicators), defaults to timeframes[0]
+// timeframeCounts: map of specific counts for each timeframe
+func GetWithTimeframesAndCounts(symbol string, timeframes []string, primaryTimeframe string, timeframeCounts map[string]int) (*Data, error) {
 	symbol = Normalize(symbol)
 
 	if len(timeframes) == 0 {
@@ -308,6 +322,12 @@ func GetWithTimeframes(symbol string, timeframes []string, primaryTimeframe stri
 			primaryKlines = klines
 		}
 
+		// Get specific count for this timeframe, default to 30 if not specified
+		count, exists := timeframeCounts[tf]
+		if !exists || count <= 0 {
+			count = 30 // default value
+		}
+
 		// Calculate series data for this timeframe (use count from config)
 		seriesData := calculateTimeframeSeries(klines, tf, count)
 		timeframeData[tf] = seriesData
@@ -331,7 +351,7 @@ func GetWithTimeframes(symbol string, timeframes []string, primaryTimeframe stri
 	currentRSI7 := calculateRSI(primaryKlines, 7)
 
 	// Calculate price changes
-	priceChange1h := calculatePriceChangeByBars(primaryKlines, primaryTimeframe, 60) // 1 hour
+	priceChange1h := calculatePriceChangeByBars(primaryKlines, primaryTimeframe, 60)  // 1 hour
 	priceChange4h := calculatePriceChangeByBars(primaryKlines, primaryTimeframe, 240) // 4 hours
 
 	// Get OI data
@@ -1209,4 +1229,62 @@ func ExportCalculateATR(klines []Kline, period int) float64 {
 // ExportCalculateBOLL exports calculateBOLL for testing
 func ExportCalculateBOLL(klines []Kline, period int, multiplier float64) (upper, middle, lower float64) {
 	return calculateBOLL(klines, period, multiplier)
+}
+
+// GetRecommendedTimeframeCounts returns recommended K-line counts based on trading style preset
+func GetRecommendedTimeframeCounts(style string) map[string]int {
+	switch style {
+	case "short": // Short-term trading (scalping/day trading)
+		return map[string]int{
+			"1m":  120,
+			"3m":  120,
+			"5m":  120,
+			"15m": 80,
+			"30m": 60,
+			"1h":  50,
+			"2h":  40,
+			"4h":  30,
+			"1d":  20,
+			"1w":  10,
+		}
+	case "medium": // Medium-term swing trading
+		return map[string]int{
+			"1m":  60,
+			"3m":  60,
+			"5m":  60,
+			"15m": 100,
+			"30m": 80,
+			"1h":  60,
+			"2h":  50,
+			"4h":  50,
+			"1d":  30,
+			"1w":  15,
+		}
+	case "long": // Long-term investing
+		return map[string]int{
+			"1m":  30,
+			"3m":  30,
+			"5m":  30,
+			"15m": 60,
+			"30m": 60,
+			"1h":  50,
+			"2h":  50,
+			"4h":  100,
+			"1d":  200,
+			"1w":  60,
+		}
+	default: // Default to short-term settings
+		return map[string]int{
+			"1m":  120,
+			"3m":  120,
+			"5m":  120,
+			"15m": 80,
+			"30m": 60,
+			"1h":  50,
+			"2h":  40,
+			"4h":  30,
+			"1d":  20,
+			"1w":  10,
+		}
+	}
 }

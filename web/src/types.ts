@@ -538,6 +538,10 @@ export interface KlineConfig {
   enable_multi_timeframe: boolean;
   // 新增：支持选择多个时间周期
   selected_timeframes?: string[];
+  // 新增：自定义各时间周期的K线数量
+  timeframe_counts?: Record<string, number>;
+  // 新增：交易风格预设
+  trading_style_preset?: string;
 }
 
 export interface ExternalDataSource {

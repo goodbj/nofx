@@ -317,19 +317,18 @@ export function CoinSourceEditor({
                 <span className="text-sm text-nofx-text-muted">
                   {t('ai500Limit')}:
                 </span>
-                <select
+                <input
+                  type="number"
+                  min="1"
+                  max="100"
                   value={config.ai500_limit || 10}
                   onChange={(e) =>
                     !disabled &&
                     onChange({ ...config, ai500_limit: parseInt(e.target.value) || 10 })
                   }
                   disabled={disabled}
-                  className="px-3 py-1.5 rounded bg-nofx-bg border border-nofx-gold/20 text-nofx-text"
-                >
-                  {[5, 10, 15, 20, 30, 50].map(n => (
-                    <option key={n} value={n}>{n}</option>
-                  ))}
-                </select>
+                  className="w-20 px-3 py-1.5 rounded bg-nofx-bg border border-nofx-gold/20 text-nofx-text"
+                />
               </div>
             )}
 
@@ -374,19 +373,18 @@ export function CoinSourceEditor({
                 <span className="text-sm text-nofx-text-muted">
                   {t('oiTopLimit')}:
                 </span>
-                <select
+                <input
+                  type="number"
+                  min="1"
+                  max="100"
                   value={config.oi_top_limit || 20}
                   onChange={(e) =>
                     !disabled &&
                     onChange({ ...config, oi_top_limit: parseInt(e.target.value) || 20 })
                   }
                   disabled={disabled}
-                  className="px-3 py-1.5 rounded bg-nofx-bg border border-nofx-gold/20 text-nofx-text"
-                >
-                  {[5, 10, 15, 20, 30, 50].map(n => (
-                    <option key={n} value={n}>{n}</option>
-                  ))}
-                </select>
+                  className="w-20 px-3 py-1.5 rounded bg-nofx-bg border border-nofx-gold/20 text-nofx-text"
+                />
               </div>
             )}
 
