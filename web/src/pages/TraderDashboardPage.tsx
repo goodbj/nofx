@@ -766,20 +766,44 @@ export function TraderDashboardPage({
                                         notify.error(language === 'zh' ? '操作过于频繁，请稍后再试' : 'Action too frequent, please try again later');
                                         return;
                                     }
-                                                                    
+                                                                        
                                     // 检查交易员状态
                                     if (status && !status.is_running) {
                                         notify.error(language === 'zh' ? '交易员未运行，无法手动触发扫盘' : 'Trader is not running, cannot trigger manual scan');
                                         return;
                                     }
-                                                                    
+                                                                        
                                     // 注意：AccountInfo 没有 account_status 字段，跳过此项检查
-                                                                    
+                                                                        
                                     setIsManualDecisionLoading(true);
+                                    const startTime = Date.now();
+                                    notify.info(language === 'zh' ? '正在触发手动扫盘...' : 'Triggering manual scan...');
+                                                                        
                                     try {
                                         const result = await api.triggerDecision(selectedTraderId);
-                                        notify.success(language === 'zh' ? '手动扫盘已触发' : 'Manual scan triggered successfully');
-                                                                        
+                                                                            
+                                        // 计算执行时间
+                                        const endTime = Date.now();
+                                        const executionTime = endTime - startTime;
+                                                                            
+                                        // 检查结果并提供更详细的反馈
+                                        if (result && result.message) {
+                                            // 如果后端返回了执行时间，优先使用后端的时间
+                                            if (result.execution_time_formatted) {
+                                                notify.success(
+                                                    language === 'zh' 
+                                                        ? `手动扫盘已完成！耗时: ${result.execution_time_formatted}` 
+                                                        : `Manual scan completed! Duration: ${result.execution_time_formatted}`
+                                                );
+                                            } else {
+                                                notify.success(
+                                                    language === 'zh' 
+                                                        ? `手动扫盘已成功触发！客户端耗时: ${executionTime}ms` 
+                                                        : `Manual scan triggered successfully! Client duration: ${executionTime}ms`
+                                                );
+                                            }
+                                        }
+                                                                            
                                         // 刷新相关数据
                                         await Promise.all([
                                             mutate(`positions-${selectedTraderId}`),
@@ -787,22 +811,39 @@ export function TraderDashboardPage({
                                             mutate(`decisions-${selectedTraderId}`),
                                             mutate(`position-history-${selectedTraderId}`),
                                         ]);
-                                                                        
+                                                                            
                                         // 设置冷却时间（固定20秒）
                                         const cooldownTime = 20000; // 固定20秒冷却时间
-                                                                        
+                                                                            
                                         setManualScanCooldown(true);
                                         setTimeout(() => {
                                             setManualScanCooldown(false);
                                         }, Math.max(cooldownTime, 10000)); // 最少10秒冷却时间
                                     } catch (error: any) {
+                                        // 计算执行时间（即使失败）
+                                        const endTime = Date.now();
+                                        const executionTime = endTime - startTime;
+                                                                            
                                         console.error('手动扫盘失败:', error);
-                                                                        
-                                        // 检查错误类型，如果是网络连接问题，仍然允许AI分析
-                                        if (error.message.includes('connectex') || error.message.includes('connection failed')) {
+                                                                            
+                                        // 提供更详细的错误反馈
+                                        let errorMessage = error.message || '未知错误';
+                                                                            
+                                        // 检查具体的错误类型
+                                        if (error.message?.includes('already executing')) {
+                                            notify.warning(language === 'zh' ? 'AI决策已在执行中，请等待完成后再试' : 'AI decision is already executing, please wait for completion');
+                                        } else if (error.message?.includes('not running')) {
+                                            notify.error(language === 'zh' ? '交易员未运行，无法执行手动扫盘' : 'Trader is not running, cannot execute manual scan');
+                                        } else if (error.message?.includes('Network error')) {
+                                            notify.error(language === 'zh' ? '网络连接错误，请检查服务是否正常运行' : 'Network connection error, please check if service is running');
+                                        } else if (error.message?.includes('connectex') || error.message?.includes('connection failed')) {
                                             notify.warning(language === 'zh' ? '网络连接问题，但AI分析可能仍在运行' : 'Network connection issue, but AI analysis may still run');
                                         } else {
-                                            notify.error(language === 'zh' ? '手动扫盘失败: ' + error.message : 'Manual scan failed: ' + error.message);
+                                            notify.error(
+                                                language === 'zh' 
+                                                    ? `手动扫盘失败: ${errorMessage} (耗时: ${executionTime}ms)` 
+                                                    : `Manual scan failed: ${errorMessage} (duration: ${executionTime}ms)`
+                                            );
                                         }
                                     } finally {
                                         setIsManualDecisionLoading(false);

@@ -125,6 +125,8 @@ type AutoTrader struct {
 	stopUntil             time.Time
 	isRunning             bool
 	isRunningMutex        sync.RWMutex       // Mutex to protect isRunning flag
+	executionMutex        sync.Mutex         // Mutex to prevent concurrent executions (for manual scans)
+	isExecuting           bool               // Flag to indicate if a decision cycle is currently executing
 	startTime             time.Time          // System start time
 	callCount             int                // AI call count
 	positionFirstSeenTime map[string]int64   // Position first seen time (symbol_side -> timestamp in milliseconds)
@@ -431,7 +433,7 @@ func (at *AutoTrader) Run() error {
 	defer ticker.Stop()
 
 	// Execute immediately on first run
-	if err := at.runCycle(); err != nil {
+	if err := at.runCycleWithExecutionLock(); err != nil {
 		logger.Infof("❌ Execution failed: %v", err)
 	}
 
@@ -446,8 +448,11 @@ func (at *AutoTrader) Run() error {
 
 		select {
 		case <-ticker.C:
-			if err := at.runCycle(); err != nil {
-				logger.Infof("❌ Execution failed: %v", err)
+			if err := at.runCycleWithExecutionLock(); err != nil {
+				// Only log error if it's not because manual scan is in progress
+				if err.Error() != "automatic scan skipped: manual scan in progress" {
+					logger.Infof("❌ Execution failed: %v", err)
+				}
 			}
 		case <-at.stopMonitorCh:
 			logger.Infof("[%s] ⏹ Stop signal received, exiting automatic trading main loop", at.name)
@@ -1017,6 +1022,7 @@ func (at *AutoTrader) ExecuteDecision(d *kernel.Decision) error {
 
 // TriggerDecision triggers a new decision cycle immediately
 func (at *AutoTrader) TriggerDecision() (map[string]interface{}, error) {
+	startTime := time.Now()
 	logger.Infof("🔄 Manual trigger: Starting new decision cycle for %s", at.name)
 
 	// Check if trader is running
@@ -1024,26 +1030,88 @@ func (at *AutoTrader) TriggerDecision() (map[string]interface{}, error) {
 	running := at.isRunning
 	at.isRunningMutex.RUnlock()
 	if !running {
+		logger.Errorf("❌ Trader %s is not running, cannot execute manual trigger", at.name)
 		return nil, fmt.Errorf("trader is not running")
 	}
 
+	logger.Infof("✅ Trader %s is running, acquiring execution mutex", at.name)
+
+	// Acquire execution mutex to prevent concurrent executions
+	at.executionMutex.Lock()
+	// Check if already executing to prevent concurrent runs
+	if at.isExecuting {
+		at.executionMutex.Unlock()
+		logger.Warnf("⚠️ Decision cycle for %s is already executing, please wait for completion", at.name)
+		return nil, fmt.Errorf("decision cycle is already executing, please wait for completion")
+	}
+	// Mark as executing
+	at.isExecuting = true
+	at.executionMutex.Unlock()
+	logger.Infof("🔒 Execution mutex acquired for %s, starting runCycle", at.name)
+
+	// Ensure we reset the executing flag when done
+	defer func() {
+		logger.Infof("🔓 Releasing execution mutex for %s", at.name)
+		at.executionMutex.Lock()
+		at.isExecuting = false
+		at.executionMutex.Unlock()
+	}()
+
+	logger.Infof("🚀 Calling runCycle for manual trigger on %s", at.name)
 	// Call the main decision cycle
 	err := at.runCycle()
+	executionTime := time.Since(startTime)
 	if err != nil {
-		logger.Errorf("❌ Manual trigger decision cycle failed for %s: %v", at.name, err)
+		logger.Errorf("❌ Manual trigger decision cycle failed for %s: %v (took %v)", at.name, err, executionTime)
 		return nil, err
 	}
 
+	logger.Infof("✅ Preparing result for %s after successful runCycle (took %v)", at.name, executionTime)
 	// Return success status and some info
 	result := map[string]interface{}{
-		"success":      true,
-		"timestamp":    time.Now().Unix(),
-		"cycle_number": at.callCount,
-		"message":      "Decision cycle completed successfully",
+		"success":                  true,
+		"timestamp":                time.Now().Unix(),
+		"cycle_number":             at.callCount,
+		"execution_time_ms":        executionTime.Milliseconds(),
+		"execution_time_formatted": executionTime.String(),
+		"message":                  "Decision cycle completed successfully",
 	}
 
-	logger.Infof("✅ Manual trigger decision cycle completed for %s", at.name)
+	logger.Infof("✅ Manual trigger decision cycle completed for %s (took %v)", at.name, executionTime)
 	return result, nil
+}
+
+// runCycleWithExecutionLock runs a decision cycle with execution lock to prevent conflicts with manual scans
+func (at *AutoTrader) runCycleWithExecutionLock() error {
+	startTime := time.Now()
+	// Acquire execution mutex to prevent concurrent executions
+	at.executionMutex.Lock()
+	// Check if already executing to prevent concurrent runs
+	if at.isExecuting {
+		at.executionMutex.Unlock()
+		logger.Infof("⚠️ Automatic scan skipped: manual scan in progress for %s", at.name)
+		return fmt.Errorf("automatic scan skipped: manual scan in progress")
+	}
+	// Mark as executing
+	at.isExecuting = true
+	at.executionMutex.Unlock()
+
+	// Ensure we reset the executing flag when done
+	defer func() {
+		at.executionMutex.Lock()
+		at.isExecuting = false
+		at.executionMutex.Unlock()
+	}()
+
+	// Call the main decision cycle
+	err := at.runCycle()
+	executionTime := time.Since(startTime)
+	if err != nil {
+		logger.Errorf("Automatic scan cycle failed for %s: %v (took %v)", at.name, err, executionTime)
+	} else {
+		logger.Infof("Automatic scan cycle completed for %s (took %v)", at.name, executionTime)
+	}
+	return err
 }
 
 // executeOpenLongWithRecord executes open long position and records detailed information

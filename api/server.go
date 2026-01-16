@@ -452,10 +452,10 @@ type SafeExchangeConfig struct {
 	Enabled               bool   `json:"enabled"`
 	Testnet               bool   `json:"testnet,omitempty"`
 	CustomAPIURL          string `json:"customApiUrl,omitempty"` // Custom API URL for exchange
-	HyperliquidWalletAddr string `json:"hyperliquidWalletAddr"` // Hyperliquid wallet address (not sensitive)
-	AsterUser             string `json:"asterUser"`             // Aster username (not sensitive)
-	AsterSigner           string `json:"asterSigner"`           // Aster signer (not sensitive)
-	LighterWalletAddr     string `json:"lighterWalletAddr"`     // LIGHTER wallet address (not sensitive)
+	HyperliquidWalletAddr string `json:"hyperliquidWalletAddr"`  // Hyperliquid wallet address (not sensitive)
+	AsterUser             string `json:"asterUser"`              // Aster username (not sensitive)
+	AsterSigner           string `json:"asterSigner"`            // Aster signer (not sensitive)
+	LighterWalletAddr     string `json:"lighterWalletAddr"`      // LIGHTER wallet address (not sensitive)
 }
 
 type UpdateModelConfigRequest struct {
@@ -1041,40 +1041,58 @@ func (s *Server) handleExecuteDecision(c *gin.Context) {
 	userID := c.GetString("user_id")
 	traderID := c.Param("id")
 
+	logger.Infof("🔄 Manual scan initiated for trader %s by user %s", traderID, userID)
+
 	// Verify trader belongs to current user
 	_, err := s.store.Trader().GetFullConfig(userID, traderID)
 	if err != nil {
+		logger.Errorf("❌ User %s trying to access trader %s: %v", userID, traderID, err)
 		c.JSON(http.StatusNotFound, gin.H{"error": "Trader does not exist or no access permission"})
 		return
 	}
 
 	trader, err := s.traderManager.GetTrader(traderID)
 	if err != nil {
+		logger.Errorf("❌ Failed to get trader %s from manager: %v", traderID, err)
 		c.JSON(http.StatusNotFound, gin.H{"error": "Trader does not exist"})
 		return
 	}
+
+	logger.Infof("✅ Retrieved trader %s successfully, checking status", trader.GetName())
 
 	// Get trader status to check if it's running
 	status := trader.GetStatus()
 	isRunning, ok := status["is_running"].(bool)
 	if !ok || !isRunning {
+		logger.Errorf("❌ Trader %s is not running (isRunning=%v, ok=%v)", trader.GetName(), isRunning, ok)
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Trader is not running, cannot execute decision"})
 		return
 	}
 
+	logger.Infof("✅ Trader %s is running, proceeding with manual scan", trader.GetName())
+
 	// Trigger decision immediately
 	result, err := trader.TriggerDecision()
 	if err != nil {
-		logger.Errorf("??Failed to trigger decision for trader %s: %v", trader.GetName(), err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to trigger decision"})
+		logger.Errorf("❌ Failed to trigger decision for trader %s: %v", trader.GetName(), err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to trigger decision: " + err.Error()})
 		return
 	}
 
-	logger.Infof("??Manual decision executed successfully for trader %s: %+v", trader.GetName(), result)
-	c.JSON(http.StatusOK, gin.H{
+	logger.Infof("✅ Manual decision executed successfully for trader %s: %+v", trader.GetName(), result)
+	// 将result中的字段直接展开到响应中，确保前端能直接访问执行时间等信息
+	responseData := gin.H{
 		"message": "Decision executed successfully",
-		"result": result,
-	})
+	}
+	// 将result中的所有键值对合并到响应数据中
+	if result != nil {
+		for k, v := range result {
+			responseData[k] = v
+		}
+	} else {
+		responseData["result"] = result
+	}
+	c.JSON(http.StatusOK, responseData)
 }
 
 // handleUpdateTraderPrompt Update trader custom prompt
@@ -3708,4 +3726,3 @@ func (s *Server) handleGetPublicTraderConfig(c *gin.Context) {
 
 	c.JSON(http.StatusOK, result)
 }
-

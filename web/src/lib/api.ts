@@ -787,11 +787,11 @@ export const api = {
   },
 
   // 手动触发AI决策
-  async triggerDecision(traderId: string): Promise<{ message: string; result?: any }> {
+  async triggerDecision(traderId: string): Promise<{ message: string; result?: any; execution_time_ms?: number; execution_time_formatted?: string }> {
     const result = await httpClient.post(
       `${API_BASE}/traders/${traderId}/execute-decision`
     )
-    if (!result.success) throw new Error('手动触发决策失败')
+    if (!result.success) throw new Error(result.message || '手动触发决策失败')
     return result.data!
   },
 }
