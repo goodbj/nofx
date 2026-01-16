@@ -538,6 +538,8 @@ func (s *Server) handlePreviewPrompt(c *gin.Context) {
 		"config_summary": gin.H{
 			"coin_source":      req.Config.CoinSource.SourceType,
 			"primary_tf":       req.Config.Indicators.Klines.PrimaryTimeframe,
+			"primary_count":    req.Config.Indicators.Klines.PrimaryCount,
+			"selected_tfs":     req.Config.Indicators.Klines.SelectedTimeframes,
 			"btc_eth_leverage": req.Config.RiskControl.BTCETHMaxLeverage,
 			"altcoin_leverage": req.Config.RiskControl.AltcoinMaxLeverage,
 			"max_positions":    req.Config.RiskControl.MaxPositions,
@@ -682,9 +684,18 @@ func (s *Server) handleStrategyTestRun(c *gin.Context) {
 				"candidate_count": len(candidates),
 				"candidates":      candidates,
 				"prompt_variant":  req.PromptVariant,
-				"ai_response":     fmt.Sprintf("❌ AI call failed: %s", aiErr.Error()),
-				"ai_error":        aiErr.Error(),
-				"note":            "AI call error",
+				"config_summary": gin.H{
+					"coin_source":      req.Config.CoinSource.SourceType,
+					"primary_tf":       req.Config.Indicators.Klines.PrimaryTimeframe,
+					"primary_count":    req.Config.Indicators.Klines.PrimaryCount,
+					"selected_tfs":     req.Config.Indicators.Klines.SelectedTimeframes,
+					"btc_eth_leverage": req.Config.RiskControl.BTCETHMaxLeverage,
+					"altcoin_leverage": req.Config.RiskControl.AltcoinMaxLeverage,
+					"max_positions":    req.Config.RiskControl.MaxPositions,
+				},
+				"ai_response": fmt.Sprintf("❌ AI call failed: %s", aiErr.Error()),
+				"ai_error":    aiErr.Error(),
+				"note":        "AI call error",
 			})
 			return
 		}
@@ -695,8 +706,17 @@ func (s *Server) handleStrategyTestRun(c *gin.Context) {
 			"candidate_count": len(candidates),
 			"candidates":      candidates,
 			"prompt_variant":  req.PromptVariant,
-			"ai_response":     aiResponse,
-			"note":            "✅ Real AI test run successful",
+			"config_summary": gin.H{
+				"coin_source":      req.Config.CoinSource.SourceType,
+				"primary_tf":       req.Config.Indicators.Klines.PrimaryTimeframe,
+				"primary_count":    req.Config.Indicators.Klines.PrimaryCount,
+				"selected_tfs":     req.Config.Indicators.Klines.SelectedTimeframes,
+				"btc_eth_leverage": req.Config.RiskControl.BTCETHMaxLeverage,
+				"altcoin_leverage": req.Config.RiskControl.AltcoinMaxLeverage,
+				"max_positions":    req.Config.RiskControl.MaxPositions,
+			},
+			"ai_response": aiResponse,
+			"note":        "✅ Real AI test run successful",
 		})
 		return
 	}
@@ -708,8 +728,17 @@ func (s *Server) handleStrategyTestRun(c *gin.Context) {
 		"candidate_count": len(candidates),
 		"candidates":      candidates,
 		"prompt_variant":  req.PromptVariant,
-		"ai_response":     "Please select an AI model and click 'Run Test' to perform real AI analysis.",
-		"note":            "AI model not selected or real AI call not enabled",
+		"config_summary": gin.H{
+			"coin_source":      req.Config.CoinSource.SourceType,
+			"primary_tf":       req.Config.Indicators.Klines.PrimaryTimeframe,
+			"primary_count":    req.Config.Indicators.Klines.PrimaryCount,
+			"selected_tfs":     req.Config.Indicators.Klines.SelectedTimeframes,
+			"btc_eth_leverage": req.Config.RiskControl.BTCETHMaxLeverage,
+			"altcoin_leverage": req.Config.RiskControl.AltcoinMaxLeverage,
+			"max_positions":    req.Config.RiskControl.MaxPositions,
+		},
+		"ai_response": "Please select an AI model and click 'Run Test' to perform real AI analysis.",
+		"note":        "AI model not selected or real AI call not enabled",
 	})
 }
 

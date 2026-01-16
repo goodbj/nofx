@@ -550,46 +550,37 @@ export function AITradersPage({ onTraderSelect }: AITradersPageProps) {
   }
 
   const handleDeleteModelConfig = async (modelId: string) => {
-    await handleDeleteConfig({
-      id: modelId,
-      type: 'model',
-      checkInUse: isModelUsedByAnyTrader,
-      getUsingTraders: getTradersUsingModel,
-      cannotDeleteKey: 'cannotDeleteModelInUse',
-      confirmDeleteKey: 'confirmDeleteModel',
-      allItems: allModels,
-      clearFields: (m) => ({
-        ...m,
-        apiKey: '',
-        customApiUrl: '',
-        customModelName: '',
-        enabled: false,
-      }),
-      buildRequest: (models) => ({
-        models: Object.fromEntries(
-          models.map((model) => [
-            model.provider,
-            {
-              enabled: model.enabled,
-              api_key: model.apiKey || '',
-              custom_api_url: model.customApiUrl || '',
-              custom_model_name: model.customModelName || '',
-            },
-          ])
-        ),
-      }),
-      updateApi: api.updateModelConfigs,
-      refreshApi: api.getModelConfigs,
-      setItems: (items) => {
-        // 使用函数式更新确保状态正确更新
-        setAllModels([...items])
-      },
-      closeModal: () => {
-        setShowModelModal(false)
-        setEditingModel(null)
-      },
-      errorKey: 'deleteConfigFailed',
-    })
+    // 检查是否有交易员正在使用
+    if (isModelUsedByAnyTrader(modelId)) {
+      const usingTraders = getTradersUsingModel(modelId)
+      const traderNames = usingTraders.map((t) => t.trader_name).join(', ')
+      toast.error(
+        `${t('cannotDeleteModelInUse', language)} · ${t('tradersUsing', language)}: ${traderNames} · ${t('pleaseDeleteTradersFirst', language)}`
+      )
+      return
+    }
+
+    // 确认删除
+    const ok = await confirmToast(t('confirmDeleteModel', language))
+    if (!ok) return
+
+    try {
+      await toast.promise(api.deleteModel(modelId), {
+        loading: language === 'zh' ? '正在删除AI模型…' : 'Deleting AI model...',
+        success: language === 'zh' ? 'AI模型已删除' : 'AI model deleted',
+        error: language === 'zh' ? '删除AI模型失败' : 'Failed to delete AI model',
+      })
+
+      // 刷新SWR缓存以确保数据同步
+      await mutate('traders')
+      await mutate('models')
+      
+      setShowModelModal(false)
+      setEditingModel(null)
+    } catch (error) {
+      console.error('Failed to delete model config:', error)
+      toast.error(t('deleteConfigFailed', language))
+    }
   }
 
   const handleSaveModelConfig = async (

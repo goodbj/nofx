@@ -18,16 +18,16 @@ type AIModelStore struct {
 
 // AIModel AI model configuration
 type AIModel struct {
-	ID              string          `gorm:"primaryKey" json:"id"`
-	UserID          string          `gorm:"column:user_id;not null;default:default;index" json:"user_id"`
-	Name            string          `gorm:"not null" json:"name"`
-	Provider        string          `gorm:"not null" json:"provider"`
-	Enabled         bool            `gorm:"default:false" json:"enabled"`
+	ID              string                 `gorm:"primaryKey" json:"id"`
+	UserID          string                 `gorm:"column:user_id;not null;default:default;index" json:"user_id"`
+	Name            string                 `gorm:"not null" json:"name"`
+	Provider        string                 `gorm:"not null" json:"provider"`
+	Enabled         bool                   `gorm:"default:false" json:"enabled"`
 	APIKey          crypto.EncryptedString `gorm:"column:api_key;default:''" json:"apiKey"`
-	CustomAPIURL    string          `gorm:"column:custom_api_url;default:''" json:"customApiUrl"`
-	CustomModelName string          `gorm:"column:custom_model_name;default:''" json:"customModelName"`
-	CreatedAt       time.Time       `json:"created_at"`
-	UpdatedAt       time.Time       `json:"updated_at"`
+	CustomAPIURL    string                 `gorm:"column:custom_api_url;default:''" json:"customApiUrl"`
+	CustomModelName string                 `gorm:"column:custom_model_name;default:''" json:"customModelName"`
+	CreatedAt       time.Time              `json:"created_at"`
+	UpdatedAt       time.Time              `json:"updated_at"`
 }
 
 func (AIModel) TableName() string { return "ai_models" }
@@ -158,27 +158,9 @@ func (s *AIModelStore) Update(userID, id string, enabled bool, apiKey, customAPI
 		return s.db.Model(&existingModel).Updates(updates).Error
 	}
 
-	// Try legacy logic compatibility: use id as provider to search
-	provider := id
-	err = s.db.Where("user_id = ? AND provider = ?", userID, provider).First(&existingModel).Error
-	if err == nil {
-		logger.Warnf("⚠️ Using legacy provider matching to update model: %s -> %s", provider, existingModel.ID)
-		updates := map[string]interface{}{
-			"enabled":           enabled,
-			"custom_api_url":    customAPIURL,
-			"custom_model_name": customModelName,
-			"updated_at":        time.Now().UTC(),
-		}
-		if apiKey != "" {
-			updates["api_key"] = crypto.EncryptedString(apiKey)
-		}
-		return s.db.Model(&existingModel).Updates(updates).Error
-	}
-
 	// Create new record
-	if provider == id && (provider == "deepseek" || provider == "qwen") {
-		provider = id
-	} else {
+	provider := id
+	if id != "" {
 		parts := strings.Split(id, "_")
 		if len(parts) >= 2 {
 			provider = parts[len(parts)-1]
@@ -187,29 +169,37 @@ func (s *AIModelStore) Update(userID, id string, enabled bool, apiKey, customAPI
 		}
 	}
 
-	// Try to get name from existing model with same provider
-	var refModel AIModel
+	// Generate name based on provider
 	var name string
-	if err := s.db.Where("provider = ?", provider).First(&refModel).Error; err == nil {
-		name = refModel.Name
+	if provider == "deepseek" {
+		name = "DeepSeek AI"
+	} else if provider == "qwen" {
+		name = "Qwen AI"
 	} else {
-		if provider == "deepseek" {
-			name = "DeepSeek AI"
-		} else if provider == "qwen" {
-			name = "Qwen AI"
-		} else {
-			name = provider + " AI"
+		name = provider + " AI"
+	}
+
+	// Find the next available number for this name
+	counter := 1
+	for {
+		checkName := name
+		if counter > 1 {
+			checkName = fmt.Sprintf("%s %d", name, counter)
 		}
+		var existingCount int64
+		s.db.Model(&AIModel{}).Where("user_id = ? AND name = ?", userID, checkName).Count(&existingCount)
+		if existingCount == 0 {
+			if counter > 1 {
+				name = fmt.Sprintf("%s %d", name, counter)
+			}
+			break
+		}
+		counter++
 	}
 
-	newModelID := id
-	if id == provider {
-		newModelID = fmt.Sprintf("%s_%s", userID, provider)
-	}
-
-	logger.Infof("✓ Creating new AI model configuration: ID=%s, Provider=%s, Name=%s", newModelID, provider, name)
+	logger.Infof("✓ Creating new AI model configuration: ID=%s, Provider=%s, Name=%s", id, provider, name)
 	newModel := &AIModel{
-		ID:              newModelID,
+		ID:              id,
 		UserID:          userID,
 		Name:            name,
 		Provider:        provider,
@@ -234,4 +224,20 @@ func (s *AIModelStore) Create(userID, id, name, provider string, enabled bool, a
 	}
 	// Use FirstOrCreate to ignore if already exists
 	return s.db.Where("id = ?", id).FirstOrCreate(model).Error
+}
+
+// Delete removes an AI model by ID
+func (s *AIModelStore) Delete(userID, modelID string) error {
+	// Find the model to ensure it belongs to the user
+	var model AIModel
+	err := s.db.Where("user_id = ? AND id = ?", userID, modelID).First(&model).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return fmt.Errorf("model with ID %s not found for user %s", modelID, userID)
+		}
+		return err
+	}
+
+	// Delete the model
+	return s.db.Delete(&model).Error
 }

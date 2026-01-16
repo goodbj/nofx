@@ -6,8 +6,11 @@ import { toast } from 'sonner'
 import { Pencil, Plus, X as IconX, Sparkles, ExternalLink, UserPlus } from 'lucide-react'
 import { httpClient } from '../lib/httpClient'
 
-// 提取下划线后面的名称部分
+// 提取下划线后面的名称部分，如果没有下划线则返回原名称
 function getShortName(fullName: string): string {
+  if (!fullName || typeof fullName !== 'string') {
+    return fullName || ''
+  }
   const parts = fullName.split('_')
   return parts.length > 1 ? parts[parts.length - 1] : fullName
 }

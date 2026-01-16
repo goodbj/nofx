@@ -218,6 +218,12 @@ export const api = {
     if (!result.success) throw new Error('更新模型配置失败')
   },
 
+  // 删除AI模型配置
+  async deleteModel(modelId: string): Promise<void> {
+    const result = await httpClient.delete(`${API_BASE}/models/${modelId}`)
+    if (!result.success) throw new Error('删除AI模型失败')
+  },
+
   // 交易所配置接口
   async getExchangeConfigs(): Promise<Exchange[]> {
     const result = await httpClient.get<Exchange[]>(`${API_BASE}/exchanges`)

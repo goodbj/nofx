@@ -162,6 +162,7 @@ func (s *Server) setupRoutes() {
 			// AI model configuration
 			protected.GET("/models", s.handleGetModelConfigs)
 			protected.PUT("/models", s.handleUpdateModelConfigs)
+			protected.DELETE("/models/:id", s.handleDeleteModelConfig)
 
 			// Exchange configuration
 			protected.GET("/exchanges", s.handleGetExchangeConfigs)
@@ -1804,6 +1805,55 @@ func (s *Server) handleUpdateModelConfigs(c *gin.Context) {
 
 	logger.Infof("??AI model config updated: %+v", req.Models)
 	c.JSON(http.StatusOK, gin.H{"message": "Model configuration updated"})
+}
+
+// handleDeleteModelConfig Delete AI model configuration
+func (s *Server) handleDeleteModelConfig(c *gin.Context) {
+	userID := c.GetString("user_id")
+	modelID := c.Param("id")
+
+	if modelID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Model ID is required"})
+		return
+	}
+
+	// Check if model is being used by any trader
+	traders, err := s.store.Trader().List(userID)
+	if err != nil {
+		SafeInternalError(c, "Failed to get traders", err)
+		return
+	}
+
+	for _, trader := range traders {
+		if trader.AIModelID == modelID {
+			c.JSON(http.StatusConflict, gin.H{
+				"error":  "Cannot delete model that is being used by a trader",
+				"trader": trader.Name,
+			})
+			return
+		}
+	}
+
+	// Delete the model
+	err = s.store.AIModel().Delete(userID, modelID)
+	if err != nil {
+		if strings.Contains(err.Error(), "not found") {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Model not found"})
+			return
+		}
+		SafeInternalError(c, "Failed to delete model", err)
+		return
+	}
+
+	// Reload all traders for this user to make changes take effect immediately
+	err = s.traderManager.LoadUserTradersFromStore(s.store, userID)
+	if err != nil {
+		logger.Infof("?? Failed to reload user traders into memory: %v", err)
+		// Don't return error here since model was successfully deleted from database
+	}
+
+	logger.Infof("??Deleted AI model: id=%s, userID=%s", modelID, userID)
+	c.JSON(http.StatusOK, gin.H{"message": "Model configuration deleted"})
 }
 
 // handleGetExchangeConfigs Get exchange configurations
