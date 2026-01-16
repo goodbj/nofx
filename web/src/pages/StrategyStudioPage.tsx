@@ -281,6 +281,20 @@ export function StrategyStudioPage() {
     return calculateCost(price, inputLength, outputLength);
   };
   
+  // 格式化成本显示，使其更易读
+  const formatCostForDisplay = (cost: number): string => {
+    if (cost >= 1) {
+      // 如果成本大于等于1美元，显示两位小数
+      return cost.toFixed(2);
+    } else if (cost >= 0.01) {
+      // 如果成本大于等于0.01美元，显示四位小数
+      return cost.toFixed(4);
+    } else {
+      // 如果成本小于0.01美元，显示六位小数
+      return cost.toFixed(6);
+    }
+  };
+  
   // 获取成本估算的显示文本（根据配置的显示单位）
   const getCostDisplayText = (modelId: string, inputLength: number, outputLength: number = 0): string => {
     const costUSD = estimateCost(modelId, inputLength, outputLength);
@@ -292,14 +306,139 @@ export function StrategyStudioPage() {
     
     const costCNY = costUSD * exchangeRate;
     
+    // 格式化成本显示，使其更易读
+    const formattedUSD = formatCostForDisplay(costUSD);
+    const formattedCNY = formatCostForDisplay(costCNY);
+    
     switch(displayUnit) {
       case 'USD':
-        return `${t('estimatedCost')}: $${costUSD.toFixed(6)}`;
+        return `${t('estimatedCost')}: $${formattedUSD}`;
       case 'CNY':
-        return `${t('estimatedCost')}: ¥${costCNY.toFixed(6)}`;
+        return `${t('estimatedCost')}: ¥${formattedCNY}`;
       case 'BOTH':
       default:
-        return `${t('estimatedCost')}: $${costUSD.toFixed(6)} (¥${costCNY.toFixed(6)})`;
+        return `${t('estimatedCost')}: $${formattedUSD} (¥${formattedCNY})`;
+    }
+  };
+  
+  // 生成系统提示词用于成本估算
+  const generateSystemPrompt = (): string => {
+    try {
+      if (!editingConfig) return '';
+      
+      // 构建一个简化版的系统提示词用于成本估算
+      const { coin_source, indicators, risk_control, prompt_sections, custom_prompt } = editingConfig;
+      
+      let prompt = "你是一个专业的量化交易AI助手。\n";
+      
+      // 添加币种来源信息
+      if (coin_source) {
+        prompt += `币种来源：${JSON.stringify(coin_source)}\n`;
+      }
+      
+      // 添加技术指标信息
+      if (indicators) {
+        prompt += `技术指标：${JSON.stringify(indicators)}\n`;
+      }
+      
+      // 添加风控参数
+      if (risk_control) {
+        prompt += `风控参数：${JSON.stringify(risk_control)}\n`;
+      }
+      
+      // 添加提示词部分
+      if (prompt_sections) {
+        prompt += `提示词部分：${JSON.stringify(prompt_sections)}\n`;
+      }
+      
+      // 添加自定义提示
+      if (custom_prompt) {
+        prompt += `自定义提示：${custom_prompt}\n`;
+      }
+      
+      prompt += "\n请根据以上配置生成交易决策。";
+      
+      return prompt;
+    } catch (error) {
+      console.error('Error generating system prompt:', error);
+      return '';
+    }
+  };
+  
+  // 优化AI提示词内容，去除冗余信息
+  const optimizePromptContent = (content: string): string => {
+    try {
+      if (!content || typeof content !== 'string') return content;
+      
+      // 移除多余的空白字符和换行
+      let optimized = content.trim();
+      
+      // 替换多个连续的空格为单个空格
+      optimized = optimized.replace(/\s+/g, ' ');
+      
+      // 替换多个连续的换行为单个换行
+      optimized = optimized.replace(/\n\s*\n/g, '\n');
+      
+      // 移除重复的标点符号
+      optimized = optimized.replace(/[.!?]{2,}/g, '.');
+      
+      // 移除不必要的注释标记（如"注意:"、"重要:"等）
+      optimized = optimized.replace(/(注意|重要|提醒|提示)[:：]\s*/g, '');
+      
+      // 移除过于冗长的重复表述
+      const sentences = optimized.split(/[.!?]/);
+      const uniqueSentences: string[] = [];
+      const seenSentences = new Set<string>();
+      
+      for (const sentence of sentences) {
+        const cleanSentence = sentence.trim().toLowerCase();
+        // 忽略太短的句子（可能是标点符号）
+        if (cleanSentence.length < 5) continue;
+        
+        // 如果句子没有重复，则添加
+        if (!seenSentences.has(cleanSentence)) {
+          seenSentences.add(cleanSentence);
+          uniqueSentences.push(sentence.trim());
+        }
+      }
+      
+      optimized = uniqueSentences.join('. ') + '.';
+      
+      return optimized;
+    } catch (error) {
+      console.error('Error optimizing prompt content:', error);
+      // 如果优化过程中出现错误，返回原始内容
+      return content;
+    }
+  };
+  
+  // 估算优化后的成本
+  const estimateOptimizedCost = (modelId: string, originalContent: string): { originalCost: number; optimizedCost: number; savings: number; reductionPercentage: number } => {
+    try {
+      const originalLength = originalContent.length;
+      const optimizedContent = optimizePromptContent(originalContent);
+      const optimizedLength = optimizedContent.length;
+      
+      const originalCost = estimateCost(modelId, originalLength);
+      const optimizedCost = estimateCost(modelId, optimizedLength);
+      const savings = originalCost > optimizedCost ? originalCost - optimizedCost : 0;
+      const reductionPercentage = originalLength > 0 ? ((originalLength - optimizedLength) / originalLength) * 100 : 0;
+      
+      return {
+        originalCost,
+        optimizedCost,
+        savings,
+        reductionPercentage
+      };
+    } catch (error) {
+      console.error('Error estimating optimized cost:', error);
+      // 如果计算过程中出现错误，返回零值
+      return {
+        originalCost: 0,
+        optimizedCost: 0,
+        savings: 0,
+        reductionPercentage: 0
+      };
     }
   };
   
@@ -1344,7 +1483,22 @@ export function StrategyStudioPage() {
                       {/* 成本优化提示 */}
                       {selectedModelId && editingConfig && (
                         <div className="text-xs text-gray-500 dark:text-gray-400">
-                          {t('optimizePromptForCost')}
+                          {(() => {
+                            try {
+                              const samplePrompt = generateSystemPrompt(); // 使用当前策略生成一个样本提示词
+                              if (samplePrompt) {
+                                const costEstimate = estimateOptimizedCost(selectedModelId, samplePrompt);
+                                if (costEstimate.savings > 0) {
+                                  const savingsFormatted = formatCostForDisplay(costEstimate.savings);
+                                  return `${t('potentialSavings')}: ${getCostDisplayText(selectedModelId, 0, Math.round(costEstimate.savings * 1000000))} (${costEstimate.reductionPercentage.toFixed(1)}% reduction)`;
+                                }
+                              }
+                              return `${t('optimizePromptForCost')}`;
+                            } catch (error) {
+                              console.error('Error in cost estimation display:', error);
+                              return `${t('optimizePromptForCost')}`;
+                            }
+                          })()}
                         </div>
                       )}
                     </div>
