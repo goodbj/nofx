@@ -909,7 +909,7 @@ export function TraderDashboardPage({
                                     className="px-3 py-1.5 rounded-lg text-sm font-medium transition-all hover:scale-105 active:scale-95 nofx-glass border border-nofx-gold/30 text-nofx-gold hover:bg-nofx-gold/10"
                                     title="Export decision history to CSV"
                                 >
-                                    📥 Export Decisions
+                                    📥 {t('positionHistory.exportDecisions', language)}
                                 </button>
                                 <button
                                     onClick={() => {
@@ -920,7 +920,7 @@ export function TraderDashboardPage({
                                     className="px-3 py-1.5 rounded-lg text-sm font-medium transition-all hover:scale-105 active:scale-95 nofx-glass border border-nofx-gold/30 text-nofx-gold hover:bg-nofx-gold/10"
                                     title="Export advanced decision history with System/User Prompts and Chain of Thought"
                                 >
-                                    📤 Export Adv. Decisions
+                                    📤 {t('positionHistory.exportAdvancedDecisions', language)}
                                 </button>
                             </div>
                         </div>
@@ -983,7 +983,7 @@ export function TraderDashboardPage({
                                     className="px-4 py-2 rounded-lg font-medium text-sm transition-all hover:scale-105 active:scale-95 nofx-glass border border-nofx-gold/30 text-nofx-gold hover:bg-nofx-gold/10"
                                     title="Export position history to CSV"
                                 >
-                                    📥 Export CSV
+                                    📥 {t('positionHistory.export', language)}
                                 </button>
                             </div>
                         </div>

@@ -774,6 +774,8 @@ export const translations = {
     supporters: 'Supporters',
     strategicInvestment: '(Strategic Investment)',
 
+
+
     // Login Modal
     accessNofxPlatform: 'Access NOFX Platform',
     loginRegisterPrompt:
@@ -1139,6 +1141,11 @@ export const translations = {
       pnl: 'P&L',
       duration: 'Duration',
       closedAt: 'Closed At',
+      export: 'Export',
+      basic: 'Basic',
+      advanced: 'Advanced',
+      exportDecisions: 'Export Decisions',
+      exportAdvancedDecisions: 'Export Advanced',
       refresh: 'Refresh',
       refreshing: 'Refreshing...',
     },
@@ -2288,6 +2295,11 @@ export const translations = {
       pnl: '盈亏',
       duration: '持仓时长',
       closedAt: '平仓时间',
+      export: '导出',
+      basic: '基础',
+      advanced: '高级',
+      exportDecisions: '导出决策',
+      exportAdvancedDecisions: '导出高级',
       refresh: '刷新',
       refreshing: '刷新中...',
     },
