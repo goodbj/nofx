@@ -1,3 +1,20 @@
+export interface SystemConfig {
+  registration_enabled: boolean
+  btc_eth_leverage: number
+  altcoin_leverage: number
+  model_max_tokens: {
+    [key: string]: number
+  }
+  model_pricing?: {
+    [key: string]: {
+      input_price: number;
+      output_price: number;
+    };
+  };
+  cost_display_unit?: string;
+  usd_to_cny_rate?: number;
+}
+
 export interface SystemStatus {
   trader_id: string
   trader_name: string

@@ -13,6 +13,19 @@ var global *Config
 
 // Config is the global configuration (loaded from .env)
 // Only contains truly global config, trading related config is at trader/strategy level
+// ModelPricingConfig holds pricing information for a model
+type ModelPricingConfig struct {
+	InputPrice  float64 // Price per million tokens for input
+	OutputPrice float64 // Price per million tokens for output
+}
+
+// CostDisplayUnit represents the currency unit for cost display
+const (
+	USD  = "USD"
+	CNY  = "CNY"
+	BOTH = "BOTH"
+)
+
 type Config struct {
 	// Service configuration
 	APIServerPort       int
@@ -39,6 +52,16 @@ type Config struct {
 	// Helps us understand product usage and improve the experience
 	// Set EXPERIENCE_IMPROVEMENT=false to disable
 	ExperienceImprovement bool
+
+	// Model token limits configuration
+	ModelMaxTokens map[string]int
+
+	// Model pricing configuration (per million tokens)
+	ModelPricing map[string]ModelPricingConfig
+
+	// Cost display configuration
+	CostDisplayUnit string  // USD, CNY, or BOTH
+	USDCNYRate      float64 // Exchange rate from USD to CNY
 
 	// Market data provider API keys
 	AlpacaAPIKey    string // Alpaca API key for US stocks
@@ -99,6 +122,15 @@ func Init() {
 		cfg.ExperienceImprovement = strings.ToLower(v) != "false"
 	}
 
+	// Load model token limits from environment variables
+	loadModelTokenLimits(cfg)
+
+	// Load model pricing from environment variables
+	loadModelPricing(cfg)
+
+	// Load cost display configuration
+	loadCostDisplayConfig(cfg)
+
 	// Market data provider API keys
 	cfg.AlpacaAPIKey = os.Getenv("ALPACA_API_KEY")
 	cfg.AlpacaSecretKey = os.Getenv("ALPACA_SECRET_KEY")
@@ -145,6 +177,211 @@ func Init() {
 			InputTokens:   usage.PromptTokens,
 			OutputTokens:  usage.CompletionTokens,
 		})
+	}
+}
+
+// Load model token limits from environment variables
+func loadModelTokenLimits(cfg *Config) {
+	// Ensure ModelMaxTokens map is initialized
+	if cfg.ModelMaxTokens == nil {
+		cfg.ModelMaxTokens = make(map[string]int)
+		// Set default values
+		cfg.ModelMaxTokens["deepseek"] = 32768
+		cfg.ModelMaxTokens["gpt-4"] = 128000
+		cfg.ModelMaxTokens["gpt-3.5"] = 16384
+		cfg.ModelMaxTokens["claude"] = 200000
+		cfg.ModelMaxTokens["qwen"] = 32768
+		cfg.ModelMaxTokens["default"] = 4096
+	}
+
+	// Load individual model limits from environment variables
+	if v := os.Getenv("MODEL_MAX_TOKENS_DEEPSEEK"); v != "" {
+		if limit, err := strconv.Atoi(v); err == nil && limit > 0 {
+			cfg.ModelMaxTokens["deepseek"] = limit
+		}
+	}
+	if v := os.Getenv("MODEL_MAX_TOKENS_GPT4"); v != "" {
+		if limit, err := strconv.Atoi(v); err == nil && limit > 0 {
+			cfg.ModelMaxTokens["gpt-4"] = limit
+		}
+	}
+	if v := os.Getenv("MODEL_MAX_TOKENS_GPT35"); v != "" {
+		if limit, err := strconv.Atoi(v); err == nil && limit > 0 {
+			cfg.ModelMaxTokens["gpt-3.5"] = limit
+		}
+	}
+	if v := os.Getenv("MODEL_MAX_TOKENS_CLAUDE"); v != "" {
+		if limit, err := strconv.Atoi(v); err == nil && limit > 0 {
+			cfg.ModelMaxTokens["claude"] = limit
+		}
+	}
+	if v := os.Getenv("MODEL_MAX_TOKENS_QWEN"); v != "" {
+		if limit, err := strconv.Atoi(v); err == nil && limit > 0 {
+			cfg.ModelMaxTokens["qwen"] = limit
+		}
+	}
+	if v := os.Getenv("MODEL_MAX_TOKENS_DEFAULT"); v != "" {
+		if limit, err := strconv.Atoi(v); err == nil && limit > 0 {
+			cfg.ModelMaxTokens["default"] = limit
+		}
+	}
+}
+
+// Load cost display configuration
+func loadCostDisplayConfig(cfg *Config) {
+	// Load cost display unit
+	if v := os.Getenv("COST_DISPLAY_UNIT"); v != "" {
+		unit := strings.ToUpper(strings.TrimSpace(v))
+		switch unit {
+		case USD, CNY, BOTH:
+			cfg.CostDisplayUnit = unit
+		default:
+			cfg.CostDisplayUnit = BOTH // Default to BOTH
+		}
+	} else {
+		cfg.CostDisplayUnit = BOTH // Default to BOTH
+	}
+
+	// Load exchange rate
+	if v := os.Getenv("USD_TO_CNY_RATE"); v != "" {
+		if rate, err := strconv.ParseFloat(v, 64); err == nil && rate > 0 {
+			cfg.USDCNYRate = rate
+		} else {
+			cfg.USDCNYRate = 7.2 // Default rate
+		}
+	} else {
+		cfg.USDCNYRate = 7.2 // Default rate
+	}
+}
+
+// Load model pricing from environment variables
+func loadModelPricing(cfg *Config) {
+	// Ensure ModelPricing map is initialized
+	if cfg.ModelPricing == nil {
+		cfg.ModelPricing = make(map[string]ModelPricingConfig)
+		// Set default values
+		cfg.ModelPricing["qwen-max"] = ModelPricingConfig{InputPrice: 2.40, OutputPrice: 9.60}
+		cfg.ModelPricing["qwen-plus"] = ModelPricingConfig{InputPrice: 1.00, OutputPrice: 4.00}
+		cfg.ModelPricing["gpt-4o"] = ModelPricingConfig{InputPrice: 2.50, OutputPrice: 10.00}
+		cfg.ModelPricing["gpt-4omini"] = ModelPricingConfig{InputPrice: 0.15, OutputPrice: 0.60}
+		cfg.ModelPricing["claude-sonnet"] = ModelPricingConfig{InputPrice: 3.00, OutputPrice: 15.00}
+		cfg.ModelPricing["deepseek"] = ModelPricingConfig{InputPrice: 0.20, OutputPrice: 0.80}
+		cfg.ModelPricing["ernie"] = ModelPricingConfig{InputPrice: 0.08, OutputPrice: 0.20}
+		cfg.ModelPricing["default"] = ModelPricingConfig{InputPrice: 0.50, OutputPrice: 2.00}
+	}
+
+	// Load individual model pricing from environment variables
+	if v := os.Getenv("MODEL_PRICE_QWEN_MAX_INPUT"); v != "" {
+		if price, err := strconv.ParseFloat(v, 64); err == nil && price >= 0 {
+			pricing := cfg.ModelPricing["qwen-max"]
+			pricing.InputPrice = price
+			cfg.ModelPricing["qwen-max"] = pricing
+		}
+	}
+	if v := os.Getenv("MODEL_PRICE_QWEN_MAX_OUTPUT"); v != "" {
+		if price, err := strconv.ParseFloat(v, 64); err == nil && price >= 0 {
+			pricing := cfg.ModelPricing["qwen-max"]
+			pricing.OutputPrice = price
+			cfg.ModelPricing["qwen-max"] = pricing
+		}
+	}
+	if v := os.Getenv("MODEL_PRICE_QWEN_PLUS_INPUT"); v != "" {
+		if price, err := strconv.ParseFloat(v, 64); err == nil && price >= 0 {
+			pricing := cfg.ModelPricing["qwen-plus"]
+			pricing.InputPrice = price
+			cfg.ModelPricing["qwen-plus"] = pricing
+		}
+	}
+	if v := os.Getenv("MODEL_PRICE_QWEN_PLUS_OUTPUT"); v != "" {
+		if price, err := strconv.ParseFloat(v, 64); err == nil && price >= 0 {
+			pricing := cfg.ModelPricing["qwen-plus"]
+			pricing.OutputPrice = price
+			cfg.ModelPricing["qwen-plus"] = pricing
+		}
+	}
+	if v := os.Getenv("MODEL_PRICE_GPT4O_INPUT"); v != "" {
+		if price, err := strconv.ParseFloat(v, 64); err == nil && price >= 0 {
+			pricing := cfg.ModelPricing["gpt-4o"]
+			pricing.InputPrice = price
+			cfg.ModelPricing["gpt-4o"] = pricing
+		}
+	}
+	if v := os.Getenv("MODEL_PRICE_GPT4O_OUTPUT"); v != "" {
+		if price, err := strconv.ParseFloat(v, 64); err == nil && price >= 0 {
+			pricing := cfg.ModelPricing["gpt-4o"]
+			pricing.OutputPrice = price
+			cfg.ModelPricing["gpt-4o"] = pricing
+		}
+	}
+	if v := os.Getenv("MODEL_PRICE_GPT4OMINI_INPUT"); v != "" {
+		if price, err := strconv.ParseFloat(v, 64); err == nil && price >= 0 {
+			pricing := cfg.ModelPricing["gpt-4omini"]
+			pricing.InputPrice = price
+			cfg.ModelPricing["gpt-4omini"] = pricing
+		}
+	}
+	if v := os.Getenv("MODEL_PRICE_GPT4OMINI_OUTPUT"); v != "" {
+		if price, err := strconv.ParseFloat(v, 64); err == nil && price >= 0 {
+			pricing := cfg.ModelPricing["gpt-4omini"]
+			pricing.OutputPrice = price
+			cfg.ModelPricing["gpt-4omini"] = pricing
+		}
+	}
+	if v := os.Getenv("MODEL_PRICE_CLAUDE_SONNET_INPUT"); v != "" {
+		if price, err := strconv.ParseFloat(v, 64); err == nil && price >= 0 {
+			pricing := cfg.ModelPricing["claude-sonnet"]
+			pricing.InputPrice = price
+			cfg.ModelPricing["claude-sonnet"] = pricing
+		}
+	}
+	if v := os.Getenv("MODEL_PRICE_CLAUDE_SONNET_OUTPUT"); v != "" {
+		if price, err := strconv.ParseFloat(v, 64); err == nil && price >= 0 {
+			pricing := cfg.ModelPricing["claude-sonnet"]
+			pricing.OutputPrice = price
+			cfg.ModelPricing["claude-sonnet"] = pricing
+		}
+	}
+	if v := os.Getenv("MODEL_PRICE_DEEPSEEK_INPUT"); v != "" {
+		if price, err := strconv.ParseFloat(v, 64); err == nil && price >= 0 {
+			pricing := cfg.ModelPricing["deepseek"]
+			pricing.InputPrice = price
+			cfg.ModelPricing["deepseek"] = pricing
+		}
+	}
+	if v := os.Getenv("MODEL_PRICE_DEEPSEEK_OUTPUT"); v != "" {
+		if price, err := strconv.ParseFloat(v, 64); err == nil && price >= 0 {
+			pricing := cfg.ModelPricing["deepseek"]
+			pricing.OutputPrice = price
+			cfg.ModelPricing["deepseek"] = pricing
+		}
+	}
+	if v := os.Getenv("MODEL_PRICE_WENXIN_ERINIE35_INPUT"); v != "" {
+		if price, err := strconv.ParseFloat(v, 64); err == nil && price >= 0 {
+			pricing := cfg.ModelPricing["ernie"]
+			pricing.InputPrice = price
+			cfg.ModelPricing["ernie"] = pricing
+		}
+	}
+	if v := os.Getenv("MODEL_PRICE_WENXIN_ERINIE35_OUTPUT"); v != "" {
+		if price, err := strconv.ParseFloat(v, 64); err == nil && price >= 0 {
+			pricing := cfg.ModelPricing["ernie"]
+			pricing.OutputPrice = price
+			cfg.ModelPricing["ernie"] = pricing
+		}
+	}
+	if v := os.Getenv("MODEL_PRICE_DEFAULT_INPUT"); v != "" {
+		if price, err := strconv.ParseFloat(v, 64); err == nil && price >= 0 {
+			pricing := cfg.ModelPricing["default"]
+			pricing.InputPrice = price
+			cfg.ModelPricing["default"] = pricing
+		}
+	}
+	if v := os.Getenv("MODEL_PRICE_DEFAULT_OUTPUT"); v != "" {
+		if price, err := strconv.ParseFloat(v, 64); err == nil && price >= 0 {
+			pricing := cfg.ModelPricing["default"]
+			pricing.OutputPrice = price
+			cfg.ModelPricing["default"] = pricing
+		}
 	}
 }
 

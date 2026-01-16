@@ -29,8 +29,10 @@ import {
   Download,
   Upload,
   Globe,
+  Clipboard,
+  ClipboardCheck,
 } from 'lucide-react'
-import type { Strategy, StrategyConfig, AIModel } from '../types'
+import type { Strategy, StrategyConfig, AIModel, SystemConfig } from '../types'
 import { confirmToast, notify } from '../lib/notify'
 import { CoinSourceEditor } from '../components/strategy/CoinSourceEditor'
 import { IndicatorEditor } from '../components/strategy/IndicatorEditor'
@@ -56,6 +58,9 @@ export function StrategyStudioPage() {
   // AI Models for test run
   const [aiModels, setAiModels] = useState<AIModel[]>([])
   const [selectedModelId, setSelectedModelId] = useState<string>('')
+  
+  // System configuration for model token limits
+  const [systemConfig, setSystemConfig] = useState<SystemConfig | null>(null)
 
   // Accordion states for left panel
   const [expandedSections, setExpandedSections] = useState({
@@ -89,6 +94,231 @@ export function StrategyStudioPage() {
     duration_ms?: number
   } | null>(null)
   const [isRunningAiTest, setIsRunningAiTest] = useState(false)
+  const [copiedStates, setCopiedStates] = useState<Record<string, boolean>>({})
+
+  // 获取AI模型的最大token限制
+  const getMaxTokensForModel = (modelId: string): number => {
+    console.log('getMaxTokensForModel called with modelId:', modelId);
+    console.log('Current systemConfig:', systemConfig);
+    console.log('Current aiModels:', aiModels);
+    
+    const model = aiModels.find(m => m.id === modelId)
+    if (!model) {
+      console.log('Model not found, returning default');
+      return systemConfig?.model_max_tokens?.default || 4096 // 默认值
+    }
+    
+    console.log('Found model:', model);
+    
+    // 根据系统配置中的模型token限制
+    if (systemConfig?.model_max_tokens) {
+      // 检查模型名称中是否包含特定关键词
+      const modelNameLower = model.name.toLowerCase()
+      
+      if (modelNameLower.includes('deepseek')) {
+        const result = systemConfig.model_max_tokens['deepseek'] || 32768;
+        console.log('DeepSeek model, returning:', result);
+        return result;
+      } else if (modelNameLower.includes('gpt-4')) {
+        const result = systemConfig.model_max_tokens['gpt-4'] || 128000;
+        console.log('GPT-4 model, returning:', result);
+        return result;
+      } else if (modelNameLower.includes('gpt-3.5')) {
+        const result = systemConfig.model_max_tokens['gpt-3.5'] || 16384;
+        console.log('GPT-3.5 model, returning:', result);
+        return result;
+      } else if (modelNameLower.includes('claude')) {
+        const result = systemConfig.model_max_tokens['claude'] || 200000;
+        console.log('Claude model, returning:', result);
+        return result;
+      } else if (modelNameLower.includes('qwen')) {
+        const result = systemConfig.model_max_tokens['qwen'] || 32768;
+        console.log('Qwen model, returning:', result);
+        return result;
+      }
+    }
+    
+    // 如果没有找到特定配置，使用默认值
+    const defaultValue = systemConfig?.model_max_tokens?.['default'] || 4096;
+    console.log('Returning default value:', defaultValue);
+    return defaultValue;
+  }
+
+  // 估算AI模型调用成本
+  const estimateCost = (modelId: string, inputLength: number, outputLength: number = 0): number => {
+    console.log('estimateCost called with modelId:', modelId, 'inputLength:', inputLength, 'outputLength:', outputLength);
+    const model = aiModels.find(m => m.id === modelId)
+    if (!model) {
+      console.log('Model not found for cost estimation');
+      return 0
+    }
+    
+    console.log('Found model for cost estimation:', model);
+    console.log('Current systemConfig:', systemConfig);
+    
+    // 使用从后端获取的模型定价信息
+    const modelPricing = systemConfig?.model_pricing;
+    if (!modelPricing) {
+      console.log('Model pricing not available, using fallback');
+      // 如果定价信息不可用，使用默认定价
+      return calculateFallbackCost(model.name, inputLength, outputLength);
+    }
+    
+    // 根据模型名称匹配定价
+    const lowerModelName = model.name.toLowerCase();
+    let matchedPricing = null;
+    
+    // 精确匹配
+    if (modelPricing[lowerModelName]) {
+      matchedPricing = modelPricing[lowerModelName];
+    } else {
+      // 模糊匹配
+      const availableKeys = Object.keys(modelPricing);
+      for (const key of availableKeys) {
+        if (lowerModelName.includes(key) || key.includes(lowerModelName)) {
+          matchedPricing = modelPricing[key];
+          break;
+        }
+      }
+    }
+    
+    console.log('Matched pricing for model:', matchedPricing);
+    
+    if (matchedPricing) {
+      // 定价是每百万tokens的价格，需要转换为每千tokens的价格
+      const pricePerThousandInput = matchedPricing.input_price / 1000;
+      const pricePerThousandOutput = matchedPricing.output_price / 1000;
+      
+      console.log('Using matched pricing - input:', pricePerThousandInput, 'output:', pricePerThousandOutput);
+      return calculateCost({ input: pricePerThousandInput, output: pricePerThousandOutput }, inputLength, outputLength);
+    } else {
+      console.log('No pricing found, using fallback');
+      return calculateFallbackCost(model.name, inputLength, outputLength);
+    }
+  }
+  
+  // 辅助函数：计算成本
+  const calculateCost = (price: { input: number; output: number }, inputLength: number, outputLength: number): number => {
+    // 将字符数粗略转换为token数（通常1 token ≈ 4 characters）
+    const inputTokens = Math.ceil(inputLength / 4)
+    const outputTokens = Math.ceil(outputLength / 4)
+    console.log('Calculated tokens - input:', inputTokens, 'output:', outputTokens);
+    
+    // 计算成本
+    const inputCost = (inputTokens / 1000) * price.input;
+    const outputCost = (outputTokens / 1000) * price.output;
+    const totalCost = inputCost + outputCost;
+    console.log('Calculated cost - input:', inputCost, 'output:', outputCost, 'total:', totalCost);
+    
+    return totalCost;
+  };
+  
+  // 备用成本计算函数
+  const calculateFallbackCost = (modelName: string, inputLength: number, outputLength: number): number => {
+    // 这里使用一些典型的模型定价（每1000 tokens的价格）
+    const pricing: Record<string, { input: number; output: number }> = {
+      'gpt-3.5-turbo': { input: 0.0005, output: 0.0015 }, // $0.5/1M tokens 输入, $1.5/1M tokens 输出
+      'gpt-4': { input: 0.03, output: 0.06 }, // $30/1M tokens 输入, $60/1M tokens 输出
+      'gpt-4-turbo': { input: 0.01, output: 0.03 }, // $10/1M tokens 输入, $30/1M tokens 输出
+      'gpt-4o': { input: 0.01, output: 0.03 }, // $10/1M tokens 输入, $30/1M tokens 输出
+      'gpt-4omini': { input: 0.0006, output: 0.0018 }, // $0.6/1M tokens 输入, $1.8/1M tokens 输出
+      'claude-3-haiku': { input: 0.00025, output: 0.00125 }, // $0.25/1M tokens 输入, $1.25/1M tokens 输出
+      'claude-3-sonnet': { input: 0.003, output: 0.015 }, // $3/1M tokens 输入, $15/1M tokens 输出
+      'claude-3-opus': { input: 0.015, output: 0.075 }, // $15/1M tokens 输入, $75/1M tokens 输出
+      'gemini-pro': { input: 0.000125, output: 0.000375 }, // $0.125/1M tokens 输入, $0.375/1M tokens 输出
+      'gemini-flash': { input: 0.00005, output: 0.00015 }, // $0.05/1M tokens 输入, $0.15/1M tokens 输出
+      'deepseek': { input: 0.0001, output: 0.0002 }, // $0.1/1M tokens 输入, $0.2/1M tokens 输出
+      'deepseek-coder': { input: 0.0001, output: 0.0002 }, // $0.1/1M tokens 输入, $0.2/1M tokens 输出
+      'qwen-max': { input: 0.0005, output: 0.002 }, // $0.5/1M tokens 输入, $2/1M tokens 输出
+      'qwen-plus': { input: 0.0004, output: 0.0016 }, // $0.4/1M tokens 输入, $1.6/1M tokens 输出
+      'qwen-turbo': { input: 0.0001, output: 0.0002 }, // $0.1/1M tokens 输入, $0.2/1M tokens 输出
+    };
+    
+    // 根据模型名称匹配定价
+    const modelKey = Object.keys(pricing).find(key => 
+      modelName.toLowerCase().includes(key.toLowerCase()) || 
+      key.toLowerCase().includes(modelName.toLowerCase())
+    );
+    
+    if (!modelKey) {
+      // 尝试使用通用匹配
+      const lowerModelName = modelName.toLowerCase();
+      if (lowerModelName.includes('gpt-4')) {
+        return calculateCost(pricing['gpt-4'], inputLength, outputLength);
+      } else if (lowerModelName.includes('gpt-3.5')) {
+        return calculateCost(pricing['gpt-3.5-turbo'], inputLength, outputLength);
+      } else if (lowerModelName.includes('claude')) {
+        if (lowerModelName.includes('opus')) {
+          return calculateCost(pricing['claude-3-opus'], inputLength, outputLength);
+        } else if (lowerModelName.includes('sonnet')) {
+          return calculateCost(pricing['claude-3-sonnet'], inputLength, outputLength);
+        } else {
+          return calculateCost(pricing['claude-3-haiku'], inputLength, outputLength);
+        }
+      } else if (lowerModelName.includes('gemini')) {
+        if (lowerModelName.includes('flash')) {
+          return calculateCost(pricing['gemini-flash'], inputLength, outputLength);
+        } else {
+          return calculateCost(pricing['gemini-pro'], inputLength, outputLength);
+        }
+      } else if (lowerModelName.includes('deepseek')) {
+        return calculateCost(pricing['deepseek'], inputLength, outputLength);
+      } else if (lowerModelName.includes('qwen')) {
+        if (lowerModelName.includes('max')) {
+          return calculateCost(pricing['qwen-max'], inputLength, outputLength);
+        } else if (lowerModelName.includes('plus')) {
+          return calculateCost(pricing['qwen-plus'], inputLength, outputLength);
+        } else {
+          return calculateCost(pricing['qwen-turbo'], inputLength, outputLength);
+        }
+      }
+      
+      // 如果还是找不到，返回0
+      return 0;
+    }
+    
+    const price = pricing[modelKey];
+    return calculateCost(price, inputLength, outputLength);
+  };
+  
+  // 获取成本估算的显示文本（根据配置的显示单位）
+  const getCostDisplayText = (modelId: string, inputLength: number, outputLength: number = 0): string => {
+    const costUSD = estimateCost(modelId, inputLength, outputLength);
+    if (costUSD <= 0) return '';
+    
+    // 从系统配置获取显示单位和汇率
+    const displayUnit = systemConfig?.cost_display_unit || 'BOTH';
+    const exchangeRate = systemConfig?.usd_to_cny_rate || 7.2;
+    
+    const costCNY = costUSD * exchangeRate;
+    
+    switch(displayUnit) {
+      case 'USD':
+        return `${t('estimatedCost')}: $${costUSD.toFixed(6)}`;
+      case 'CNY':
+        return `${t('estimatedCost')}: ¥${costCNY.toFixed(6)}`;
+      case 'BOTH':
+      default:
+        return `${t('estimatedCost')}: $${costUSD.toFixed(6)} (¥${costCNY.toFixed(6)})`;
+    }
+  };
+  
+  
+  
+
+
+  // 复制到剪贴板的函数
+  const copyToClipboard = async (text: string, type: string) => {
+    try {
+      await navigator.clipboard.writeText(text)
+      setCopiedStates(prev => ({ ...prev, [type]: true }))
+      setTimeout(() => {
+        setCopiedStates(prev => ({ ...prev, [type]: false }))
+      }, 2000) // 2秒后重置图标
+    } catch (err) {
+      console.error('Failed to copy text: ', err)
+    }
+  }
 
   const toggleSection = (section: keyof typeof expandedSections) => {
     setExpandedSections((prev) => ({
@@ -96,6 +326,71 @@ export function StrategyStudioPage() {
       [section]: !prev[section],
     }))
   }
+
+  // Fetch system configuration
+  const fetchSystemConfig = useCallback(async () => {
+    try {
+      console.log('Fetching system configuration...')
+      const response = await fetch(`${API_BASE}/api/system-config`)
+      if (response.ok) {
+        const data = await response.json()
+        console.log('Received system configuration:', data)
+        setSystemConfig(data)
+      } else {
+        console.error('Failed to fetch system config:', response.status, response.statusText)
+        // 设置默认配置以防获取失败
+        setSystemConfig({
+          registration_enabled: true,
+          btc_eth_leverage: 10,
+          altcoin_leverage: 5,
+          model_max_tokens: {
+            'deepseek': 32768,
+            'gpt-4': 128000,
+            'gpt-3.5': 16384,
+            'claude': 200000,
+            'qwen': 32768,
+            'default': 4096,
+          },
+          model_pricing: {
+            'qwen-max': { input_price: 2.40, output_price: 9.60 },
+            'qwen-plus': { input_price: 1.00, output_price: 4.00 },
+            'gpt-4o': { input_price: 2.50, output_price: 10.00 },
+            'gpt-4omini': { input_price: 0.15, output_price: 0.60 },
+            'claude-sonnet': { input_price: 3.00, output_price: 15.00 },
+            'deepseek': { input_price: 0.20, output_price: 0.80 },
+            'ernie': { input_price: 0.08, output_price: 0.20 },
+            'default': { input_price: 0.50, output_price: 2.00 },
+          }
+        })
+      }
+    } catch (err) {
+      console.error('Error fetching system configuration:', err)
+      // 设置默认配置以防获取失败
+      setSystemConfig({
+        registration_enabled: true,
+        btc_eth_leverage: 10,
+        altcoin_leverage: 5,
+        model_max_tokens: {
+          'deepseek': 32768,
+          'gpt-4': 128000,
+          'gpt-3.5': 16384,
+          'claude': 200000,
+          'qwen': 32768,
+          'default': 4096,
+        },
+        model_pricing: {
+          'qwen-max': { input_price: 2.40, output_price: 9.60 },
+          'qwen-plus': { input_price: 1.00, output_price: 4.00 },
+          'gpt-4o': { input_price: 2.50, output_price: 10.00 },
+          'gpt-4omini': { input_price: 0.15, output_price: 0.60 },
+          'claude-sonnet': { input_price: 3.00, output_price: 15.00 },
+          'deepseek': { input_price: 0.20, output_price: 0.80 },
+          'ernie': { input_price: 0.08, output_price: 0.20 },
+          'default': { input_price: 0.50, output_price: 2.00 },
+        }
+      })
+    }
+  }, [])
 
   // Fetch AI Models
   const fetchAiModels = useCallback(async () => {
@@ -147,9 +442,10 @@ export function StrategyStudioPage() {
   }, [token])
 
   useEffect(() => {
+    fetchSystemConfig()
     fetchStrategies()
     fetchAiModels()
-  }, [fetchStrategies, fetchAiModels])
+  }, [fetchSystemConfig, fetchStrategies, fetchAiModels])
 
   // Track previous language to detect actual changes
   const prevLanguageRef = useRef(language)
@@ -1026,23 +1322,32 @@ export function StrategyStudioPage() {
                       <option value="aggressive">{t('aggressive')}</option>
                       <option value="conservative">{t('conservative')}</option>
                     </select>
-                    <button
-                      onClick={runAiTest}
-                      disabled={isRunningAiTest || !editingConfig || !selectedModelId}
-                      className="flex-1 flex items-center justify-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all disabled:opacity-50 text-white shadow-lg shadow-green-500/20 bg-gradient-to-br from-green-500 to-green-600"
-                    >
-                      {isRunningAiTest ? (
-                        <>
-                          <Loader2 className="w-4 h-4 animate-spin" />
-                          {t('running')}
-                        </>
-                      ) : (
-                        <>
-                          <Send className="w-4 h-4" />
-                          {t('runTest')}
-                        </>
+                    <div className="flex-1 space-y-2">
+                      <button
+                        onClick={runAiTest}
+                        disabled={isRunningAiTest || !editingConfig || !selectedModelId}
+                        className="w-full flex items-center justify-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all disabled:opacity-50 text-white shadow-lg shadow-green-500/20 bg-gradient-to-br from-green-500 to-green-600"
+                      >
+                        {isRunningAiTest ? (
+                          <>
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                            {t('running')}
+                          </>
+                        ) : (
+                          <>
+                            <Send className="w-4 h-4" />
+                            {t('runTest')}
+                          </>
+                        )}
+                      </button>
+                                    
+                      {/* 成本优化提示 */}
+                      {selectedModelId && editingConfig && (
+                        <div className="text-xs text-gray-500 dark:text-gray-400">
+                          {t('optimizePromptForCost')}
+                        </div>
                       )}
-                    </button>
+                    </div>
                   </div>
                   <p className="text-[10px] text-nofx-text-muted">{t('testNote')}</p>
                 </div>
@@ -1057,75 +1362,236 @@ export function StrategyStudioPage() {
                     ) : (
                       <>
                         {aiTestResult.duration_ms && (
-                          <div className="flex items-center gap-2">
-                            <Clock className="w-3 h-3 text-nofx-text-muted" />
-                            <span className="text-xs text-nofx-text-muted">
-                              {t('duration')}: {(aiTestResult.duration_ms / 1000).toFixed(2)}s
-                            </span>
+                          <div className="flex items-center gap-3 p-2 rounded-lg bg-nofx-bg/50 border border-nofx-gold/30">
+                            <div className="flex items-center gap-1">
+                              <Clock className="w-3 h-3 text-nofx-gold" />
+                              <span className="text-xs text-nofx-text">
+                                {t('duration')}: {(aiTestResult.duration_ms / 1000).toFixed(2)}s
+                              </span>
+                            </div>
+                            <div className="h-4 w-px bg-nofx-border"></div>
+                            <div className="flex items-center gap-1">
+                              <Zap className="w-3 h-3 text-yellow-500" />
+                              <span className="text-xs text-nofx-text">
+                                {(aiTestResult.user_prompt?.length || 0) + (aiTestResult.reasoning?.length || 0) + (JSON.stringify(aiTestResult.decisions || []).length) + (aiTestResult.ai_response?.length || 0)} {t('chars')}
+                              </span>
+                            </div>
                           </div>
                         )}
 
                         {/* User Prompt Input */}
                         {aiTestResult.user_prompt && (
                           <div>
-                            <div className="flex items-center gap-1.5 mb-1.5">
-                              <Terminal className="w-3 h-3 text-blue-400" />
-                              <span className="text-xs font-medium text-nofx-text">{t('userPrompt')} (Input)</span>
+                            <div className="flex items-center justify-between gap-1.5 mb-1.5">
+                              <div className="flex flex-col">
+                                <div className="flex items-center gap-1.5">
+                                  <Terminal className="w-3 h-3 text-blue-400" />
+                                  <span className="text-xs font-medium text-nofx-text">{t('userPrompt')} ({t('input')})</span>
+                                </div>
+                                <div className="flex items-center gap-1.5 ml-4">
+                                  <span className="text-[10px] text-nofx-text-muted">
+                                    ({aiTestResult.user_prompt.length} chars)
+                                  </span>
+                                  {selectedModelId && systemConfig && (
+                                    <span className="text-[10px] text-nofx-text-muted ml-1">
+                                      / {getMaxTokensForModel(selectedModelId)} {t('charLimit')}
+                                    </span>
+                                  )}
+                                  {selectedModelId && systemConfig && (() => {
+                                    const costEstimate = estimateCost(selectedModelId, aiTestResult.user_prompt.length)
+                                    return costEstimate > 0 ? (
+                                      <span className="text-[8px] text-nofx-text-muted ml-1">
+                                        ({t('estimatedCost')}: ${costEstimate.toFixed(6)})
+                                      </span>
+                                    ) : null
+                                  })()}
+                                </div>
+                              </div>
+                              <button
+                                onClick={() => copyToClipboard(aiTestResult.user_prompt || '', 'userPrompt')}
+                                className="p-1 rounded text-xs hover:bg-nofx-bg-lighter transition-colors"
+                                title="Copy to clipboard"
+                              >
+                                {copiedStates['userPrompt'] ? (
+                                  <ClipboardCheck className="w-3 h-3 text-green-500" />
+                                ) : (
+                                  <Clipboard className="w-3 h-3 text-nofx-text-muted hover:text-nofx-text" />
+                                )}
+                              </button>
                             </div>
-                            <pre
-                              className="p-2 rounded-lg text-[10px] font-mono overflow-auto bg-nofx-bg border border-nofx-gold/20 text-nofx-text"
+                            <div
+                              className="p-2 rounded-lg text-[10px] font-mono overflow-auto bg-nofx-bg border border-nofx-gold/20 text-nofx-text select-text"
                               style={{ maxHeight: '200px' }}
+                              onClick={(e) => {
+                                if (e.detail === 3) { // triple click for full select
+                                  const selection = window.getSelection()
+                                  if (selection) {
+                                    const range = document.createRange()
+                                    range.selectNodeContents(e.currentTarget)
+                                    selection.removeAllRanges()
+                                    selection.addRange(range)
+                                  }
+                                }
+                              }}
                             >
                               {aiTestResult.user_prompt}
-                            </pre>
+                            </div>
                           </div>
                         )}
 
                         {/* AI Reasoning */}
                         {aiTestResult.reasoning && (
                           <div>
-                            <div className="flex items-center gap-1.5 mb-1.5">
-                              <Sparkles className="w-3 h-3 text-nofx-gold" />
-                              <span className="text-xs font-medium text-nofx-text">{t('reasoning')}</span>
+                            <div className="flex items-center justify-between gap-1.5 mb-1.5">
+                              <div className="flex flex-col">
+                                <div className="flex items-center gap-1.5">
+                                  <Sparkles className="w-3 h-3 text-nofx-gold" />
+                                  <span className="text-xs font-medium text-nofx-text">{t('reasoning')}</span>
+                                </div>
+                                <div className="flex items-center gap-1.5 ml-4">
+                                  <span className="text-[10px] text-nofx-text-muted">
+                                    ({aiTestResult.reasoning.length} chars)
+                                  </span>
+                                  {selectedModelId && aiTestResult.user_prompt && systemConfig && (
+                                    <span className="text-[8px] text-nofx-text-muted ml-1">
+                                      {getCostDisplayText(selectedModelId, aiTestResult.user_prompt.length, aiTestResult.reasoning.length)}
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                              <button
+                                onClick={() => copyToClipboard(aiTestResult.reasoning || '', 'reasoning')}
+                                className="p-1 rounded text-xs hover:bg-nofx-bg-lighter transition-colors"
+                                title="Copy to clipboard"
+                              >
+                                {copiedStates['reasoning'] ? (
+                                  <ClipboardCheck className="w-3 h-3 text-green-500" />
+                                ) : (
+                                  <Clipboard className="w-3 h-3 text-nofx-text-muted hover:text-nofx-text" />
+                                )}
+                              </button>
                             </div>
-                            <pre
-                              className="p-2 rounded-lg text-[10px] font-mono overflow-auto whitespace-pre-wrap bg-nofx-bg border border-nofx-gold/30 text-nofx-text"
+                            <div
+                              className="p-2 rounded-lg text-[10px] font-mono overflow-auto whitespace-pre-wrap bg-nofx-bg border border-nofx-gold/30 text-nofx-text select-text"
                               style={{ maxHeight: '200px' }}
+                              onClick={(e) => {
+                                if (e.detail === 3) { // triple click for full select
+                                  const selection = window.getSelection()
+                                  if (selection) {
+                                    const range = document.createRange()
+                                    range.selectNodeContents(e.currentTarget)
+                                    selection.removeAllRanges()
+                                    selection.addRange(range)
+                                  }
+                                }
+                              }}
                             >
                               {aiTestResult.reasoning}
-                            </pre>
+                            </div>
                           </div>
                         )}
 
                         {/* AI Decisions */}
                         {aiTestResult.decisions && aiTestResult.decisions.length > 0 && (
                           <div>
-                            <div className="flex items-center gap-1.5 mb-1.5">
-                              <Activity className="w-3 h-3 text-green-500" />
-                              <span className="text-xs font-medium text-nofx-text">{t('decisions')}</span>
+                            <div className="flex items-center justify-between gap-1.5 mb-1.5">
+                              <div className="flex flex-col">
+                                <div className="flex items-center gap-1.5">
+                                  <Activity className="w-3 h-3 text-green-500" />
+                                  <span className="text-xs font-medium text-nofx-text">{t('decisions')}</span>
+                                </div>
+                                <div className="flex items-center gap-1.5 ml-4">
+                                  <span className="text-[10px] text-nofx-text-muted">
+                                    ({JSON.stringify(aiTestResult.decisions).length} chars)
+                                  </span>
+                                  {selectedModelId && aiTestResult.user_prompt && systemConfig && (
+                                    <span className="text-[8px] text-nofx-text-muted ml-1">
+                                      {getCostDisplayText(selectedModelId, aiTestResult.user_prompt.length, JSON.stringify(aiTestResult.decisions).length)}
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                              <button
+                                onClick={() => copyToClipboard(JSON.stringify(aiTestResult.decisions, null, 2), 'decisions')}
+                                className="p-1 rounded text-xs hover:bg-nofx-bg-lighter transition-colors"
+                                title="Copy to clipboard"
+                              >
+                                {copiedStates['decisions'] ? (
+                                  <ClipboardCheck className="w-3 h-3 text-green-500" />
+                                ) : (
+                                  <Clipboard className="w-3 h-3 text-nofx-text-muted hover:text-nofx-text" />
+                                )}
+                              </button>
                             </div>
-                            <pre
-                              className="p-2 rounded-lg text-[10px] font-mono overflow-auto bg-nofx-bg border border-green-500/30 text-nofx-text"
+                            <div
+                              className="p-2 rounded-lg text-[10px] font-mono overflow-auto bg-nofx-bg border border-green-500/30 text-nofx-text select-text"
                               style={{ maxHeight: '200px' }}
+                              onClick={(e) => {
+                                if (e.detail === 3) { // triple click for full select
+                                  const selection = window.getSelection()
+                                  if (selection) {
+                                    const range = document.createRange()
+                                    range.selectNodeContents(e.currentTarget)
+                                    selection.removeAllRanges()
+                                    selection.addRange(range)
+                                  }
+                                }
+                              }}
                             >
                               {JSON.stringify(aiTestResult.decisions, null, 2)}
-                            </pre>
+                            </div>
                           </div>
                         )}
 
                         {/* Raw AI Response */}
                         {aiTestResult.ai_response && (
                           <div>
-                            <div className="flex items-center gap-1.5 mb-1.5">
-                              <FileText className="w-3 h-3 text-nofx-text-muted" />
-                              <span className="text-xs font-medium text-nofx-text">{t('aiOutput')} (Raw)</span>
+                            <div className="flex items-center justify-between gap-1.5 mb-1.5">
+                              <div className="flex flex-col">
+                                <div className="flex items-center gap-1.5">
+                                  <FileText className="w-3 h-3 text-nofx-text-muted" />
+                                  <span className="text-xs font-medium text-nofx-text">{t('aiOutput')} ({t('raw')})</span>
+                                </div>
+                                <div className="flex items-center gap-1.5 ml-4">
+                                  <span className="text-[10px] text-nofx-text-muted">
+                                    ({aiTestResult.ai_response.length} chars)
+                                  </span>
+                                  {selectedModelId && aiTestResult.user_prompt && systemConfig && (
+                                    <span className="text-[8px] text-nofx-text-muted ml-1">
+                                      {getCostDisplayText(selectedModelId, aiTestResult.user_prompt.length, aiTestResult.ai_response.length)}
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                              <button
+                                onClick={() => copyToClipboard(aiTestResult.ai_response || '', 'aiResponse')}
+                                className="p-1 rounded text-xs hover:bg-nofx-bg-lighter transition-colors"
+                                title="Copy to clipboard"
+                              >
+                                {copiedStates['aiResponse'] ? (
+                                  <ClipboardCheck className="w-3 h-3 text-green-500" />
+                                ) : (
+                                  <Clipboard className="w-3 h-3 text-nofx-text-muted hover:text-nofx-text" />
+                                )}
+                              </button>
                             </div>
-                            <pre
-                              className="p-2 rounded-lg text-[10px] font-mono overflow-auto whitespace-pre-wrap bg-nofx-bg border border-nofx-gold/20 text-nofx-text"
+                            <div
+                              className="p-2 rounded-lg text-[10px] font-mono overflow-auto whitespace-pre-wrap bg-nofx-bg border border-nofx-gold/20 text-nofx-text select-text"
                               style={{ maxHeight: '300px' }}
+                              onClick={(e) => {
+                                if (e.detail === 3) { // triple click for full select
+                                  const selection = window.getSelection()
+                                  if (selection) {
+                                    const range = document.createRange()
+                                    range.selectNodeContents(e.currentTarget)
+                                    selection.removeAllRanges()
+                                    selection.addRange(range)
+                                  }
+                                }
+                              }}
                             >
                               {aiTestResult.ai_response}
-                            </pre>
+                            </div>
                           </div>
                         )}
                       </>

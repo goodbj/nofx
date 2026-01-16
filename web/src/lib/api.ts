@@ -30,6 +30,7 @@ import type {
   DebateVote,
   DebatePersonalityInfo,
   PositionHistoryResponse,
+  SystemConfig,
 } from '../types'
 import { CryptoService } from './crypto'
 import { httpClient } from './httpClient'
@@ -798,6 +799,13 @@ export const api = {
       `${API_BASE}/traders/${traderId}/execute-decision`
     )
     if (!result.success) throw new Error(result.message || '手动触发决策失败')
+    return result.data!
+  },
+
+  // 获取系统配置
+  async getSystemConfig(): Promise<SystemConfig> {
+    const result = await httpClient.get<SystemConfig>(`${API_BASE}/system-config`)
+    if (!result.success) throw new Error('获取系统配置失败')
     return result.data!
   },
 }

@@ -233,6 +233,10 @@ func (s *Server) handleGetSystemConfig(c *gin.Context) {
 		"registration_enabled": cfg.RegistrationEnabled,
 		"btc_eth_leverage":     10, // Default value
 		"altcoin_leverage":     5,  // Default value
+		"model_max_tokens":     cfg.ModelMaxTokens,
+		"model_pricing":        cfg.ModelPricing,
+		"cost_display_unit":    cfg.CostDisplayUnit,
+		"usd_to_cny_rate":      cfg.USDCNYRate,
 	})
 }
 
