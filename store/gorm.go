@@ -1,11 +1,14 @@
+// Package store provides database driver abstraction
 package store
 
 import (
+	"database/sql"
 	"fmt"
 	"time"
 
+	_ "github.com/glebarez/go-sqlite" // Pure Go SQLite driver
 	"gorm.io/driver/postgres"
-	"gorm.io/driver/sqlite"
+	sqlitedrv "gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 )
@@ -20,7 +23,18 @@ func DB() *gorm.DB {
 
 // InitGorm initializes GORM with SQLite
 func InitGorm(dbPath string) (*gorm.DB, error) {
-	db, err := gorm.Open(sqlite.Open(dbPath), &gorm.Config{
+	// First, open the database using the pure Go driver
+	sqlDB, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open SQLite database with pure Go driver: %w", err)
+	}
+
+	// Configure the database connection
+	sqlDB.SetMaxOpenConns(1)
+	sqlDB.SetMaxIdleConns(1)
+
+	// Initialize GORM with the existing SQL DB connection
+	db, err := gorm.Open(&sqlitedrv.Dialector{Conn: sqlDB}, &gorm.Config{
 		Logger: logger.Default.LogMode(logger.Silent),
 		// Use UTC for all auto-generated timestamps (autoCreateTime, autoUpdateTime)
 		NowFunc: func() time.Time {
@@ -30,14 +44,6 @@ func InitGorm(dbPath string) (*gorm.DB, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to open SQLite database: %w", err)
 	}
-
-	// Set connection pool for SQLite
-	sqlDB, err := db.DB()
-	if err != nil {
-		return nil, err
-	}
-	sqlDB.SetMaxOpenConns(1)
-	sqlDB.SetMaxIdleConns(1)
 
 	// Enable foreign keys for SQLite
 	db.Exec("PRAGMA foreign_keys = ON")

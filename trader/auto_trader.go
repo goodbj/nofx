@@ -4,8 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
-	"nofx/kernel"
 	"nofx/experience"
+	"nofx/kernel"
 	"nofx/logger"
 	"nofx/market"
 	"nofx/mcp"
@@ -35,13 +35,13 @@ type AutoTraderConfig struct {
 	BybitSecretKey string
 
 	// OKX API configuration
-	OKXAPIKey    string
-	OKXSecretKey string
+	OKXAPIKey     string
+	OKXSecretKey  string
 	OKXPassphrase string
 
 	// Bitget API configuration
-	BitgetAPIKey    string
-	BitgetSecretKey string
+	BitgetAPIKey     string
+	BitgetSecretKey  string
 	BitgetPassphrase string
 
 	// Hyperliquid configuration
@@ -95,8 +95,8 @@ type AutoTraderConfig struct {
 	StrategyConfig *store.StrategyConfig // Strategy configuration (includes coin sources, indicators, risk control, prompts, etc.)
 }
 
-// TradeRecord represents a single trade record for tracking purposes
-type TradeRecord struct {
+// TraderTradeRecord represents a single trade record for tracking purposes
+type TraderTradeRecord struct {
 	Timestamp time.Time
 	Symbol    string
 	Action    string
@@ -114,9 +114,9 @@ type AutoTrader struct {
 	config                AutoTraderConfig
 	trader                Trader // Use Trader interface (supports multiple platforms)
 	mcpClient             mcp.AIClient
-	store                 *store.Store             // Data storage (decision records, etc.)
+	store                 *store.Store           // Data storage (decision records, etc.)
 	strategyEngine        *kernel.StrategyEngine // Strategy engine (uses strategy configuration)
-	cycleNumber           int                      // Current cycle number
+	cycleNumber           int                    // Current cycle number
 	initialBalance        float64
 	dailyPnL              float64
 	customPrompt          string // Custom trading strategy prompt
@@ -1036,10 +1036,10 @@ func (at *AutoTrader) TriggerDecision() (map[string]interface{}, error) {
 
 	// Return success status and some info
 	result := map[string]interface{}{
-		"success": true,
-		"timestamp": time.Now().Unix(),
+		"success":      true,
+		"timestamp":    time.Now().Unix(),
 		"cycle_number": at.callCount,
-		"message": "Decision cycle completed successfully",
+		"message":      "Decision cycle completed successfully",
 	}
 
 	logger.Infof("✅ Manual trigger decision cycle completed for %s", at.name)
@@ -2127,22 +2127,22 @@ func (at *AutoTrader) recordOrderFill(orderRecordID int64, exchangeOrderID, symb
 	normalizedSymbol := market.Normalize(symbol)
 
 	fill := &store.TraderFill{
-		TraderID:         at.id,
-		ExchangeID:       at.exchangeID,
-		ExchangeType:     at.exchange,
-		OrderID:          orderRecordID,
-		ExchangeOrderID:  exchangeOrderID,
-		ExchangeTradeID:  tradeID,
-		Symbol:           normalizedSymbol,
-		Side:             side,
-		Price:            price,
-		Quantity:         quantity,
-		QuoteQuantity:    price * quantity,
-		Commission:       fee,
-		CommissionAsset:  "USDT",
-		RealizedPnL:      0, // Will be calculated for close orders
-		IsMaker:          false, // Market orders are usually taker
-		CreatedAt:        time.Now().UTC().UnixMilli(),
+		TraderID:        at.id,
+		ExchangeID:      at.exchangeID,
+		ExchangeType:    at.exchange,
+		OrderID:         orderRecordID,
+		ExchangeOrderID: exchangeOrderID,
+		ExchangeTradeID: tradeID,
+		Symbol:          normalizedSymbol,
+		Side:            side,
+		Price:           price,
+		Quantity:        quantity,
+		QuoteQuantity:   price * quantity,
+		Commission:      fee,
+		CommissionAsset: "USDT",
+		RealizedPnL:     0,     // Will be calculated for close orders
+		IsMaker:         false, // Market orders are usually taker
+		CreatedAt:       time.Now().UTC().UnixMilli(),
 	}
 
 	// Calculate realized PnL for close orders
@@ -2364,14 +2364,14 @@ func (at *AutoTrader) executeUpdateStopLossWithRecord(decision *kernel.Decision,
 			PositionSide:    side,
 			OrderAction:     "update_stop_loss",
 			Type:            "STOP_MARKET", // Or STOP_LIMIT depending on implementation
-			Side:            "STOP_LOSS", 
+			Side:            "STOP_LOSS",
 			Quantity:        qtyFloat,
 			Price:           decision.NewStopLoss, // Target stop loss price
-			Status:          "UPDATED", // Status indicating the stop loss was updated
-			FilledQuantity:  0, // Not filled yet, just updated
-			AvgFillPrice:    0, // Will be filled when triggered
-			Commission:      0, // No commission for stop loss updates
-			FilledAt:        0, // Will be set when triggered
+			Status:          "UPDATED",            // Status indicating the stop loss was updated
+			FilledQuantity:  0,                    // Not filled yet, just updated
+			AvgFillPrice:    0,                    // Will be filled when triggered
+			Commission:      0,                    // No commission for stop loss updates
+			FilledAt:        0,                    // Will be set when triggered
 			CreatedAt:       time.Now().UTC().UnixMilli(),
 			UpdatedAt:       time.Now().UTC().UnixMilli(),
 		}
@@ -2384,7 +2384,7 @@ func (at *AutoTrader) executeUpdateStopLossWithRecord(decision *kernel.Decision,
 		if err := at.store.Order().CreateOrder(orderRecord); err != nil {
 			logger.Infof("  ⚠️ Failed to record stop loss update: %v", err)
 		} else {
-			logger.Infof("  📊 Stop loss update recorded: %s new SL: %.4f, current price: %.4f", 
+			logger.Infof("  📊 Stop loss update recorded: %s new SL: %.4f, current price: %.4f",
 				decision.Symbol, decision.NewStopLoss, orderRecord.AvgFillPrice)
 		}
 	}
@@ -2472,14 +2472,14 @@ func (at *AutoTrader) executeUpdateTakeProfitWithRecord(decision *kernel.Decisio
 			PositionSide:    side,
 			OrderAction:     "update_take_profit",
 			Type:            "TAKE_PROFIT_MARKET", // Or TAKE_PROFIT_LIMIT depending on implementation
-			Side:            "TAKE_PROFIT", 
+			Side:            "TAKE_PROFIT",
 			Quantity:        qtyFloat,
 			Price:           decision.NewTakeProfit, // Target take profit price
-			Status:          "UPDATED", // Status indicating the take profit was updated
-			FilledQuantity:  0, // Not filled yet, just updated
-			AvgFillPrice:    0, // Will be filled when triggered
-			Commission:      0, // No commission for take profit updates
-			FilledAt:        0, // Will be set when triggered
+			Status:          "UPDATED",              // Status indicating the take profit was updated
+			FilledQuantity:  0,                      // Not filled yet, just updated
+			AvgFillPrice:    0,                      // Will be filled when triggered
+			Commission:      0,                      // No commission for take profit updates
+			FilledAt:        0,                      // Will be set when triggered
 			CreatedAt:       time.Now().UTC().UnixMilli(),
 			UpdatedAt:       time.Now().UTC().UnixMilli(),
 		}
@@ -2492,7 +2492,7 @@ func (at *AutoTrader) executeUpdateTakeProfitWithRecord(decision *kernel.Decisio
 		if err := at.store.Order().CreateOrder(orderRecord); err != nil {
 			logger.Infof("  ⚠️ Failed to record take profit update: %v", err)
 		} else {
-			logger.Infof("  📊 Take profit update recorded: %s new TP: %.4f, current price: %.4f", 
+			logger.Infof("  📊 Take profit update recorded: %s new TP: %.4f, current price: %.4f",
 				decision.Symbol, decision.NewTakeProfit, orderRecord.AvgFillPrice)
 		}
 	}
@@ -2546,7 +2546,7 @@ func (at *AutoTrader) executePartialCloseWithRecord(decision *kernel.Decision, a
 	if isLong {
 		side = "SELL" // Sell to close long
 	} else {
-		side = "BUY"  // Buy to close short
+		side = "BUY" // Buy to close short
 	}
 
 	// Get current market price for reference
@@ -2568,4 +2568,3 @@ func (at *AutoTrader) executePartialCloseWithRecord(decision *kernel.Decision, a
 	at.recordAndConfirmOrder(order, decision.Symbol, "partial_close", partialQty, marketData.CurrentPrice, 0, decision.ClosePercentage)
 	return nil
 }
-
