@@ -44,7 +44,7 @@ sudo apt-get install libta-lib0-dev
 - Timeout is set to 120 seconds
 
 **Issue: Frontend can't connect**
-- Ensure backend is running (http://localhost:8080)
+- Ensure backend is running (http://localhost:8888)
 - Check if port 8080 is available
 - Check browser console for errors
 

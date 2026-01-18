@@ -44,7 +44,7 @@ sudo apt-get install libta-lib0-dev
 - 超时设置为 120 秒
 
 **问题：前端无法连接**
-- 确保后端正在运行 (http://localhost:8080)
+- 确保后端正在运行 (http://localhost:8888)
 - 检查端口 8080 是否可用
 - 检查浏览器控制台错误
 

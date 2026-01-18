@@ -9,8 +9,8 @@ This guide helps you diagnose and fix common issues before submitting a bug repo
 Before reporting a bug, please check:
 
 1. ✅ **Backend is running**: `docker compose ps` or `ps aux | grep nofx`
-2. ✅ **Frontend is accessible**: Open http://localhost:3000 in browser
-3. ✅ **API is responding**: `curl http://localhost:8080/api/health`
+2. ✅ **Frontend is accessible**: Open http://localhost:3300 in browser
+3. ✅ **API is responding**: `curl http://localhost:8888/api/health`
 4. ✅ **Check logs for errors**: See [How to Capture Logs](#how-to-capture-logs) below
 
 ---
@@ -258,7 +258,7 @@ NOFX_BACKEND_PORT=8081
    ```bash
    docker compose ps  # Should show backend as "Up"
    # OR
-   curl http://localhost:8080/api/health  # Should return {"status":"ok"}
+   curl http://localhost:8888/api/health  # Should return {"status":"ok"}
    ```
 
 2. **Check port configuration:**
@@ -498,16 +498,16 @@ grep -r '"action": "open_' decision_logs/your_trader_id/
 
 ```bash
 # Backend health
-curl http://localhost:8080/api/health
+curl http://localhost:8888/api/health
 
 # List all traders
-curl http://localhost:8080/api/traders
+curl http://localhost:8888/api/traders
 
 # Check specific trader status
-curl http://localhost:8080/api/status?trader_id=your_trader_id
+curl http://localhost:8888/api/status?trader_id=your_trader_id
 
 # Get account info
-curl http://localhost:8080/api/account?trader_id=your_trader_id
+curl http://localhost:8888/api/account?trader_id=your_trader_id
 ```
 
 ### Docker Status
@@ -582,7 +582,7 @@ docker compose down -v
 docker compose up -d --build
 
 # Reconfigure through web UI
-open http://localhost:3000
+open http://localhost:3300
 ```
 
 **Partial Reset (Keep configuration, clear logs):**
