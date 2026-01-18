@@ -20,6 +20,8 @@ import (
 	"nofx/provider/twelvedata"
 	"nofx/store"
 	"nofx/trader"
+	"os"
+	"os/exec"
 	"strconv"
 	"strings"
 	"time"
@@ -209,6 +211,9 @@ func (s *Server) setupRoutes() {
 			protected.GET("/decisions", s.handleDecisions)
 			protected.GET("/decisions/latest", s.handleLatestDecisions)
 			protected.GET("/statistics", s.handleStatistics)
+
+			// Test API endpoint
+			protected.POST("/test/run", s.handleRunTest)
 
 			// Backtest routes
 			backtest := protected.Group("/backtest")
@@ -3781,4 +3786,68 @@ func (s *Server) handleGetPublicTraderConfig(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, result)
+}
+
+// handleRunTest runs test commands securely with environment variables
+func (s *Server) handleRunTest(c *gin.Context) {
+	var req struct {
+		Command   string `json:"command"`
+		APIKey    string `json:"apiKey"`
+		SecretKey string `json:"secretKey"`
+		APIURL    string `json:"apiUrl"`
+	}
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request parameters"})
+		return
+	}
+
+	// Only allow specific test commands for security
+	allowedCommands := []string{
+		"go run test/test_binance_testnet.go",
+		"go run test/test_binance_futures_connection.go",
+		"go run test/test_binance_futures_trader.go",
+	}
+
+	isAllowed := false
+	for _, allowedCmd := range allowedCommands {
+		if req.Command == allowedCmd {
+			isAllowed = true
+			break
+		}
+	}
+
+	if !isAllowed {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Command not allowed"})
+		return
+	}
+
+	// Split command into parts
+	parts := strings.Fields(req.Command)
+	if len(parts) < 3 || parts[0] != "go" || parts[1] != "run" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid command format"})
+		return
+	}
+
+	// Prepare command with environment variables
+	cmd := exec.Command(parts[0], parts[1:]...)
+	cmd.Env = append(os.Environ(),
+		"BINANCE_API_KEY="+req.APIKey,
+		"BINANCE_SECRET_KEY="+req.SecretKey,
+		"BINANCE_API_URL="+req.APIURL,
+	)
+
+	// Execute command and capture output
+	output, err := cmd.CombinedOutput()
+	statusCode := http.StatusOK
+	if err != nil {
+		// Command execution failed, but we still return the output
+		statusCode = http.StatusInternalServerError
+	}
+
+	c.JSON(statusCode, gin.H{
+		"status":  "completed",
+		"output":  string(output),
+		"success": err == nil,
+	})
 }

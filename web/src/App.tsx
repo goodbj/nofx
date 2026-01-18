@@ -15,6 +15,7 @@ import { StrategyStudioPage } from './pages/StrategyStudioPage'
 import { DebateArenaPage } from './pages/DebateArenaPage'
 import { StrategyMarketPage } from './pages/StrategyMarketPage'
 import { LoginRequiredOverlay } from './components/LoginRequiredOverlay'
+import TestPage from './pages/TestPage'
 import HeaderBar from './components/HeaderBar'
 import { LanguageProvider, useLanguage } from './contexts/LanguageContext'
 import { AuthProvider, useAuth } from './contexts/AuthContext'
@@ -43,6 +44,7 @@ type Page =
   | 'strategy-market'
   | 'debate'
   | 'faq'
+  | 'test'
   | 'login'
   | 'register'
 
@@ -71,6 +73,7 @@ function App() {
     if (path === '/debate' || hash === 'debate') return 'debate'
     if (path === '/dashboard' || hash === 'trader' || hash === 'details')
       return 'trader'
+    if (path === '/test') return 'test'
     return 'competition' // 默认为竞赛页面
   }
 
@@ -94,6 +97,7 @@ function App() {
       'strategy': '/strategy',
       'debate': '/debate',
       'faq': '/faq',
+      'test': '/test',
       'login': '/login',
       'register': '/register',
     }
@@ -164,6 +168,8 @@ function App() {
         if (traderParam) {
           setSelectedTraderSlug(traderParam)
         }
+      } else if (path === '/test') {
+        setCurrentPage('test')
       } else if (
         path === '/competition' ||
         hash === 'competition' ||
@@ -367,6 +373,31 @@ function App() {
       </div>
     )
   }
+  if (route === '/test') {
+    return (
+      <div
+        className="min-h-screen"
+        style={{ background: '#0B0E11', color: '#EAECEF' }}
+      >
+        <HeaderBar
+          isLoggedIn={!!user}
+          currentPage="test"
+          language={language}
+          onLanguageChange={setLanguage}
+          user={user}
+          onLogout={logout}
+          onLoginRequired={handleLoginRequired}
+          onPageChange={navigateToPage}
+        />
+        <TestPage />
+        <LoginRequiredOverlay
+          isOpen={loginOverlayOpen}
+          onClose={() => setLoginOverlayOpen(false)}
+          featureName={loginOverlayFeature}
+        />
+      </div>
+    )
+  }
   if (route === '/reset-password') {
     return <ResetPasswordPage />
   }
@@ -425,6 +456,8 @@ function App() {
               <StrategyStudioPage />
             ) : currentPage === 'debate' ? (
               <DebateArenaPage />
+            ) : currentPage === 'test' ? (
+              <TestPage />
             ) : (
               <TraderDashboardPage
                 selectedTrader={selectedTrader}

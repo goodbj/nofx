@@ -170,6 +170,16 @@ export function FAQLayout({ language }: FAQLayoutProps) {
             >
               {t('community', language)}
             </a>
+            <a
+              href="/test"
+              className="px-6 py-3 rounded-lg font-semibold transition-all hover:scale-105"
+              style={{
+                background: 'linear-gradient(135deg, #0ea5e9 0%, #0284c7 100%)',
+                color: '#ffffff',
+              }}
+            >
+              测试页面
+            </a>
           </div>
         </div>
       </div>
