@@ -191,6 +191,7 @@ func loadModelTokenLimits(cfg *Config) {
 		cfg.ModelMaxTokens["gpt-3.5"] = 16384
 		cfg.ModelMaxTokens["claude"] = 200000
 		cfg.ModelMaxTokens["qwen"] = 32768
+		cfg.ModelMaxTokens["ollama"] = 4096
 		cfg.ModelMaxTokens["default"] = 4096
 	}
 
@@ -223,6 +224,11 @@ func loadModelTokenLimits(cfg *Config) {
 	if v := os.Getenv("MODEL_MAX_TOKENS_DEFAULT"); v != "" {
 		if limit, err := strconv.Atoi(v); err == nil && limit > 0 {
 			cfg.ModelMaxTokens["default"] = limit
+		}
+	}
+	if v := os.Getenv("MODEL_MAX_TOKENS_OLLAMA"); v != "" {
+		if limit, err := strconv.Atoi(v); err == nil && limit > 0 {
+			cfg.ModelMaxTokens["ollama"] = limit
 		}
 	}
 }
@@ -266,6 +272,7 @@ func loadModelPricing(cfg *Config) {
 		cfg.ModelPricing["gpt-4omini"] = ModelPricingConfig{InputPrice: 0.15, OutputPrice: 0.60}
 		cfg.ModelPricing["claude-sonnet"] = ModelPricingConfig{InputPrice: 3.00, OutputPrice: 15.00}
 		cfg.ModelPricing["deepseek"] = ModelPricingConfig{InputPrice: 0.20, OutputPrice: 0.80}
+		cfg.ModelPricing["ollama"] = ModelPricingConfig{InputPrice: 0.00, OutputPrice: 0.00}
 		cfg.ModelPricing["ernie"] = ModelPricingConfig{InputPrice: 0.08, OutputPrice: 0.20}
 		cfg.ModelPricing["default"] = ModelPricingConfig{InputPrice: 0.50, OutputPrice: 2.00}
 	}
@@ -381,6 +388,22 @@ func loadModelPricing(cfg *Config) {
 			pricing := cfg.ModelPricing["default"]
 			pricing.OutputPrice = price
 			cfg.ModelPricing["default"] = pricing
+		}
+	}
+
+	// Load Ollama model pricing from environment variables
+	if v := os.Getenv("MODEL_PRICE_OLLAMA_INPUT"); v != "" {
+		if price, err := strconv.ParseFloat(v, 64); err == nil && price >= 0 {
+			pricing := cfg.ModelPricing["ollama"]
+			pricing.InputPrice = price
+			cfg.ModelPricing["ollama"] = pricing
+		}
+	}
+	if v := os.Getenv("MODEL_PRICE_OLLAMA_OUTPUT"); v != "" {
+		if price, err := strconv.ParseFloat(v, 64); err == nil && price >= 0 {
+			pricing := cfg.ModelPricing["ollama"]
+			pricing.OutputPrice = price
+			cfg.ModelPricing["ollama"] = pricing
 		}
 	}
 }

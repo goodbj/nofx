@@ -32,7 +32,7 @@ export class HttpClient {
     // Create axios instance
     this.axiosInstance = axios.create({
       baseURL: '/',
-      timeout: 30000,
+      timeout: 300000, // Increased to 5 minutes for AI requests (especially Ollama)
       headers: {
         'Content-Type': 'application/json',
       },

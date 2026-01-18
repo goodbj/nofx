@@ -216,7 +216,7 @@ func NewAutoTrader(config AutoTraderConfig, st *store.Store, userID string) (*Au
 		logger.Infof("🤖 [%s] Using custom AI API: %s (model: %s)", config.Name, config.CustomAPIURL, config.CustomModelName)
 
 	case "ollama":
-		mcpClient = mcp.New()
+		mcpClient = mcp.NewOllamaClient()
 		// Ollama typically doesn't need an API key, but we'll use it if provided
 		apiKey := config.CustomAPIKey
 		if apiKey == "" {

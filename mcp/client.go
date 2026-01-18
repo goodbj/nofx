@@ -431,8 +431,8 @@ func (client *Client) callWithRequest(req *Request) (string, error) {
 	client.logger.Infof("📡 [%s] Request AI Server with Builder: BaseURL: %s", client.String(), client.BaseURL)
 	client.logger.Debugf("[%s] Messages count: %d", client.String(), len(req.Messages))
 
-	// Build request body (from Request object)
-	requestBody := client.buildRequestBodyFromRequest(req)
+	// Build request body (from Request object) - use hooks for polymorphism
+	requestBody := client.hooks.buildRequestBodyFromRequest(req)
 
 	// Serialize request body
 	jsonData, err := client.hooks.marshalRequestBody(requestBody)

@@ -96,6 +96,11 @@ const AI_PROVIDER_CONFIG: Record<string, {
     apiUrl: 'https://platform.moonshot.ai/console/api-keys',
     apiName: 'Moonshot',
   },
+  ollama: {
+    defaultModel: 'llama3.1',
+    apiUrl: 'http://host.docker.internal:11434',
+    apiName: 'Ollama',
+  },
 }
 
 interface AITradersPageProps {
