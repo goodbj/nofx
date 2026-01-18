@@ -705,7 +705,19 @@ export function StrategyStudioPage() {
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : 'Unknown error'
       setError(errorMsg)
-      notify.error(errorMsg)
+      
+      // 在开发模式下显示更详细的错误信息
+      if (process.env.NODE_ENV === 'development') {
+        console.error('Strategy deletion error details:', {
+          message: err instanceof Error ? err.message : 'Unknown error',
+          stack: err instanceof Error ? err.stack : undefined,
+          error: err,
+        });
+        
+        notify.error(`${errorMsg}\nURL: /api/strategies/${id}\nMethod: DELETE`)
+      } else {
+        notify.error(errorMsg)
+      }
     }
   }
 
@@ -798,8 +810,18 @@ export function StrategyStudioPage() {
       notify.success(language === 'zh' ? '策略已导入' : 'Strategy imported')
       await fetchStrategies()
     } catch (err) {
-      const errorMsg = err instanceof Error ? err.message : 'Unknown error'
-      notify.error(errorMsg)
+      // 在开发模式下显示更详细的错误信息
+      if (process.env.NODE_ENV === 'development') {
+        console.error('Strategy import error details:', {
+          message: err instanceof Error ? err.message : 'Unknown error',
+          stack: err instanceof Error ? err.stack : undefined,
+          error: err,
+        });
+        
+        notify.error(`${err instanceof Error ? err.message : 'Unknown error'}\nURL: /api/strategies\nMethod: POST (import)`)
+      } else {
+        notify.error(err instanceof Error ? err.message : 'Unknown error')
+      }
     } finally {
       // Reset file input
       event.target.value = ''
@@ -834,8 +856,18 @@ export function StrategyStudioPage() {
       
       notify.success(language === 'zh' ? '带注释的配置模板已下载' : 'Annotated config template downloaded')
     } catch (err) {
-      const errorMsg = err instanceof Error ? err.message : 'Unknown error'
-      notify.error(errorMsg)
+      // 在开发模式下显示更详细的错误信息
+      if (process.env.NODE_ENV === 'development') {
+        console.error('Annotated template download error details:', {
+          message: err instanceof Error ? err.message : 'Unknown error',
+          stack: err instanceof Error ? err.stack : undefined,
+          error: err,
+        });
+        
+        notify.error(`${err instanceof Error ? err.message : 'Unknown error'}\nURL: /api/strategies/annotated-config\nMethod: GET`)
+      } else {
+        notify.error(err instanceof Error ? err.message : 'Unknown error')
+      }
       console.error('Failed to download annotated template:', err)
     }
   }
@@ -873,6 +905,19 @@ export function StrategyStudioPage() {
       await fetchStrategies()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unknown error')
+      
+      // 在开发模式下显示更详细的错误信息
+      if (process.env.NODE_ENV === 'development') {
+        console.error('Strategy save error details:', {
+          message: err instanceof Error ? err.message : 'Unknown error',
+          stack: err instanceof Error ? err.stack : undefined,
+          error: err,
+          url: `/api/strategies/${selectedStrategy?.id}`,
+          method: 'PUT',
+        });
+        
+        notify.error(`${err instanceof Error ? err.message : 'Unknown error'}\nURL: /api/strategies/${selectedStrategy?.id}\nMethod: PUT (save)`)
+      }
     } finally {
       setIsSaving(false)
     }
@@ -913,6 +958,19 @@ export function StrategyStudioPage() {
       setPromptPreview(data)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unknown error')
+      
+      // 在开发模式下显示更详细的错误信息
+      if (process.env.NODE_ENV === 'development') {
+        console.error('Prompt preview fetch error details:', {
+          message: err instanceof Error ? err.message : 'Unknown error',
+          stack: err instanceof Error ? err.stack : undefined,
+          error: err,
+          url: `/api/strategies/preview-prompt`,
+          method: 'POST',
+        });
+        
+        notify.error(`${err instanceof Error ? err.message : 'Unknown error'}\nURL: /api/strategies/preview-prompt\nMethod: POST (preview)`)
+      }
     } finally {
       setIsLoadingPrompt(false)
     }
@@ -941,6 +999,19 @@ export function StrategyStudioPage() {
       const data = await response.json()
       setAiTestResult(data)
     } catch (err) {
+      // 在开发模式下显示更详细的错误信息
+      if (process.env.NODE_ENV === 'development') {
+        console.error('AI test run error details:', {
+          message: err instanceof Error ? err.message : 'Unknown error',
+          stack: err instanceof Error ? err.stack : undefined,
+          error: err,
+          url: `/api/strategies/test-run`,
+          method: 'POST',
+        });
+        
+        notify.error(`${err instanceof Error ? err.message : 'Unknown error'}\nURL: /api/strategies/test-run\nMethod: POST (AI test)`)
+      }
+      
       setAiTestResult({
         error: err instanceof Error ? err.message : 'Unknown error',
       })

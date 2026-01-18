@@ -87,13 +87,32 @@ export class HttpClient {
   private async handleError(error: AxiosError): Promise<any> {
     // Network error (no response from server)
     if (!error.response) {
-      toast.error('Network error - Please check your connection', {
-        description: 'Unable to reach the server',
-      })
+      // In development mode, show more detailed error information
+      const isDev = process.env.NODE_ENV === 'development';
+      
+      if (isDev) {
+        console.error('Network Error Details:', {
+          message: error.message,
+          code: error.code,
+          stack: error.stack,
+          config: error.config,
+          url: error.config?.url,
+          method: error.config?.method,
+        });
+        
+        toast.error('Network Error', {
+          description: `Unable to reach the server: ${error.message || 'Connection failed'}\nURL: ${error.config?.url || 'unknown'}\nMethod: ${error.config?.method || 'unknown'}`,
+        });
+      } else {
+        toast.error('Network error - Please check your connection', {
+          description: 'Unable to reach the server',
+        });
+      }
+      
       throw new Error('Network error')
     }
 
-    const { status } = error.response as AxiosResponse<{
+    const { status, data } = error.response as AxiosResponse<{
       error?: string
       message?: string
     }>
@@ -132,25 +151,76 @@ export class HttpClient {
 
     // Handle 403 Forbidden - system error
     if (status === 403) {
-      toast.error('Permission Denied', {
-        description: 'You do not have permission to access this resource',
-      })
+      // In development mode, show more detailed error information
+      const isDev = process.env.NODE_ENV === 'development';
+      
+      if (isDev) {
+        console.error('Permission Error Details:', {
+          status,
+          data,
+          url: error.config?.url,
+          method: error.config?.method,
+        });
+        
+        toast.error('Permission Denied', {
+          description: `You do not have permission to access this resource: ${data?.error || data?.message || 'Access forbidden'}\nURL: ${error.config?.url || 'unknown'}\nMethod: ${error.config?.method || 'unknown'}`,
+        });
+      } else {
+        toast.error('Permission Denied', {
+          description: 'You do not have permission to access this resource',
+        });
+      }
+      
       throw new Error('Permission denied')
     }
 
     // Handle 404 Not Found - system error
     if (status === 404) {
-      toast.error('API Not Found', {
-        description: 'The requested endpoint does not exist (404)',
-      })
+      // In development mode, show more detailed error information
+      const isDev = process.env.NODE_ENV === 'development';
+      
+      if (isDev) {
+        console.error('API Not Found Error Details:', {
+          status,
+          data,
+          url: error.config?.url,
+          method: error.config?.method,
+        });
+        
+        toast.error('API Not Found', {
+          description: `The requested endpoint does not exist (404): ${data?.error || data?.message || 'Endpoint not found'}\nURL: ${error.config?.url || 'unknown'}\nMethod: ${error.config?.method || 'unknown'}`,
+        });
+      } else {
+        toast.error('API Not Found', {
+          description: 'The requested endpoint does not exist (404)',
+        });
+      }
+      
       throw new Error('API not found')
     }
 
     // Handle 500+ Server Error - system error
     if (status >= 500) {
-      toast.error('Server Error', {
-        description: 'Please try again later or contact support',
-      })
+      // In development mode, show more detailed error information
+      const isDev = process.env.NODE_ENV === 'development';
+      
+      if (isDev) {
+        console.error('Server Error Details:', {
+          status,
+          data,
+          url: error.config?.url,
+          method: error.config?.method,
+        });
+        
+        toast.error('Server Error', {
+          description: `Server error occurred: ${data?.error || data?.message || 'Internal server error'}\nURL: ${error.config?.url || 'unknown'}\nMethod: ${error.config?.method || 'unknown'}\nStatus: ${status}`,
+        });
+      } else {
+        toast.error('Server Error', {
+          description: 'Please try again later or contact support',
+        });
+      }
+      
       throw new Error('Server error')
     }
 

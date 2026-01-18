@@ -140,7 +140,7 @@ To use NOFX, you'll need:
 curl -fsSL https://raw.githubusercontent.com/NoFxAiOS/nofx/main/install.sh | bash
 ```
 
-That's it! Open **http://127.0.0.1:3000** in your browser.
+That's it! Open **http://127.0.0.1:3300** in your browser.
 
 > **Note**: For development environments with port conflicts, you can alternatively use ports 3300/8888 by modifying the environment variables in your local setup.
 
@@ -160,7 +160,7 @@ curl -O https://raw.githubusercontent.com/NoFxAiOS/nofx/main/docker-compose.prod
 docker compose -f docker-compose.prod.yml up -d
 ```
 
-Access Web Interface: **http://127.0.0.1:3000**
+Access Web Interface: **http://127.0.0.1:3300**
 
 ```bash
 # Management commands
@@ -221,7 +221,7 @@ cd web
 npm run dev
 ```
 
-Access Web Interface: **http://127.0.0.1:3000**
+Access Web Interface: **http://127.0.0.1:3300**
 
 #### Custom API Endpoint Configuration
 
@@ -231,6 +231,17 @@ NOFX supports custom API endpoints for different trading environments:
 - **Paper Trading (Demo)**: Supports custom endpoints like Binance Testnet for simulation
 
 To configure custom endpoints, set them in the exchange configuration section of the web interface after initial setup.
+
+### Logging Configuration
+
+You can adjust the log level by setting the `LOG_LEVEL` environment variable in your `.env` file:
+
+- `LOG_LEVEL=debug` - Shows all log levels (most verbose)
+- `LOG_LEVEL=info` - Shows info, warnings and errors (default)
+- `LOG_LEVEL=warn` - Shows only warnings and errors
+- `LOG_LEVEL=error` - Shows only errors
+
+For detailed debugging, set `LOG_LEVEL=debug` to see all the internal operations.
 
 ---
 
@@ -250,7 +261,7 @@ To configure custom endpoints, set them in the exchange configuration section of
    docker compose -f docker-compose.prod.yml up -d
    ```
 
-3. **Access**: Open **http://127.0.0.1:3000** in your browser
+3. **Access**: Open **http://127.0.0.1:3300** in your browser
 
 ### Method 2: WSL2 (For Development)
 
@@ -300,7 +311,7 @@ To configure custom endpoints, set them in the exchange configuration section of
    cd web && npm install && npm run dev
    ```
 
-5. **Access**: Open **http://127.0.0.1:3000** in Windows browser
+5. **Access**: Open **http://127.0.0.1:3300** in Windows browser
 
 ### Method 3: Docker in WSL2 (Best of Both Worlds)
 
@@ -326,7 +337,7 @@ By default, transport encryption is **disabled**, allowing you to access NOFX vi
 curl -fsSL https://raw.githubusercontent.com/NoFxAiOS/nofx/main/install.sh | bash
 ```
 
-Access via `http://YOUR_SERVER_IP:3000` - works immediately.
+Access via `http://YOUR_SERVER_IP:3300` - works immediately.
 
 ### Enhanced Security (HTTPS)
 

@@ -91,12 +91,12 @@ services:
 services:
   nofx:
     ports:
-      - "${NOFX_BACKEND_PORT:-8080}:8080"
+      - "${NOFX_BACKEND_PORT:-8888}:8888"
     healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:${NOFX_BACKEND_PORT:-8080}/api/health"]
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:${NOFX_BACKEND_PORT:-8888}/api/health"]
   nofx-frontend:
     ports:
-      - "${NOFX_FRONTEND_PORT:-3000}:80"
+      - "${NOFX_FRONTEND_PORT:-3300}:80"
 ```
 
 ## 注意事项

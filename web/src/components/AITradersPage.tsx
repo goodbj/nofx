@@ -354,7 +354,21 @@ export function AITradersPage({ onTraderSelect }: AITradersPageProps) {
       await mutateTraders()
     } catch (error) {
       console.error('Failed to create trader:', error)
-      toast.error(t('createTraderFailed', language))
+      
+      // 在开发模式下显示更详细的错误信息
+      if (process.env.NODE_ENV === 'development') {
+        console.error('Create trader error details:', {
+          message: error instanceof Error ? error.message : 'Unknown error',
+          stack: error instanceof Error ? error.stack : undefined,
+          error: error,
+          url: '/api/traders',
+          method: 'POST',
+        });
+        
+        toast.error(`${t('createTraderFailed', language)}: ${error instanceof Error ? error.message : 'Unknown error'}\nURL: /api/traders\nMethod: POST`)
+      } else {
+        toast.error(t('createTraderFailed', language))
+      }
     }
   }
 
@@ -365,7 +379,21 @@ export function AITradersPage({ onTraderSelect }: AITradersPageProps) {
       setShowEditModal(true)
     } catch (error) {
       console.error('Failed to fetch trader config:', error)
-      toast.error(t('getTraderConfigFailed', language))
+      
+      // 在开发模式下显示更详细的错误信息
+      if (process.env.NODE_ENV === 'development') {
+        console.error('Fetch trader config error details:', {
+          message: error instanceof Error ? error.message : 'Unknown error',
+          stack: error instanceof Error ? error.stack : undefined,
+          error: error,
+          url: `/api/traders/${editingTrader?.trader_id}/config`,
+          method: 'GET',
+        });
+        
+        toast.error(`${t('getTraderConfigFailed', language)}: ${error instanceof Error ? error.message : 'Unknown error'}\nURL: /api/traders/${editingTrader?.trader_id}/config\nMethod: GET`)
+      } else {
+        toast.error(t('getTraderConfigFailed', language))
+      }
     }
   }
 
@@ -413,7 +441,21 @@ export function AITradersPage({ onTraderSelect }: AITradersPageProps) {
       await mutateTraders()
     } catch (error) {
       console.error('Failed to update trader:', error)
-      toast.error(t('updateTraderFailed', language))
+      
+      // 在开发模式下显示更详细的错误信息
+      if (process.env.NODE_ENV === 'development') {
+        console.error('Update trader error details:', {
+          message: error instanceof Error ? error.message : 'Unknown error',
+          stack: error instanceof Error ? error.stack : undefined,
+          error: error,
+          url: `/api/traders/${editingTrader?.trader_id}`,
+          method: 'PUT',
+        });
+        
+        toast.error(`${t('updateTraderFailed', language)}: ${error instanceof Error ? error.message : 'Unknown error'}\nURL: /api/traders/${editingTrader?.trader_id}\nMethod: PUT`)
+      } else {
+        toast.error(t('updateTraderFailed', language))
+      }
     }
   }
 

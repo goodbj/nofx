@@ -2,17 +2,16 @@ services:
   # Backend service (API and core logic) - Development with Hot Reload
   nofx-dev-watch:
     build:
-      context: .
-      dockerfile: ./docker/Dockerfile.backend.dev.watch
+      context: ..
+      dockerfile: ../docker/Dockerfile.backend.dev.watch
     container_name: nofx-trading-dev-watch
     restart: unless-stopped
     stop_grace_period: 30s
     ports:
       - "${NOFX_BACKEND_PORT:-8888}:${NOFX_BACKEND_PORT:-8888}"  # 使用环境变量端口
-      - "6060:6060"  # pprof profiling
     volumes:
-      - .:/app  # 挂载源代码目录，实现热重载
-      - ./data:/app/data
+      - ..:/app  # 挂载源代码目录，实现热重载
+      - ../data:/app/data
       - /etc/localtime:/etc/localtime:ro
     working_dir: /app  # 设置工作目录
     command: >
@@ -21,11 +20,12 @@ services:
         go run main.go
       "
     env_file:
-      - .env
+      - ../.env
     environment:
       - TZ=${TZ:-Asia/Shanghai}
       - AI_MAX_TOKENS=8000
       - NOFX_BACKEND_PORT=${NOFX_BACKEND_PORT:-8888}
+      - API_HOST=nofx-dev-watch
     networks:
       - nofx-network
     healthcheck:
@@ -38,14 +38,14 @@ services:
   # Frontend service (Vite dev server with hot reload)
   nofx-frontend-dev-watch:
     build:
-      context: .
-      dockerfile: ./docker/Dockerfile.frontend.dev.watch
+      context: ..
+      dockerfile: ../docker/Dockerfile.frontend.dev.watch
     container_name: nofx-frontend-dev-watch
     restart: unless-stopped
     ports:
       - "${NOFX_FRONTEND_PORT:-3300}:5173"  # Vite dev server port
     volumes:
-      - ./web:/app  # 挂载前端源代码目录 for hot reload
+      - ../web:/app  # 挂载前端源代码目录 for hot reload
       - /app/node_modules  # 卷挂载node_modules以避免覆盖容器中的依赖
     networks:
       - nofx-network
@@ -53,8 +53,6 @@ services:
       - nofx-dev-watch
     environment:
       - NODE_ENV=development
-      - API_HOST=nofx-dev-watch
-      - NOFX_BACKEND_PORT=${NOFX_BACKEND_PORT:-8888}
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://127.0.0.1:5173"]
       interval: 30s

@@ -24,8 +24,12 @@ func main() {
 	// Load .env environment variables
 	_ = godotenv.Load()
 
-	// Initialize logger
-	logger.Init(nil)
+	// Initialize logger with level from environment variable
+	logLevel := os.Getenv("LOG_LEVEL")
+	if logLevel == "" {
+		logLevel = "info" // default log level
+	}
+	logger.InitWithSimpleConfig(logLevel)
 
 	logger.Info("╔════════════════════════════════════════════════════════════╗")
 	logger.Info("║           🚀 NOFX - AI-Powered Trading System              ║")

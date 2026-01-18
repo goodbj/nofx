@@ -842,15 +842,64 @@ export function TraderDashboardPage({
                                         } else if (error.message?.includes('not running')) {
                                             notify.error(language === 'zh' ? '交易员未运行，无法执行手动扫盘' : 'Trader is not running, cannot execute manual scan');
                                         } else if (error.message?.includes('Network error')) {
-                                            notify.error(language === 'zh' ? '网络连接错误，请检查服务是否正常运行' : 'Network connection error, please check if service is running');
+                                            // 在开发模式下显示更详细的错误信息
+                                            if (process.env.NODE_ENV === 'development') {
+                                                console.error('Manual scan network error details:', {
+                                                    message: error.message,
+                                                    stack: error.stack,
+                                                    config: error.config,
+                                                    url: error.config?.url,
+                                                    method: error.config?.method,
+                                                });
+                                                
+                                                notify.error(language === 'zh' 
+                                                    ? `网络连接错误，请检查服务是否正常运行: ${error.message || 'Connection failed'} (耗时: ${executionTime}ms)` 
+                                                    : `Network connection error, please check if service is running: ${error.message || 'Connection failed'} (duration: ${executionTime}ms)`);
+                                            } else {
+                                                notify.error(language === 'zh' ? '网络连接错误，请检查服务是否正常运行' : 'Network connection error, please check if service is running');
+                                            }
                                         } else if (error.message?.includes('connectex') || error.message?.includes('connection failed')) {
-                                            notify.warning(language === 'zh' ? '网络连接问题，但AI分析可能仍在运行' : 'Network connection issue, but AI analysis may still run');
+                                            // 在开发模式下显示更详细的错误信息
+                                            if (process.env.NODE_ENV === 'development') {
+                                                console.error('Manual scan connection error details:', {
+                                                    message: error.message,
+                                                    stack: error.stack,
+                                                    config: error.config,
+                                                    url: error.config?.url,
+                                                    method: error.config?.method,
+                                                });
+                                                
+                                                notify.warning(language === 'zh' 
+                                                    ? `网络连接问题，但AI分析可能仍在运行: ${error.message || 'Connection failed'} (耗时: ${executionTime}ms)` 
+                                                    : `Network connection issue, but AI analysis may still run: ${error.message || 'Connection failed'} (duration: ${executionTime}ms)`);
+                                            } else {
+                                                notify.warning(language === 'zh' ? '网络连接问题，但AI分析可能仍在运行' : 'Network connection issue, but AI analysis may still run');
+                                            }
                                         } else {
-                                            notify.error(
-                                                language === 'zh' 
-                                                    ? `手动扫盘失败: ${errorMessage} (耗时: ${executionTime}ms)` 
-                                                    : `Manual scan failed: ${errorMessage} (duration: ${executionTime}ms)`
-                                            );
+                                            // 在开发模式下显示更详细的错误信息
+                                            if (process.env.NODE_ENV === 'development') {
+                                                console.error('Manual scan error details:', {
+                                                    message: error.message,
+                                                    stack: error.stack,
+                                                    config: error.config,
+                                                    url: error.config?.url,
+                                                    method: error.config?.method,
+                                                    data: error.response?.data,
+                                                    status: error.response?.status,
+                                                });
+                                                
+                                                notify.error(
+                                                    language === 'zh' 
+                                                        ? `手动扫盘失败: ${errorMessage} (耗时: ${executionTime}ms)\n状态码: ${error.response?.status || 'N/A'}\nURL: ${error.config?.url || 'N/A'}` 
+                                                        : `Manual scan failed: ${errorMessage} (duration: ${executionTime}ms)\nStatus: ${error.response?.status || 'N/A'}\nURL: ${error.config?.url || 'N/A'}`
+                                                );
+                                            } else {
+                                                notify.error(
+                                                    language === 'zh' 
+                                                        ? `手动扫盘失败: ${errorMessage} (耗时: ${executionTime}ms)` 
+                                                        : `Manual scan failed: ${errorMessage} (duration: ${executionTime}ms)`
+                                                );
+                                            }
                                         }
                                     } finally {
                                         setIsManualDecisionLoading(false);

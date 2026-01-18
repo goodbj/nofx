@@ -305,7 +305,7 @@ docker compose up -d --build
 
 #### ステップ3：ダッシュボードにアクセス
 
-ブラウザを開いて次にアクセス：**http://localhost:3000**
+ブラウザを開いて次にアクセス：**http://localhost:3300**
 
 **これで完了！🎉** AIトレーディングシステムが稼働中です！
 
@@ -824,12 +824,12 @@ npm run dev
 ```
 VITE v5.x.x  ready in xxx ms
 
-➜  Local:   http://localhost:3000/
+➜  Local:   http://localhost:3300/
 ➜  Network: use --host to expose
 ```
 
 **✅ フロントエンドが実行されているとき：**
-- "Local: http://localhost:3000/"メッセージ
+- "Local: http://localhost:3300/"メッセージ
 - エラーメッセージなし
 - このターミナルウィンドウも開いたままにしてください！
 
@@ -839,7 +839,7 @@ VITE v5.x.x  ready in xxx ms
 
 Webブラウザを開いて次にアクセス：
 
-**🌐 http://localhost:3000**
+**🌐 http://localhost:3300**
 
 **表示されるもの：**
 - 📊 リアルタイムアカウント残高
@@ -873,7 +873,7 @@ Webブラウザを開いて次にアクセス：
 
 ```bash
 # 新しいターミナルウィンドウで
-curl http://localhost:8080/health
+curl http://localhost:8888/health
 ```
 
 戻り値：`{"status":"ok"}`
@@ -1178,7 +1178,7 @@ sudo apt-get install libta-lib0-dev
 ### 4. フロントエンドがバックエンドに接続できない
 
 **解決策**:
-- バックエンドが実行中であることを確認（http://localhost:8080）
+- バックエンドが実行中であることを確認（http://localhost:8888）
 - ポート8080が占有されていないか確認
 - ブラウザコンソールでエラーを確認
 

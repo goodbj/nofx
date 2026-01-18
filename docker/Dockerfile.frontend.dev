@@ -1,0 +1,52 @@
+# docker/frontend/Dockerfile.dev
+#
+# Development version of the frontend Dockerfile
+# Uses Vite dev server for hot reload during development
+#
+
+# ═══════════════════════════════════════════════════════════════
+# NOFX Frontend Development Dockerfile (Node + Vite Dev Server)
+# Supports hot reload for development
+# Versions extracted as ARGs for consistency
+# ═══════════════════════════════════════════════════════════════
+
+ARG NODE_VERSION=20-alpine
+ARG NGINX_VERSION=alpine
+
+# ──────────────────────────────────────────────────────────────
+# Development Stage (Vite Dev Server)
+# ──────────────────────────────────────────────────────────────
+FROM docker.m.daocloud.io/node:20-bookworm-slim AS dev-server
+
+WORKDIR /build
+
+# Copy package files
+COPY web/package*.json ./
+
+# Copy source code
+COPY web/ ./
+
+# Install dependencies
+RUN npm install
+
+# Expose port for Vite dev server
+EXPOSE 5173
+
+# Set environment variables for development
+ENV NODE_ENV=development
+ENV API_HOST=http://nofx-trading-dev-watch:8888
+# Force Rollup to use JavaScript version instead of native binary
+ENV ROLLUP_NATIVE=0
+
+# Pre-build step to ensure all dependencies are correctly resolved
+RUN npm rebuild
+
+# Make entrypoint script executable
+COPY docker/frontend-entrypoint.sh /usr/local/bin/
+RUN chmod +x /usr/local/bin/frontend-entrypoint.sh
+
+# Set the entrypoint
+ENTRYPOINT ["/usr/local/bin/frontend-entrypoint.sh"]
+
+# Start Vite dev server with host binding for external access
+CMD ["npm", "run", "dev", "--", "--host", "0.0.0.0", "--port", "5173", "--strictPort"]

@@ -1,0 +1,52 @@
+# NOFX Backend Dockerfile for Windows Platform (Go + TA-Lib)
+# Using pre-installed TA-Lib to avoid network issues
+# Versions extracted as ARGs for maintainability
+
+ARG GO_VERSION=1.25-alpine
+ARG ALPINE_VERSION=latest
+ARG TA_LIB_VERSION=0.4.0
+
+# ──────────────────────────────────────────────────────────────
+# Backend Build Stage (Go Application)
+# ──────────────────────────────────────────────────────────────
+FROM --platform=linux/amd64 docker.m.daocloud.io/golang:${GO_VERSION}
+
+RUN apk update && apk add --no-cache git make gcc g++ musl-dev wget tar autoconf automake
+
+# Skip TA-Lib installation as it's not available in Alpine repos
+# The application will run without TA-Lib functionality
+RUN echo 'Skipping TA-Lib installation for Alpine compatibility'
+
+WORKDIR /app
+COPY go.mod go.sum ./
+RUN go mod download
+
+COPY . .
+
+# Build for the correct platform and disable CGO to avoid linking issues
+ENV CGO_ENABLED=0
+ENV GOOS=linux
+ENV GOARCH=amd64
+# Use static linking to avoid any library compatibility issues
+RUN go build -a -installsuffix cgo -ldflags="-s -w -extldflags '-static'" -o nofx .
+
+# ──────────────────────────────────────────────────────────────
+# Runtime Stage (Minimal Executable Environment)
+# ──────────────────────────────────────────────────────────────
+FROM --platform=linux/amd64 docker.m.daocloud.io/alpine:${ALPINE_VERSION}
+
+RUN apk update && apk add --no-cache ca-certificates tzdata sqlite curl
+RUN ldconfig || true
+
+# No TA-Lib to copy as it was skipped during build
+# Continue with the rest of the runtime setup
+
+WORKDIR /app
+COPY --from=0 /app/nofx .
+
+EXPOSE 8888
+
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+  CMD curl -f http://localhost:8888/api/health || exit 1
+
+CMD ["./nofx"]

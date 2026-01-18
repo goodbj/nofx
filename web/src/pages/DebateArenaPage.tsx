@@ -516,7 +516,22 @@ export function DebateArenaPage() {
       notify.success('已执行')
       mutateDetail(); mutateList()
       setExecId(null); setTraderId('')
-    } catch (e: any) { notify.error(e.message) }
+    } catch (e: any) {
+      // 在开发模式下显示更详细的错误信息
+      if (process.env.NODE_ENV === 'development') {
+        console.error('Debate execution error details:', {
+          message: e.message,
+          stack: e.stack,
+          error: e,
+          url: `/api/debates/${execId}/execute`,
+          method: 'POST',
+        });
+        
+        notify.error(`${e.message}\nURL: /api/debates/${execId}/execute\nMethod: POST (execute)`)
+      } else {
+        notify.error(e.message)
+      }
+    }
     finally { setExecuting(false) }
   }
 

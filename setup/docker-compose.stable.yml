@@ -1,50 +1,46 @@
+# NOFX Stable Release Deployment
+# Production-ready stable version
+
 services:
-  # Backend service (API and core logic)
   nofx:
-    build:
-      context: .
-      dockerfile: ./docker/Dockerfile.backend
+    image: ghcr.io/nofxaios/nofx/nofx-backend:stable
     container_name: nofx-trading
     restart: unless-stopped
-    stop_grace_period: 30s  # 允许应用有 30 秒时间优雅关闭
+    stop_grace_period: 30s
     ports:
-      - "${NOFX_BACKEND_PORT:-8888}:8088"
-      - "6060:6060"  # pprof profiling
+      - "${NOFX_BACKEND_PORT:-8080}:8088"
     volumes:
-      - ./data:/app/data
+      - ../data:/app/data
       - /etc/localtime:/etc/localtime:ro
     env_file:
-      - .env
+      - ../.env
     environment:
       - TZ=${TZ:-Asia/Shanghai}
       - AI_MAX_TOKENS=8000
       - API_HOST=nofx
-      - NOFX_BACKEND_PORT=${NOFX_BACKEND_PORT:-8888}
+      - NOFX_BACKEND_PORT=${NOFX_BACKEND_PORT:-8080}
     networks:
       - nofx-network
     healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:${NOFX_BACKEND_PORT:-8888}/api/health"]
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:${NOFX_BACKEND_PORT:-8080}/api/health"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 60s
 
-  # Frontend service (static serving and proxy)
   nofx-frontend:
-    build:
-      context: .
-      dockerfile: ./docker/Dockerfile.frontend
+    image: ghcr.io/nofxaios/nofx/nofx-frontend:stable
     container_name: nofx-frontend
     restart: unless-stopped
     ports:
-      - "${NOFX_FRONTEND_PORT:-3300}:80"
+      - "${NOFX_FRONTEND_PORT:-3000}:80"
     networks:
       - nofx-network
     depends_on:
       - nofx
     environment:
       - API_HOST=nofx
-      - NOFX_BACKEND_PORT=${NOFX_BACKEND_PORT:-8888}
+      - NOFX_BACKEND_PORT=${NOFX_BACKEND_PORT:-8080}
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://127.0.0.1/health"]
       interval: 30s

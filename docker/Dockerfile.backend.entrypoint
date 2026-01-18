@@ -1,0 +1,53 @@
+# NOFX Backend Dockerfile with Entrypoint Script
+# Multi-stage build to ensure proper cross-compilation
+
+ARG GO_VERSION=1.25-alpine
+ARG ALPINE_VERSION=latest
+
+# ──────────────────────────────────────────────────────────────
+# Backend Build Stage (Go Application)
+# ──────────────────────────────────────────────────────────────
+FROM --platform=linux/amd64 docker.m.daocloud.io/golang:${GO_VERSION} AS builder
+
+RUN apk update && apk add --no-cache git make gcc g++ musl-dev wget tar autoconf automake
+
+# Skip TA-Lib installation as it's not available in Alpine repos
+RUN echo 'Skipping TA-Lib installation for Alpine compatibility'
+
+WORKDIR /app
+COPY go.mod go.sum ./
+RUN go mod download
+
+COPY . .
+
+# Explicitly set environment for static compilation
+ENV CGO_ENABLED=0
+ENV GOOS=linux
+ENV GOARCH=amd64
+# Build with static linking to avoid any dynamic library issues
+COPY ./docker/build.sh /tmp/build.sh
+RUN chmod +x /tmp/build.sh
+RUN /tmp/build.sh
+
+# ──────────────────────────────────────────────────────────────
+# Runtime Stage (Minimal Executable Environment)
+# ──────────────────────────────────────────────────────────────
+FROM --platform=linux/amd64 docker.m.daocloud.io/alpine:${ALPINE_VERSION}
+
+RUN apk update && apk add --no-cache ca-certificates tzdata sqlite curl bash
+
+WORKDIR /app
+
+# Copy the binary from the builder stage
+COPY --from=builder /app/nofx .
+
+# Copy entrypoint script
+COPY ./docker/entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+
+EXPOSE 8888
+
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+  CMD curl -f http://localhost:8888/api/health || exit 1
+
+ENTRYPOINT ["/entrypoint.sh"]
