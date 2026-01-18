@@ -51,6 +51,12 @@ docker ps --filter "name=nofx"
 
 echo.
 echo ========================================
+echo    服务健康检查:
+echo ========================================
+powershell -Command "try { $response = Invoke-RestMethod -Uri http://localhost:8888/api/health; Write-Host '开发版后端健康: OK - 状态:' $response.status -ForegroundColor Green; } catch { Write-Host '开发版后端健康: FAILED' -ForegroundColor Red; }"
+powershell -Command "try { $response = Invoke-RestMethod -Uri http://localhost:8080/api/health 2>$null; Write-Host '稳定版后端健康: OK - 状态:' $response.status -ForegroundColor Green; } catch { Write-Host '稳定版后端健康: FAILED 或 未运行' -ForegroundColor Yellow; }"
+echo.
+echo ========================================
 echo    服务访问地址:
 echo    稳定版前端: http://localhost:3000
 echo    稳定版后端: http://localhost:8080

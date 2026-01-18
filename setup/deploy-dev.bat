@@ -44,4 +44,10 @@ echo    支持代码热更新
 echo ========================================
 echo.
 
+REM 清理构建缓存
+echo [清理] 正在清理构建缓存...
+go clean -cache -modcache 2>nul
+echo 构建缓存清理完成
+echo.
+
 pause

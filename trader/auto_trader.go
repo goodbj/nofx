@@ -215,6 +215,16 @@ func NewAutoTrader(config AutoTraderConfig, st *store.Store, userID string) (*Au
 		mcpClient.SetAPIKey(config.CustomAPIKey, config.CustomAPIURL, config.CustomModelName)
 		logger.Infof("🤖 [%s] Using custom AI API: %s (model: %s)", config.Name, config.CustomAPIURL, config.CustomModelName)
 
+	case "ollama":
+		mcpClient = mcp.New()
+		// Ollama typically doesn't need an API key, but we'll use it if provided
+		apiKey := config.CustomAPIKey
+		if apiKey == "" {
+			apiKey = "ollama" // Default API key for Ollama if not provided
+		}
+		mcpClient.SetAPIKey(apiKey, config.CustomAPIURL, config.CustomModelName)
+		logger.Infof("🤖 [%s] Using Ollama AI: %s (model: %s)", config.Name, config.CustomAPIURL, config.CustomModelName)
+
 	default: // deepseek or empty
 		mcpClient = mcp.NewDeepSeekClient()
 		apiKey := config.DeepSeekKey
