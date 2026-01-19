@@ -1,52 +1,52 @@
-version: '3.8'
-
 services:
+  # Backend service (API and core logic) - Development with Hot Reload
   nofx-dev-watch:
     build:
-      context: .
+      context: ..
       dockerfile: ../docker/Dockerfile.backend.dev.watch
     container_name: nofx-trading-dev-watch
     restart: unless-stopped
     stop_grace_period: 30s
     ports:
-      - "8888:8888"
+      - ":"  # ????????
     volumes:
-      - ..:/app
+      - ..:/app  # ?????????????
       - ./data:/app/data
       - /etc/localtime:/etc/localtime:ro
-    working_dir: /app
+    working_dir: /app  # ??????
     command: >
       sh -c "
         go mod download &&
         go run main.go
       "
     env_file:
-      - ../.env
+      - ./.env
     environment:
-      - TZ=Asia/Shanghai
+      - TZ=${TZ:-Asia/Shanghai}
       - AI_MAX_TOKENS=8000
-      - NOFX_BACKEND_PORT=8888
+      - NOFX_BACKEND_PORT=
       - API_HOST=nofx-dev-watch
     networks:
       - nofx-network
     healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8888/api/health"]
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:/api/health"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 60s
 
+  # Frontend service (Vite dev server with hot reload)
   nofx-frontend-dev-watch:
     build:
-      context: .
+      context: ..
       dockerfile: ../docker/Dockerfile.frontend.dev.watch
     container_name: nofx-frontend-dev-watch
     restart: unless-stopped
     ports:
-      - "3300:5173"
+      - ":5173"  # Vite dev server port
     volumes:
-      - ../web:/app
-      - /app/node_modules
+      - ../web:/app  # ????????? for hot reload
+      - /app/node_modules  # ???node_modules???????????
     networks:
       - nofx-network
     depends_on:
@@ -63,6 +63,3 @@ services:
 networks:
   nofx-network:
     driver: bridge
-
-
-

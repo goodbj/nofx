@@ -10,10 +10,10 @@ services:
     ports:
       - "${NOFX_BACKEND_PORT:-8080}:8088"
     volumes:
-      - ../data:/app/data
+      - ./data:/app/data
       - /etc/localtime:/etc/localtime:ro
     env_file:
-      - ../.env
+      - ./.env
     environment:
       - TZ=${TZ:-Asia/Shanghai}
       - AI_MAX_TOKENS=8000

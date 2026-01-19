@@ -2,52 +2,52 @@
 setlocal enabledelayedexpansion
 
 echo ========================================
-echo    NOFX å¼€å‘ç‰ˆéƒ¨ç½²è„šæœ¬
+echo    NOFX ¿ª·¢°æ²¿Êð½Å±¾
 echo ========================================
 echo.
 
-echo æ£€æŸ¥DockeræœåŠ¡çŠ¶æ€...
+echo ¼ì²éDocker·þÎñ×´Ì¬...
 docker ps >nul 2>&1
 if %errorlevel% neq 0 (
-    echo é”™è¯¯: DockeræœåŠ¡æœªè¿è¡Œ
-    echo è¯·å¯åŠ¨Docker Desktopåº”ç”¨ç¨‹åº
+    echo ´íÎó: Docker·þÎñÎ´ÔËÐÐ
+    echo ÇëÆô¶¯Docker DesktopÓ¦ÓÃ³ÌÐò
     pause
     exit /b 1
 )
 
-echo DockeræœåŠ¡è¿è¡Œæ­£å¸¸
+echo Docker·þÎñÔËÐÐÕý³£
 echo.
 
-echo åˆ‡æ¢åˆ°setupç›®å½•...
+echo ÇÐ»»µ½setupÄ¿Â¼...
 cd /d "%~dp0"
 
-echo å½“å‰ç›®å½•: !CD!
+echo µ±Ç°Ä¿Â¼: !CD!
 
 echo.
-echo æ­£åœ¨å¯åŠ¨å¼€å‘ç‰ˆæœåŠ¡...
+echo ÕýÔÚÆô¶¯¿ª·¢°æ·þÎñ...
 docker-compose -f docker-compose.dev.watch.yml up -d
 
 echo.
-echo ç­‰å¾…æœåŠ¡å¯åŠ¨...
+echo µÈ´ý·þÎñÆô¶¯...
 timeout /t 5 /nobreak >nul
 
 echo.
-echo æ£€æŸ¥å®¹å™¨çŠ¶æ€...
+echo ¼ì²éÈÝÆ÷×´Ì¬...
 docker-compose -f docker-compose.dev.watch.yml ps
 
 echo.
 echo ========================================
-echo    å¼€å‘ç‰ˆéƒ¨ç½²å®Œæˆ
-echo    å‰ç«¯è®¿é—®åœ°å€: http://localhost:3300
-echo    åŽç«¯è®¿é—®åœ°å€: http://localhost:8888
-echo    æ”¯æŒä»£ç çƒ­æ›´æ–°
+echo    ¿ª·¢°æ²¿ÊðÍê³É
+echo    Ç°¶Ë·ÃÎÊµØÖ·: http://localhost:3300
+echo    ºó¶Ë·ÃÎÊµØÖ·: http://localhost:8888
+echo    Ö§³Ö´úÂëÈÈ¸üÐÂ
 echo ========================================
 echo.
 
-REM æ¸…ç†æž„å»ºç¼“å­˜
-echo [æ¸…ç†] æ­£åœ¨æ¸…ç†æž„å»ºç¼“å­˜...
+REM ÇåÀí¹¹½¨»º´æ
+echo [ÇåÀí] ÕýÔÚÇåÀí¹¹½¨»º´æ...
 go clean -cache -modcache 2>nul
-echo æž„å»ºç¼“å­˜æ¸…ç†å®Œæˆ
+echo ¹¹½¨»º´æÇåÀíÍê³É
 echo.
 
 pause
