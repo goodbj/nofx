@@ -407,7 +407,6 @@ func (tm *TraderManager) GetTopTradersData() (map[string]interface{}, error) {
 	return result, nil
 }
 
-
 // RemoveTrader removes a trader from memory (does not affect database)
 // Used to force reload when updating trader configuration
 // If the trader is running, it will be stopped first
@@ -665,11 +664,11 @@ func (tm *TraderManager) addTraderFromStore(traderCfg *store.Trader, aiModelCfg 
 		CustomAPIURL:          aiModelCfg.CustomAPIURL,
 		CustomModelName:       aiModelCfg.CustomModelName,
 		ExchangeTestnet:       exchangeCfg.Testnet,
-		ScanInterval:         time.Duration(traderCfg.ScanIntervalMinutes) * time.Minute,
-		InitialBalance:       traderCfg.InitialBalance,
-		IsCrossMargin:        traderCfg.IsCrossMargin,
-		ShowInCompetition:    traderCfg.ShowInCompetition,
-		StrategyConfig:       strategyConfig,
+		ScanInterval:          time.Duration(traderCfg.ScanIntervalMinutes) * time.Minute,
+		InitialBalance:        traderCfg.InitialBalance,
+		IsCrossMargin:         traderCfg.IsCrossMargin,
+		ShowInCompetition:     traderCfg.ShowInCompetition,
+		StrategyConfig:        strategyConfig,
 	}
 
 	logger.Infof("📊 Loading trader %s: ScanIntervalMinutes=%d (from DB), ScanInterval=%v",

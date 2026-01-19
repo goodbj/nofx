@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"time"
 
 	"github.com/adshao/go-binance/v2/futures"
 )
@@ -23,14 +24,19 @@ func main() {
 	client := futures.NewClient(apiKey, secretKey)
 	client.BaseURL = apiURL
 
-	// Test connection by fetching server time
+	// Synchronize time to avoid timestamp errors
 	serverTime, err := client.NewServerTimeService().Do(context.Background())
 	if err != nil {
 		fmt.Printf("Connection failed: %v\n", err)
 		os.Exit(1)
 	}
 
-	fmt.Printf("Connected successfully! Server time: %d\n", serverTime)
+	// Calculate time difference and set offset
+	localTime := time.Now().UnixMilli()
+	timeDiff := localTime - serverTime
+	client.TimeOffset = timeDiff
+
+	fmt.Printf("Connected successfully! Server time: %d, Time diff: %d ms\n", serverTime, timeDiff)
 
 	// Test getting account balance
 	account, err := client.NewGetAccountService().Do(context.Background())

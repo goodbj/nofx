@@ -69,6 +69,8 @@ func NewFuturesTrader(apiKey, secretKey, userId, customEndpoint string) *Futures
 	if customEndpoint != "" {
 		// Use custom endpoint if provided
 		client = futures.NewClient(apiKey, secretKey)
+		// For testnet, the correct endpoint should be https://testnet.binancefuture.com
+		// The library will append the API path (/fapi/v2/account, etc.) automatically
 		client.BaseURL = customEndpoint
 	} else {
 		// Use default endpoint
@@ -769,9 +771,9 @@ func (t *FuturesTrader) CancelStopOrders(symbol string) error {
 	if err == nil {
 		for _, algoOrder := range algoOrders {
 			// Cancel both stop-loss and take-profit orders
-			if algoOrder.OrderType == futures.AlgoOrderTypeStopMarket || 
-				algoOrder.OrderType == futures.AlgoOrderTypeStop || 
-				algoOrder.OrderType == futures.AlgoOrderTypeTakeProfitMarket || 
+			if algoOrder.OrderType == futures.AlgoOrderTypeStopMarket ||
+				algoOrder.OrderType == futures.AlgoOrderTypeStop ||
+				algoOrder.OrderType == futures.AlgoOrderTypeTakeProfitMarket ||
 				algoOrder.OrderType == futures.AlgoOrderTypeTakeProfit {
 
 				_, err := t.client.NewCancelAlgoOrderService().
