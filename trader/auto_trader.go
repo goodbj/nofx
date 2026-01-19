@@ -1000,6 +1000,19 @@ func (at *AutoTrader) buildTradingContext() (*kernel.Context, error) {
 
 // executeDecisionWithRecord executes AI decision and records detailed information
 func (at *AutoTrader) executeDecisionWithRecord(decision *kernel.Decision, actionRecord *store.DecisionAction) error {
+	// Log the incoming decision for debugging
+	logger.Infof("  🤖 Processing AI decision: Symbol=%s, Action=%s, Confidence=%d", decision.Symbol, decision.Action, decision.Confidence)
+	// Log additional parameters based on action type
+	switch decision.Action {
+	case "update_stop_loss":
+		logger.Infof("     New Stop Loss: %.4f", decision.NewStopLoss)
+	case "update_take_profit":
+		logger.Infof("     New Take Profit: %.4f", decision.NewTakeProfit)
+	case "partial_close":
+		logger.Infof("     Close Percentage: %.2f%%", decision.ClosePercentage)
+	case "open_long", "open_short":
+		logger.Infof("     Leverage: %d, Position Size: %.2f, Stop Loss: %.4f, Take Profit: %.4f", decision.Leverage, decision.PositionSizeUSD, decision.StopLoss, decision.TakeProfit)
+	}
 	switch decision.Action {
 	case "open_long":
 		return at.executeOpenLongWithRecord(decision, actionRecord)
@@ -2534,6 +2547,8 @@ func (at *AutoTrader) executeUpdateStopLossWithRecord(decision *kernel.Decision,
 		logger.Warnf("  ⚠️ Failed to get market data for %s: %v", decision.Symbol, err)
 	}
 
+	// Debug log for exchange API call
+	logger.Infof("  📡 Submitting stop loss update to exchange: Symbol=%s, Side=%s, NewStopLoss=%.4f", decision.Symbol, side, decision.NewStopLoss)
 	// Update stop loss
 	err = at.trader.UpdateStopLoss(decision.Symbol, side, decision.NewStopLoss)
 	if err != nil {
@@ -2647,6 +2662,8 @@ func (at *AutoTrader) executeUpdateTakeProfitWithRecord(decision *kernel.Decisio
 		logger.Warnf("  ⚠️ Failed to get market data for %s: %v", decision.Symbol, err)
 	}
 
+	// Debug log for exchange API call
+	logger.Infof("  📡 Submitting take profit update to exchange: Symbol=%s, Side=%s, NewTakeProfit=%.4f", decision.Symbol, side, decision.NewTakeProfit)
 	// Update take profit
 	err = at.trader.UpdateTakeProfit(decision.Symbol, side, decision.NewTakeProfit)
 	if err != nil {
@@ -2757,6 +2774,8 @@ func (at *AutoTrader) executePartialCloseWithRecord(decision *kernel.Decision, a
 		logger.Warnf("  ⚠️ Failed to get market data for %s: %v", decision.Symbol, err)
 	}
 
+	// Debug log for exchange API call
+	logger.Infof("  📡 Submitting partial close to exchange: Symbol=%s, Side=%s, ClosePercentage=%.2f%%", decision.Symbol, side, decision.ClosePercentage)
 	// Close partial position
 	order, err := at.trader.PartialClose(decision.Symbol, side, decision.ClosePercentage)
 	if err != nil {
