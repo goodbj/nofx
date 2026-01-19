@@ -1476,9 +1476,22 @@ export function StrategyStudioPage() {
                           <FileText className="w-3 h-3 text-purple-500" />
                           <span className="text-xs font-medium text-nofx-text">{t('systemPrompt')}</span>
                         </div>
-                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-nofx-bg-lighter text-nofx-text-muted">
-                          {promptPreview.system_prompt.length.toLocaleString()} chars
-                        </span>
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-[10px] px-1.5 py-0.5 rounded bg-nofx-bg-lighter text-nofx-text-muted">
+                            {promptPreview.system_prompt.length.toLocaleString()} chars
+                          </span>
+                          <button
+                            onClick={() => copyToClipboard(promptPreview.system_prompt, 'systemPrompt')}
+                            className="p-1 rounded text-xs hover:bg-nofx-bg-lighter transition-colors"
+                            title="Copy to clipboard"
+                          >
+                            {copiedStates['systemPrompt'] ? (
+                              <ClipboardCheck className="w-3 h-3 text-green-500" />
+                            ) : (
+                              <Clipboard className="w-3 h-3 text-nofx-text-muted hover:text-nofx-text" />
+                            )}
+                          </button>
+                        </div>
                       </div>
                       <pre
                         className="p-2 rounded-lg text-[11px] font-mono overflow-auto bg-nofx-bg border border-nofx-gold/20 text-nofx-text"
