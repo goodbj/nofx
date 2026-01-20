@@ -138,3 +138,5 @@ AI/TRADING_PROMPT_TECHNICAL_ANALYSIS.md
 AI_TRADING_LOGIC_GUIDE.md
 /binance-connector-python
 /setup/root_file
+/test
+/setup/backup_docker_images
