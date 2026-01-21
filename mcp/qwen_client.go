@@ -24,15 +24,16 @@ func NewQwenClient() AIClient {
 // NewQwenClientWithOptions creates Qwen client (supports options pattern)
 //
 // Usage examples:
-//   // Basic usage
-//   client := mcp.NewQwenClientWithOptions()
 //
-//   // Custom configuration
-//   client := mcp.NewQwenClientWithOptions(
-//       mcp.WithAPIKey("sk-xxx"),
-//       mcp.WithLogger(customLogger),
-//       mcp.WithTimeout(60*time.Second),
-//   )
+//	// Basic usage
+//	client := mcp.NewQwenClientWithOptions()
+//
+//	// Custom configuration
+//	client := mcp.NewQwenClientWithOptions(
+//	    mcp.WithAPIKey("sk-xxx"),
+//	    mcp.WithLogger(customLogger),
+//	    mcp.WithTimeout(60*time.Second),
+//	)
 func NewQwenClientWithOptions(opts ...ClientOption) AIClient {
 	// 1. Create Qwen preset options
 	qwenOpts := []ClientOption{
@@ -66,7 +67,13 @@ func (qwenClient *QwenClient) SetAPIKey(apiKey string, customURL string, customM
 	}
 	if customURL != "" {
 		qwenClient.BaseURL = customURL
-		qwenClient.logger.Infof("🔧 [MCP] Qwen using custom BaseURL: %s", customURL)
+		// SECURITY: Validate that the URL is a valid AI endpoint, not another service
+		if !IsValidAIEndpointURL(qwenClient.BaseURL) {
+			qwenClient.logger.Errorf("❌ Invalid AI endpoint URL detected: %s, reverting to default", qwenClient.BaseURL)
+			qwenClient.BaseURL = DefaultQwenBaseURL
+		} else {
+			qwenClient.logger.Infof("🔧 [MCP] Qwen using custom BaseURL: %s", customURL)
+		}
 	} else {
 		qwenClient.logger.Infof("🔧 [MCP] Qwen using default BaseURL: %s", qwenClient.BaseURL)
 	}

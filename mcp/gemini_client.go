@@ -53,7 +53,13 @@ func (c *GeminiClient) SetAPIKey(apiKey string, customURL string, customModel st
 	}
 	if customURL != "" {
 		c.BaseURL = customURL
-		c.logger.Infof("🔧 [MCP] Gemini using custom BaseURL: %s", customURL)
+		// SECURITY: Validate that the URL is a valid AI endpoint, not another service
+		if !IsValidAIEndpointURL(c.BaseURL) {
+			c.logger.Errorf("❌ Invalid AI endpoint URL detected: %s, reverting to default", c.BaseURL)
+			c.BaseURL = DefaultGeminiBaseURL
+		} else {
+			c.logger.Infof("🔧 [MCP] Gemini using custom BaseURL: %s", customURL)
+		}
 	} else {
 		c.logger.Infof("🔧 [MCP] Gemini using default BaseURL: %s", c.BaseURL)
 	}

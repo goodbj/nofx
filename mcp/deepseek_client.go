@@ -24,15 +24,16 @@ func NewDeepSeekClient() AIClient {
 // NewDeepSeekClientWithOptions creates DeepSeek client (supports options pattern)
 //
 // Usage examples:
-//   // Basic usage
-//   client := mcp.NewDeepSeekClientWithOptions()
 //
-//   // Custom configuration
-//   client := mcp.NewDeepSeekClientWithOptions(
-//       mcp.WithAPIKey("sk-xxx"),
-//       mcp.WithLogger(customLogger),
-//       mcp.WithTimeout(60*time.Second),
-//   )
+//	// Basic usage
+//	client := mcp.NewDeepSeekClientWithOptions()
+//
+//	// Custom configuration
+//	client := mcp.NewDeepSeekClientWithOptions(
+//	    mcp.WithAPIKey("sk-xxx"),
+//	    mcp.WithLogger(customLogger),
+//	    mcp.WithTimeout(60*time.Second),
+//	)
 func NewDeepSeekClientWithOptions(opts ...ClientOption) AIClient {
 	// 1. Create DeepSeek preset options
 	deepseekOpts := []ClientOption{
@@ -66,7 +67,13 @@ func (dsClient *DeepSeekClient) SetAPIKey(apiKey string, customURL string, custo
 	}
 	if customURL != "" {
 		dsClient.BaseURL = customURL
-		dsClient.logger.Infof("🔧 [MCP] DeepSeek using custom BaseURL: %s", customURL)
+		// SECURITY: Validate that the URL is a valid AI endpoint, not another service
+		if !IsValidAIEndpointURL(dsClient.BaseURL) {
+			dsClient.logger.Errorf("❌ Invalid AI endpoint URL detected: %s, reverting to default", dsClient.BaseURL)
+			dsClient.BaseURL = DefaultDeepSeekBaseURL
+		} else {
+			dsClient.logger.Infof("🔧 [MCP] DeepSeek using custom BaseURL: %s", customURL)
+		}
 	} else {
 		dsClient.logger.Infof("🔧 [MCP] DeepSeek using default BaseURL: %s", dsClient.BaseURL)
 	}

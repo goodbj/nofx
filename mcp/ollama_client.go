@@ -24,14 +24,47 @@ func NewOllamaClient() AIClient {
 			Provider:   ProviderOllama,
 			BaseURL:    DefaultOllamaBaseURL,
 			Model:      DefaultOllamaModel,
-			MaxTokens:  2000, // Use same default as in DefaultConfig
+			MaxTokens:  2000,                                     // Use same default as in DefaultConfig
 			httpClient: &http.Client{Timeout: 300 * time.Second}, // Increase timeout for Ollama (5 minutes for large models)
-			logger:     logger.NewMCPLogger(), // Use logger from imported package
+			logger:     logger.NewMCPLogger(),                    // Use logger from imported package
 			config:     DefaultConfig(),
 		},
 	}
 	client.hooks = client // Set hooks to self for method override
 	return client
+}
+
+// SetAPIKey Override SetAPIKey to preserve Ollama provider identity and prevent incorrect BaseURL assignment
+func (c *OllamaClient) SetAPIKey(apiKey, apiURL, customModel string) {
+	// Don't change the Provider to ProviderCustom, keep it as ProviderOllama
+	c.APIKey = apiKey
+
+	// Use the provided URL, or default if empty
+	if apiURL != "" {
+		c.BaseURL = strings.TrimSuffix(apiURL, "#")
+		// Check if URL ends with # to determine if UseFullURL should be true
+		c.UseFullURL = strings.HasSuffix(apiURL, "#")
+		// SECURITY: Validate that the URL is a valid AI endpoint, not another service
+		if !IsValidAIEndpointURL(c.BaseURL) {
+			c.logger.Errorf("❌ Invalid AI endpoint URL detected: %s, reverting to default", c.BaseURL)
+			c.BaseURL = DefaultOllamaBaseURL
+		}
+	} else {
+		// Keep default Ollama BaseURL if no API URL provided
+		if c.BaseURL == "" {
+			c.BaseURL = DefaultOllamaBaseURL
+		}
+	}
+
+	// Set model
+	if customModel != "" {
+		c.Model = customModel
+	} else {
+		// Use default Ollama model if no custom model provided
+		if c.Model == "" {
+			c.Model = DefaultOllamaModel
+		}
+	}
 }
 
 // Constants for Ollama
@@ -40,6 +73,12 @@ const (
 	DefaultOllamaBaseURL = "http://127.0.0.1:11434"
 	DefaultOllamaModel   = "llama3.1"
 )
+
+// isValidOllamaURL checks if the URL is a valid Ollama endpoint and not another service
+func isValidOllamaURL(url string) bool {
+	// Currently same as general AI endpoint validation
+	return IsValidAIEndpointURL(url)
+}
 
 // buildUrl Override URL building for Ollama (uses /api/generate instead of /chat/completions)
 func (c *OllamaClient) buildUrl() string {
@@ -72,14 +111,14 @@ func (c *OllamaClient) buildRequest(url string, jsonData []byte) (*http.Request,
 func (c *OllamaClient) marshalRequestBody(requestBody map[string]any) ([]byte, error) {
 	// For Ollama, we need to convert the OpenAI-style request to Ollama format
 	ollamaBody := make(map[string]interface{})
-	
+
 	// Copy model
 	if model, ok := requestBody["model"].(string); ok && model != "" {
 		ollamaBody["model"] = model
 	} else {
 		ollamaBody["model"] = c.Model
 	}
-	
+
 	// Convert messages to prompt
 	if messages, ok := requestBody["messages"].([]interface{}); ok {
 		var promptBuilder strings.Builder
@@ -94,34 +133,34 @@ func (c *OllamaClient) marshalRequestBody(requestBody map[string]any) ([]byte, e
 		}
 		ollamaBody["prompt"] = promptBuilder.String()
 	}
-	
+
 	// Copy options from OpenAI request to Ollama format
 	if options, ok := requestBody["options"].(map[string]interface{}); ok {
 		ollamaBody["options"] = options
 	} else {
 		// Set default options
 		opts := make(map[string]interface{})
-		
+
 		if temp, ok := requestBody["temperature"]; ok {
 			opts["temperature"] = temp
 		} else if c.config.Temperature > 0 {
 			opts["temperature"] = c.config.Temperature
 		}
-		
+
 		if maxTokens, ok := requestBody["max_tokens"]; ok {
 			opts["num_predict"] = maxTokens
 		} else if c.MaxTokens > 0 {
 			opts["num_predict"] = c.MaxTokens
 		}
-		
+
 		if len(opts) > 0 {
 			ollamaBody["options"] = opts
 		}
 	}
-	
+
 	// Set streaming to false for compatibility
 	ollamaBody["stream"] = false
-	
+
 	return json.Marshal(ollamaBody)
 }
 
@@ -134,11 +173,11 @@ func (c *OllamaClient) parseMCPResponse(body []byte) (string, error) {
 		Done      bool   `json:"done"`
 		Context   []int  `json:"context"`
 	}
-	
+
 	if err := json.Unmarshal(body, &ollamaResp); err != nil {
 		return "", fmt.Errorf("failed to parse Ollama response: %w", err)
 	}
-	
+
 	// Return the response from Ollama
 	return ollamaResp.Response, nil
 }
@@ -146,7 +185,7 @@ func (c *OllamaClient) parseMCPResponse(body []byte) (string, error) {
 // isRetryableError Override retry logic for Ollama
 func (c *OllamaClient) isRetryableError(err error) bool {
 	errStr := err.Error()
-	
+
 	// Common Ollama-specific retry conditions
 	if strings.Contains(errStr, "connection refused") ||
 		strings.Contains(errStr, "timeout") ||
@@ -154,7 +193,7 @@ func (c *OllamaClient) isRetryableError(err error) bool {
 		strings.Contains(errStr, "connection reset") {
 		return true
 	}
-	
+
 	// Default retry logic
 	return strings.Contains(errStr, "timeout") ||
 		strings.Contains(errStr, "connection reset") ||
@@ -167,16 +206,16 @@ func (c *OllamaClient) CallWithRequest(req *Request) (string, error) {
 		// Ollama doesn't always require an API key, so we allow empty keys
 		c.logger.Warnf("⚠️  Ollama API key is not set, some configurations may require it")
 	}
-	
+
 	// Fixed retry flow
 	var lastErr error
 	maxRetries := c.config.MaxRetries
-	
+
 	for attempt := 1; attempt <= maxRetries; attempt++ {
 		if attempt > 1 {
 			c.logger.Warnf("⚠️  Ollama API call failed, retrying (%d/%d)...", attempt, maxRetries)
 		}
-		
+
 		// Call single request
 		result, err := c.callWithRequest(req)
 		if err == nil {
@@ -185,13 +224,13 @@ func (c *OllamaClient) CallWithRequest(req *Request) (string, error) {
 			}
 			return result, nil
 		}
-		
+
 		lastErr = err
 		// Check if error is retryable
 		if !c.hooks.isRetryableError(err) {
 			return "", err
 		}
-		
+
 		// Wait before retry
 		if attempt < maxRetries {
 			waitTime := c.config.RetryWaitBase * time.Duration(attempt)
@@ -199,7 +238,7 @@ func (c *OllamaClient) CallWithRequest(req *Request) (string, error) {
 			time.Sleep(waitTime)
 		}
 	}
-	
+
 	return "", fmt.Errorf("Ollama API call still failed after %d retries: %w", maxRetries, lastErr)
 }
 

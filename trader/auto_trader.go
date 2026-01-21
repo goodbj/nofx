@@ -30,6 +30,9 @@ type AutoTraderConfig struct {
 	BinanceAPIKey    string
 	BinanceSecretKey string
 
+	// Binance custom endpoint (for testnet or custom API endpoints)
+	BinanceCustomAPIURL string // Custom API endpoint for Binance (e.g., testnet)
+
 	// Bybit API configuration
 	BybitAPIKey    string
 	BybitSecretKey string
@@ -2473,9 +2476,9 @@ func (at *AutoTrader) GetOpenOrders(symbol string) ([]OpenOrder, error) {
 
 // getBinanceCustomEndpointForAutoTrader extracts the custom API endpoint for Binance from auto trader config
 func getBinanceCustomEndpointForAutoTrader(config *AutoTraderConfig) string {
-	// Check if there's a custom endpoint stored in the configuration
-	if config.CustomAPIURL != "" {
-		return config.CustomAPIURL // Use custom endpoint if provided
+	// Check if there's a custom endpoint specifically for Binance
+	if config.BinanceCustomAPIURL != "" {
+		return config.BinanceCustomAPIURL // Use custom Binance endpoint if provided
 	}
 	// For now, we'll use the Testnet field to determine if we should use demo endpoint
 	if config.ExchangeTestnet {
