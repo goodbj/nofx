@@ -390,10 +390,14 @@ export const api = {
     }
     params.append('limit', limit.toString())
 
-    const result = await httpClient.get<DecisionRecord[]>(
-      `${API_BASE}/decisions/latest?${params}`
-    )
-    if (!result.success) throw new Error('获取最新决策失败')
+    const url = `${API_BASE}/decisions/latest?${params}`
+    console.log('Fetching latest decisions from URL:', url) // 添加调试日志
+    
+    const result = await httpClient.get<DecisionRecord[]>(url)
+    if (!result.success) {
+      console.error('Failed to get latest decisions:', result.message) // 添加错误日志
+      throw new Error(result.message || '获取最新决策失败')
+    }
     return result.data!
   },
 

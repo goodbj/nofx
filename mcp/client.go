@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 )
@@ -308,6 +309,11 @@ func (client *Client) call(systemPrompt, userPrompt string) (string, error) {
 		client.logger.Debugf("[%s]   API Key: %s...%s", client.String(), client.APIKey[:4], client.APIKey[len(client.APIKey)-4:])
 	}
 
+	// Validate BaseURL is not empty
+	if client.BaseURL == "" {
+		return "", fmt.Errorf("AI API BaseURL is empty, please check AI model configuration")
+	}
+
 	// Step 1: Build request body (via hooks for dynamic dispatch)
 	requestBody := client.hooks.buildMCPRequestBody(systemPrompt, userPrompt)
 
@@ -318,11 +324,16 @@ func (client *Client) call(systemPrompt, userPrompt string) (string, error) {
 	}
 
 	// Step 3: Build URL (via hooks for dynamic dispatch)
-	url := client.hooks.buildUrl()
-	client.logger.Infof("📡 [MCP %s] Request URL: %s", client.String(), url)
+	requestUrl := client.hooks.buildUrl()
+	client.logger.Infof("📡 [MCP %s] Request URL: %s", client.String(), requestUrl)
+
+	// Validate URL is properly formatted
+	if _, err := url.ParseRequestURI(requestUrl); err != nil {
+		return "", fmt.Errorf("invalid AI API URL format: %w", err)
+	}
 
 	// Step 4: Create HTTP request (fixed logic)
-	req, err := client.hooks.buildRequest(url, jsonData)
+	req, err := client.hooks.buildRequest(requestUrl, jsonData)
 	if err != nil {
 		return "", fmt.Errorf("failed to create request: %w", err)
 	}
@@ -342,7 +353,11 @@ func (client *Client) call(systemPrompt, userPrompt string) (string, error) {
 
 	// Step 7: Check HTTP status code (fixed logic)
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("API returned error (status %d): %s", resp.StatusCode, string(body))
+		errorMessage := string(body)
+		// Log the error with more context for debugging
+		client.logger.Errorf("❌ AI API Error (Status %d): %s", resp.StatusCode, errorMessage)
+		client.logger.Errorf("❌ Request details - URL: %s, Model: %s, Provider: %s", requestUrl, client.Model, client.Provider)
+		return "", fmt.Errorf("API returned error (status %d): %s", resp.StatusCode, errorMessage)
 	}
 
 	// Step 8: Parse response (via hooks for dynamic dispatch)
