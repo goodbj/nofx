@@ -140,6 +140,7 @@ export function TraderDashboardPage({
     const [endDate, setEndDate] = useState<string>('')
     const [isManualDecisionLoading, setIsManualDecisionLoading] = useState<boolean>(false)
     const [manualScanCooldown, setManualScanCooldown] = useState<boolean>(false)
+    const [startButtonCooldown, setStartButtonCooldown] = useState<boolean>(false)
 
     // Current positions pagination
     const [positionsPageSize, setPositionsPageSize] = useState<number>(20)
@@ -768,31 +769,31 @@ export function TraderDashboardPage({
                                         notify.error(language === 'zh' ? '请选择交易员' : 'Please select a trader');
                                         return;
                                     }
-                                                                    
+                                                                                             
                                     if (manualScanCooldown) {
                                         notify.error(language === 'zh' ? '操作过于频繁，请稍后再试' : 'Action too frequent, please try again later');
                                         return;
                                     }
-                                                                        
+                                                                    
                                     // 检查交易员状态
                                     if (status && !status.is_running) {
                                         notify.error(language === 'zh' ? '交易员未运行，无法手动触发扫盘' : 'Trader is not running, cannot trigger manual scan');
                                         return;
                                     }
-                                                                        
+                                                                    
                                     // 注意：AccountInfo 没有 account_status 字段，跳过此项检查
-                                                                        
+                                                                    
                                     setIsManualDecisionLoading(true);
                                     const startTime = Date.now();
                                     notify.info(language === 'zh' ? '正在触发手动扫盘...' : 'Triggering manual scan...');
-                                                                        
+                                                                    
                                     try {
                                         const result = await api.triggerDecision(selectedTraderId);
-                                                                            
+                                                                        
                                         // 计算执行时间
                                         const endTime = Date.now();
                                         const executionTime = endTime - startTime;
-                                                                            
+                                                                        
                                         // 检查结果并提供更详细的反馈
                                         if (result && result.message) {
                                             // 如果后端返回了执行时间，优先使用后端的时间
@@ -810,7 +811,7 @@ export function TraderDashboardPage({
                                                 );
                                             }
                                         }
-                                                                            
+                                                                        
                                         // 刷新相关数据
                                         await Promise.all([
                                             mutate(`positions-${selectedTraderId}`),
@@ -818,10 +819,10 @@ export function TraderDashboardPage({
                                             mutate(`decisions-${selectedTraderId}`),
                                             mutate(`position-history-${selectedTraderId}`),
                                         ]);
-                                                                            
+                                                                        
                                         // 设置冷却时间（固定20秒）
                                         const cooldownTime = 20000; // 固定20秒冷却时间
-                                                                            
+                                                                        
                                         setManualScanCooldown(true);
                                         setTimeout(() => {
                                             setManualScanCooldown(false);
@@ -830,12 +831,12 @@ export function TraderDashboardPage({
                                         // 计算执行时间（即使失败）
                                         const endTime = Date.now();
                                         const executionTime = endTime - startTime;
-                                                                            
+                                                                        
                                         console.error('手动扫盘失败:', error);
-                                                                            
+                                                                        
                                         // 提供更详细的错误反馈
                                         let errorMessage = error.message || '未知错误';
-                                                                            
+                                                                        
                                         // 检查具体的错误类型
                                         if (error.message?.includes('already executing')) {
                                             notify.warning(language === 'zh' ? 'AI决策已在执行中，请等待完成后再试' : 'AI decision is already executing, please wait for completion');
@@ -851,7 +852,7 @@ export function TraderDashboardPage({
                                                     url: error.config?.url,
                                                     method: error.config?.method,
                                                 });
-                                                
+                                                                            
                                                 notify.error(language === 'zh' 
                                                     ? `网络连接错误，请检查服务是否正常运行: ${error.message || 'Connection failed'} (耗时: ${executionTime}ms)` 
                                                     : `Network connection error, please check if service is running: ${error.message || 'Connection failed'} (duration: ${executionTime}ms)`);
@@ -868,7 +869,7 @@ export function TraderDashboardPage({
                                                     url: error.config?.url,
                                                     method: error.config?.method,
                                                 });
-                                                
+                                                                            
                                                 notify.warning(language === 'zh' 
                                                     ? `网络连接问题，但AI分析可能仍在运行: ${error.message || 'Connection failed'} (耗时: ${executionTime}ms)` 
                                                     : `Network connection issue, but AI analysis may still run: ${error.message || 'Connection failed'} (duration: ${executionTime}ms)`);
@@ -887,7 +888,7 @@ export function TraderDashboardPage({
                                                     data: error.response?.data,
                                                     status: error.response?.status,
                                                 });
-                                                
+                                                                            
                                                 notify.error(
                                                     language === 'zh' 
                                                         ? `手动扫盘失败: ${errorMessage} (耗时: ${executionTime}ms)\n状态码: ${error.response?.status || 'N/A'}\nURL: ${error.config?.url || 'N/A'}` 
@@ -906,7 +907,7 @@ export function TraderDashboardPage({
                                     }
                                 }}
                                 disabled={!selectedTraderId || isManualDecisionLoading || manualScanCooldown}
-                                className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-all hover:scale-105 active:scale-95 nofx-glass border text-sm ${!selectedTraderId ? 'border-nofx-gray/30 text-nofx-gray/50' : 'border-nofx-blue/30 text-nofx-blue hover:bg-nofx-blue/10'} flex items-center gap-1`}
+                                className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-all hover:scale-105 active:scale-95 nofx-glass border text-sm ${!selectedTraderId ? 'border-nofx-gray/30 text-nofx-gray/50' : 'border-nofx-blue/30 text-nofx-blue hover:bg-nofx-blue/10'} flex items-center gap-1 mr-2`}
                                 title={!selectedTraderId ? '请先选择交易员' : manualScanCooldown ? '冷却中，请稍后再试' : '手动触发AI扫盘决策'}
                             >
                                 {isManualDecisionLoading ? (
@@ -923,6 +924,76 @@ export function TraderDashboardPage({
                                     <>
                                         <span>🔍</span>
                                         {language === 'zh' ? '手动扫盘' : 'Manual Scan'}
+                                    </>
+                                )}
+                            </button>
+                            {/* Stop/Start Trader Button */}
+                            <button
+                                onClick={async () => {
+                                    if (!selectedTraderId) {
+                                        notify.error(language === 'zh' ? '请选择交易员' : 'Please select a trader');
+                                        return;
+                                    }
+                                                                
+                                    // 如果是启动操作且按钮处于冷却状态，阻止重复点击
+                                    if (!status?.is_running && startButtonCooldown) {
+                                        notify.info(language === 'zh' ? '请稍后再试，避免重复点击' : 'Please wait, avoiding duplicate clicks');
+                                        return;
+                                    }
+                                                                                             
+                                    try {
+                                        if (status?.is_running) {
+                                            // 停止交易员
+                                            await api.stopTrader(selectedTraderId);
+                                            notify.success(language === 'zh' ? '交易员已停止' : 'Trader stopped successfully');
+                                        } else {
+                                            // 设置启动按钮冷却状态，防止5-10秒内的重复点击
+                                            setStartButtonCooldown(true);
+                                            setTimeout(() => {
+                                                setStartButtonCooldown(false);
+                                            }, 8000); // 8秒冷却时间
+                                                                        
+                                            // 启动交易员
+                                            await api.startTrader(selectedTraderId);
+                                            notify.success(language === 'zh' ? '交易员已启动' : 'Trader started successfully');
+                                        }
+                                                                                             
+                                        // 刷新相关数据
+                                        await Promise.all([
+                                            mutate(`positions-${selectedTraderId}`),
+                                            mutate(`account-${selectedTraderId}`),
+                                            mutate(`decisions-${selectedTraderId}`),
+                                            mutate(`position-history-${selectedTraderId}`),
+                                        ]);
+                                    } catch (error: any) {
+                                        // 如果启动失败，清除冷却状态
+                                        if (!status?.is_running) {
+                                            setStartButtonCooldown(false);
+                                        }
+                                        console.error('切换交易员状态失败:', error);
+                                        const errorMsg = error.message || (status?.is_running 
+                                            ? (language === 'zh' ? '停止交易员失败' : 'Failed to stop trader')
+                                            : (language === 'zh' ? '启动交易员失败' : 'Failed to start trader'));
+                                        notify.error(errorMsg);
+                                    }
+                                }}
+                                disabled={!selectedTraderId || (startButtonCooldown && !status?.is_running)}
+                                className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-all hover:scale-105 active:scale-95 nofx-glass border text-sm ${!selectedTraderId ? 'border-nofx-gray/30 text-nofx-gray/50' : status?.is_running ? 'border-nofx-red/30 text-nofx-red hover:bg-nofx-red/10' : startButtonCooldown ? 'border-nofx-gray/30 text-nofx-gray/50 cursor-not-allowed' : 'border-nofx-green/30 text-nofx-green hover:bg-nofx-green/10'} flex items-center gap-1`}
+                                title={!selectedTraderId ? '请先选择交易员' : status?.is_running ? (language === 'zh' ? '停止交易员' : 'Stop Trader') : startButtonCooldown ? (language === 'zh' ? '启动中，请稍候...' : 'Starting, please wait...') : (language === 'zh' ? '启动交易员' : 'Start Trader')}>
+                                {status?.is_running ? (
+                                    <>
+                                        <span>⏹</span>
+                                        {language === 'zh' ? '停止' : 'Stop'}
+                                    </>
+                                ) : startButtonCooldown ? (
+                                    <>
+                                        <Loader2 className="w-4 h-4 animate-spin" />
+                                        {language === 'zh' ? '启动中...' : 'Starting...'}
+                                    </>
+                                ) : (
+                                    <>
+                                        <span>▶️</span>
+                                        {language === 'zh' ? '启动' : 'Start'}
                                     </>
                                 )}
                             </button>
