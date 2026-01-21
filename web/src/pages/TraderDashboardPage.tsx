@@ -738,7 +738,7 @@ export function TraderDashboardPage({
 
                     {/* Right Column: Recent Decisions */}
                     <div
-                        className="nofx-glass p-6 animate-slide-in h-fit lg:sticky lg:top-24 lg:max-h-[calc(100vh-120px)] flex flex-col"
+                        className="nofx-glass p-6 animate-slide-in h-fit lg:sticky lg:top-24 lg:max-h-[calc(130vh-120px)] flex flex-col"
                         style={{ animationDelay: '0.2s' }}
                     >
                         {/* Header */}
@@ -999,6 +999,27 @@ export function TraderDashboardPage({
                             </button>
                         </div>
                                                 
+                        {/* Decisions List - Scrollable */}
+                        <div
+                            className="space-y-4 overflow-y-auto pr-2 custom-scrollbar"
+                            style={{ maxHeight: 'calc(130vh - 280px)' }}
+                        >
+                            {decisions && decisions.length > 0 ? (
+                                decisions.map((decision, i) => (
+                                    <DecisionCard key={i} decision={decision} language={language} onSymbolClick={handleSymbolClick} />
+                                ))
+                            ) : (
+                                <div className="py-16 text-center text-nofx-text-muted opacity-60">
+                                    <div className="text-6xl mb-4 opacity-30 grayscale">🧠</div>
+                                    <div className="text-lg font-semibold mb-2 text-nofx-text-main">
+                                        {t('noDecisionsYet', language)}
+                                    </div>
+                                    <div className="text-sm">
+                                        {t('aiDecisionsWillAppear', language)}
+                                    </div>
+                                </div>
+                            )}
+                        </div>
                         {/* Controls Row */}
                         <div className="flex items-center gap-2 mb-3">
                             <div className="flex gap-2 flex-wrap">
@@ -1050,28 +1071,6 @@ export function TraderDashboardPage({
                                     📤 {t('positionHistory.exportAdvancedDecisions', language)}
                                 </button>
                             </div>
-                        </div>
-
-                        {/* Decisions List - Scrollable */}
-                        <div
-                            className="space-y-4 overflow-y-auto pr-2 custom-scrollbar"
-                            style={{ maxHeight: 'calc(100vh - 280px)' }}
-                        >
-                            {decisions && decisions.length > 0 ? (
-                                decisions.map((decision, i) => (
-                                    <DecisionCard key={i} decision={decision} language={language} onSymbolClick={handleSymbolClick} />
-                                ))
-                            ) : (
-                                <div className="py-16 text-center text-nofx-text-muted opacity-60">
-                                    <div className="text-6xl mb-4 opacity-30 grayscale">🧠</div>
-                                    <div className="text-lg font-semibold mb-2 text-nofx-text-main">
-                                        {t('noDecisionsYet', language)}
-                                    </div>
-                                    <div className="text-sm">
-                                        {t('aiDecisionsWillAppear', language)}
-                                    </div>
-                                </div>
-                            )}
                         </div>
                     </div>
                 </div>
