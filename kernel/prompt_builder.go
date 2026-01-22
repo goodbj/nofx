@@ -107,6 +107,8 @@ func (pb *PromptBuilder) buildSystemPromptZH() string {
   - WAIT: 等待，不采取任何行动
   - UPDATE_STOP_LOSS: 更新止损价格
   - UPDATE_TAKE_PROFIT: 更新止盈价格
+  - TRAILING_STOP: 设置移动止损（根据价格变动自动调整）
+  - DYNAMIC_TAKE_PROFIT: 设置动态止盈（根据市场条件调整）
 - **leverage**: 杠杆倍数（开新仓时必需）
 - **position_size_usd**: 仓位大小（USDT，开新仓时必需）
 - **stop_loss**: 止损价格（开新仓时建议提供）
@@ -177,6 +179,23 @@ func (pb *PromptBuilder) getDecisionRequirementsZH() string {
     "new_take_profit": 2800,
     "confidence": 80,
     "reasoning": "ETH价格趋势强劲，原止盈2600已达成，为锁定更多利润，将止盈上调至2800，目标+8%收益。"
+  },
+  {
+    "symbol": "XRPUSDT",
+    "action": "TRAILING_STOP",
+    "trail_percentage": 3.0,
+    "activation_price": 0.5500,
+    "confidence": 85,
+    "reasoning": "XRP处于强劲上升趋势，设置移动止损3%以跟随价格上涨并保护利润。当价格达到0.5500时激活移动止损。"
+  },
+  {
+    "symbol": "ADAUSDT",
+    "action": "DYNAMIC_TAKE_PROFIT",
+    "target_roi": 15.0,
+    "max_roi": 25.0,
+    "time_limit_hours": 24,
+    "confidence": 75,
+    "reasoning": "ADA趋势良好但波动较大，设置动态止盈策略：目标收益率15%，最大收益率25%，若24小时内未达目标则自动平仓。"
   },
   {
     "symbol": "HUSDT",
@@ -259,6 +278,8 @@ func (pb *PromptBuilder) buildSystemPromptEN() string {
   - WAIT: Wait, take no action
   - UPDATE_STOP_LOSS: Update stop-loss price
   - UPDATE_TAKE_PROFIT: Update take-profit price
+  - TRAILING_STOP: Set trailing stop-loss (automatically adjusts based on price movement)
+  - DYNAMIC_TAKE_PROFIT: Set dynamic take-profit (adjusts based on market conditions)
 - **leverage**: Leverage multiplier (required for new positions)
 - **position_size_usd**: Position size in USDT (required for new positions)
 - **stop_loss**: Stop-loss price (recommended for new positions)
@@ -331,6 +352,23 @@ func (pb *PromptBuilder) getDecisionRequirementsEN() string {
     "reasoning": "ETH price trend is strong, original take-profit 2600 has been achieved, to lock more profits, raise take-profit to 2800, targeting +8% gain."
   },
   {
+    "symbol": "XRPUSDT",
+    "action": "TRAILING_STOP",
+    "trail_percentage": 3.0,
+    "activation_price": 0.5500,
+    "confidence": 85,
+    "reasoning": "XRP in strong uptrend, setting trailing stop at 3% to follow price rise and protect profits. Trailing stop activates when price reaches 0.5500."
+  },
+  {
+    "symbol": "ADAUSDT",
+    "action": "DYNAMIC_TAKE_PROFIT",
+    "target_roi": 15.0,
+    "max_roi": 25.0,
+    "time_limit_hours": 24,
+    "confidence": 75,
+    "reasoning": "ADA trend is good but volatile, setting dynamic take-profit strategy: target ROI 15%, max ROI 25%, if target not reached within 24 hours then auto-close position."
+  },
+  {
     "symbol": "HUSDT",
     "action": "OPEN_NEW",
     "leverage": 3,
@@ -385,14 +423,16 @@ func ValidateDecisionFormat(decisions []Decision) error {
 
 		// 动作类型检查
 		validActions := map[string]bool{
-			"HOLD":              true,
-			"PARTIAL_CLOSE":     true,
-			"FULL_CLOSE":        true,
-			"ADD_POSITION":      true,
-			"OPEN_NEW":          true,
-			"WAIT":              true,
-			"UPDATE_STOP_LOSS":  true,
-			"UPDATE_TAKE_PROFIT": true,
+			"HOLD":                true,
+			"PARTIAL_CLOSE":       true,
+			"FULL_CLOSE":          true,
+			"ADD_POSITION":        true,
+			"OPEN_NEW":            true,
+			"WAIT":                true,
+			"UPDATE_STOP_LOSS":    true,
+			"UPDATE_TAKE_PROFIT":  true,
+			"TRAILING_STOP":       true,
+			"DYNAMIC_TAKE_PROFIT": true,
 		}
 		if !validActions[d.Action] {
 			return fmt.Errorf("决策#%d: 无效的action类型: %s", i+1, d.Action)
@@ -400,7 +440,7 @@ func ValidateDecisionFormat(decisions []Decision) error {
 
 		// 将动作转换为小写以便后续检查
 		actionLower := strings.ToLower(d.Action)
-				
+
 		// 开新仓位的必需参数检查
 		if actionLower == "open_new" {
 			if d.Leverage == 0 {
@@ -410,7 +450,7 @@ func ValidateDecisionFormat(decisions []Decision) error {
 				return fmt.Errorf("决策#%d: OPEN_NEW动作需要提供position_size_usd", i+1)
 			}
 		}
-		
+
 		// 更新止损的必需参数检查
 		if actionLower == "update_stop_loss" {
 			// 现在Decision结构体中已包含NewStopLoss字段，启用验证
@@ -422,7 +462,7 @@ func ValidateDecisionFormat(decisions []Decision) error {
 				return fmt.Errorf("决策#%d: new_stop_loss价格必须大于0", i+1)
 			}
 		}
-		
+
 		// 更新止盈的必需参数检查
 		if actionLower == "update_take_profit" {
 			// 现在Decision结构体中已包含NewTakeProfit字段，启用验证
@@ -434,7 +474,7 @@ func ValidateDecisionFormat(decisions []Decision) error {
 				return fmt.Errorf("决策#%d: new_take_profit价格必须大于0", i+1)
 			}
 		}
-		
+
 		// 部分平仓的必需参数检查
 		if actionLower == "partial_close" {
 			// 现在Decision结构体中已包含ClosePercentage字段，启用验证
@@ -445,20 +485,47 @@ func ValidateDecisionFormat(decisions []Decision) error {
 				return fmt.Errorf("决策#%d: close_percentage必须在1-100之间", i+1)
 			}
 		}
-		
+
 		// ADD_POSITION操作需要提供position_size_usd
 		if actionLower == "add_position" {
 			if d.PositionSizeUSD == 0 {
 				return fmt.Errorf("决策#%d: ADD_POSITION动作需要提供position_size_usd", i+1)
 			}
 		}
-				
+
+		// TRAILING_STOP操作需要提供相关参数
+		if actionLower == "trailing_stop" {
+			if d.TrailPercentage == 0 {
+				return fmt.Errorf("决策#%d: TRAILING_STOP动作需要提供trail_percentage", i+1)
+			}
+			if d.ActivationPrice == 0 {
+				return fmt.Errorf("决策#%d: TRAILING_STOP动作需要提供activation_price", i+1)
+			}
+			if d.CallbackRate == 0 {
+				return fmt.Errorf("决策#%d: TRAILING_STOP动作需要提供callback_rate", i+1)
+			}
+		}
+
+		// DYNAMIC_TAKE_PROFIT操作需要提供相关参数
+		if actionLower == "dynamic_take_profit" {
+			if d.TargetROI == 0 {
+				return fmt.Errorf("决策#%d: DYNAMIC_TAKE_PROFIT动作需要提供target_roi", i+1)
+			}
+			if d.MaxROI == 0 {
+				return fmt.Errorf("决策#%d: DYNAMIC_TAKE_PROFIT动作需要提供max_roi", i+1)
+			}
+			if d.TimeLimitHours == 0 {
+				return fmt.Errorf("决策#%d: DYNAMIC_TAKE_PROFIT动作需要提供time_limit_hours", i+1)
+			}
+		}
+
 		// 更新决策结构体中的action为小写格式以匹配Decision结构体定义
 		d.Action = actionLower
 	}
 
 	return nil
 }
+
 // validatePriceReasonableness 验证价格合理性
 func validatePriceReasonableness(action string, currentPrice, targetPrice float64, positionSide string) error {
 	switch action {

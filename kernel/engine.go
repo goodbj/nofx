@@ -130,7 +130,7 @@ type Context struct {
 // Decision AI trading decision
 type Decision struct {
 	Symbol string `json:"symbol"`
-	Action string `json:"action"` // "open_long", "open_short", "close_long", "close_short", "hold", "wait", "update_stop_loss", "update_take_profit", "partial_close"
+	Action string `json:"action"` // "open_long", "open_short", "close_long", "close_short", "hold", "wait", "update_stop_loss", "update_take_profit", "partial_close", "trailing_stop", "dynamic_take_profit"
 
 	// Opening position parameters
 	Leverage        int     `json:"leverage,omitempty"`
@@ -142,6 +142,14 @@ type Decision struct {
 	NewStopLoss     float64 `json:"new_stop_loss,omitempty"`    // New stop loss price (for update_stop_loss)
 	NewTakeProfit   float64 `json:"new_take_profit,omitempty"`  // New take profit price (for update_take_profit)
 	ClosePercentage float64 `json:"close_percentage,omitempty"` // Close percentage (for partial_close)
+
+	// Dynamic stop loss and take profit parameters
+	TrailPercentage float64 `json:"trail_percentage,omitempty"` // Trailing stop percentage (for trailing_stop)
+	ActivationPrice float64 `json:"activation_price,omitempty"` // Activation price for trailing stop
+	TargetROI       float64 `json:"target_roi,omitempty"`       // Target ROI percentage (for dynamic_take_profit)
+	MaxROI          float64 `json:"max_roi,omitempty"`          // Maximum ROI percentage
+	TimeLimitHours  float64 `json:"time_limit_hours,omitempty"` // Time limit in hours for dynamic orders
+	CallbackRate    float64 `json:"callback_rate,omitempty"`    // Callback rate for trailing stop (as decimal, e.g., 0.02 for 2%)
 
 	// Common parameters
 	Confidence int     `json:"confidence,omitempty"` // Confidence level (0-100)
@@ -1787,15 +1795,17 @@ func validateDecisions(decisions []Decision, accountEquity float64, btcEthLevera
 
 func validateDecision(d *Decision, accountEquity float64, btcEthLeverage, altcoinLeverage int, btcEthPosRatio, altcoinPosRatio float64) error {
 	validActions := map[string]bool{
-		"open_long":          true,
-		"open_short":         true,
-		"close_long":         true,
-		"close_short":        true,
-		"hold":               true,
-		"wait":               true,
-		"update_stop_loss":   true,
-		"update_take_profit": true,
-		"partial_close":      true,
+		"open_long":           true,
+		"open_short":          true,
+		"close_long":          true,
+		"close_short":         true,
+		"hold":                true,
+		"wait":                true,
+		"update_stop_loss":    true,
+		"update_take_profit":  true,
+		"partial_close":       true,
+		"trailing_stop":       true,
+		"dynamic_take_profit": true,
 	}
 
 	if !validActions[d.Action] {
@@ -1884,6 +1894,37 @@ func validateDecision(d *Decision, accountEquity float64, btcEthLeverage, altcoi
 		if riskRewardRatio < 3.0 {
 			return fmt.Errorf("risk/reward ratio too low (%.2f:1), must be ≥3.0:1 [risk: %.2f%% reward: %.2f%%] [stop loss: %.2f take profit: %.2f]",
 				riskRewardRatio, riskPercent, rewardPercent, d.StopLoss, d.TakeProfit)
+		}
+	}
+
+	// Validate dynamic stop loss and take profit parameters
+	if d.Action == "trailing_stop" {
+		if d.TrailPercentage <= 0 {
+			return fmt.Errorf("trail_percentage must be greater than 0 for trailing_stop action")
+		}
+		if d.CallbackRate <= 0 {
+			return fmt.Errorf("callback_rate must be greater than 0 for trailing_stop action")
+		}
+		if d.ActivationPrice <= 0 {
+			return fmt.Errorf("activation_price must be greater than 0 for trailing_stop action")
+		}
+		if d.Confidence <= 0 {
+			return fmt.Errorf("confidence must be greater than 0 for trailing_stop action")
+		}
+	}
+
+	if d.Action == "dynamic_take_profit" {
+		if d.TargetROI <= 0 {
+			return fmt.Errorf("target_roi must be greater than 0 for dynamic_take_profit action")
+		}
+		if d.MaxROI <= 0 {
+			return fmt.Errorf("max_roi must be greater than 0 for dynamic_take_profit action")
+		}
+		if d.TimeLimitHours <= 0 {
+			return fmt.Errorf("time_limit_hours must be greater than 0 for dynamic_take_profit action")
+		}
+		if d.Confidence <= 0 {
+			return fmt.Errorf("confidence must be greater than 0 for dynamic_take_profit action")
 		}
 	}
 
