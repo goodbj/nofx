@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 	"nofx/experience"
+	"nofx/hook"
 	"nofx/kernel"
 	"nofx/logger"
 	"nofx/market"
@@ -1018,6 +1019,14 @@ func (at *AutoTrader) buildTradingContext() (*kernel.Context, error) {
 
 // executeDecisionWithRecord executes AI decision and records detailed information
 func (at *AutoTrader) executeDecisionWithRecord(decision *kernel.Decision, actionRecord *store.DecisionAction) error {
+	// Execute BEFORE_DECISION_EXECUTE hook
+	beforeHookResult := hook.HookExec[hook.DecisionExecutionResult](hook.BEFORE_DECISION_EXECUTE, decision, at.id)
+	if beforeHookResult != nil {
+		if err := beforeHookResult.Error(); err != nil {
+			logger.Errorf("❌ Before decision execute hook error: %v", err)
+		}
+	}
+
 	// Log the incoming decision for debugging
 	logger.Infof("  🤖 Processing AI decision: Symbol=%s, Action=%s, Confidence=%d", decision.Symbol, decision.Action, decision.Confidence)
 	// Log additional parameters based on action type
@@ -1057,6 +1066,10 @@ func (at *AutoTrader) executeDecisionWithRecord(decision *kernel.Decision, actio
 		return at.executeTrailingStopWithRecord(decision, actionRecord)
 	case "dynamic_take_profit":
 		return at.executeDynamicTakeProfitWithRecord(decision, actionRecord)
+	case "oco_order":
+		return at.executeOCOOrderWithRecord(decision, actionRecord)
+	case "bracket_order":
+		return at.executeBracketOrderWithRecord(decision, actionRecord)
 	default:
 		return fmt.Errorf("unknown action: %s", decision.Action)
 	}
@@ -3153,5 +3166,339 @@ func (at *AutoTrader) executePartialCloseWithRecord(decision *kernel.Decision, a
 
 	// Record order to database with market price reference
 	at.recordAndConfirmOrder(order, decision.Symbol, "partial_close", partialQty, marketData.CurrentPrice, 0, decision.ClosePercentage)
+	return nil
+}
+
+// executeOCOOrderWithRecord executes OCO (One-Cancels-Other) order action
+func (at *AutoTrader) executeOCOOrderWithRecord(decision *kernel.Decision, actionRecord *store.DecisionAction) error {
+	logger.Infof("  🔄 Executing OCO order: %s", decision.Symbol)
+
+	// [CODE ENFORCED] Check trade frequency limits
+	if err := at.enforceTradeFrequencyLimits(decision.Symbol); err != nil {
+		return err
+	}
+
+	// Get current positions to determine quantity and side
+	positions, err := at.trader.GetPositions()
+	if err != nil {
+		return fmt.Errorf("failed to get positions: %w", err)
+	}
+
+	// Find the position for this symbol
+	var foundPos map[string]interface{}
+	for _, pos := range positions {
+		if pos["symbol"] == decision.Symbol {
+			foundPos = pos
+			break
+		}
+	}
+
+	// Determine if we're working with an existing position or opening a new one
+	isExistingPosition := foundPos != nil
+
+	// Get current market price for reference
+	marketData, err := market.Get(decision.Symbol)
+	if err != nil {
+		logger.Warnf("  ⚠️ Failed to get market data for %s: %v", decision.Symbol, err)
+		return err
+	}
+
+	// Calculate quantity based on position size if opening a new position
+	var quantity float64
+	if !isExistingPosition {
+		if decision.PositionSizeUSD > 0 {
+			quantity = decision.PositionSizeUSD / marketData.CurrentPrice
+			actionRecord.Quantity = quantity
+		} else {
+			// Default to 0.001 BTC equivalent if no position size specified
+			quantity = 0.001
+			actionRecord.Quantity = quantity
+		}
+	} else {
+		// For existing position, use current position quantity
+		qtyFloat, ok := foundPos["positionAmt"].(float64)
+		if !ok {
+			// Try to get as json.Number if it fails as float64
+			quantityNum, ok2 := foundPos["positionAmt"].(*json.Number)
+			if !ok2 {
+				return fmt.Errorf("failed to get position amount")
+			}
+			var err error
+			qtyFloat, err = quantityNum.Float64()
+			if err != nil {
+				return fmt.Errorf("failed to convert quantity to float: %w", err)
+			}
+		}
+		quantity = math.Abs(qtyFloat) // Use absolute value
+		actionRecord.Quantity = quantity
+	}
+
+	actionRecord.Price = marketData.CurrentPrice
+
+	// Debug log for exchange API call
+	logger.Infof("  📡 Submitting OCO order to exchange: Symbol=%s, Quantity=%.8f, StopLoss=%.4f, TakeProfit=%.4f",
+		decision.Symbol, quantity, decision.StopLoss, decision.TakeProfit)
+
+	// Submit OCO order to exchange
+	// Note: OCO orders are not universally supported by all exchanges
+	// This implementation submits both stop-loss and take-profit orders separately
+	// which achieves similar functionality to an OCO order
+	var submitErrors []string
+
+	// Submit stop-loss order
+	if decision.StopLoss > 0 {
+		// Determine position side for stop loss
+		positionSide := "LONG"
+		if foundPos != nil {
+			positionSideVal, ok := foundPos["positionSide"].(string)
+			if !ok {
+				positionSideVal, _ = foundPos["side"].(string)
+			}
+			if positionSideVal == "SHORT" {
+				positionSide = "SHORT"
+			}
+		}
+
+		// Submit stop loss order
+		if err := at.trader.SetStopLoss(decision.Symbol, positionSide, quantity, decision.StopLoss); err != nil {
+			logger.Infof("  ⚠️ Failed to set stop loss: %v", err)
+			submitErrors = append(submitErrors, fmt.Sprintf("stop-loss: %v", err))
+		} else {
+			logger.Infof("  ✓ Stop loss set successfully: %.4f", decision.StopLoss)
+		}
+	}
+
+	// Submit take-profit order
+	if decision.TakeProfit > 0 {
+		// Determine position side for take profit
+		positionSide := "LONG"
+		if foundPos != nil {
+			positionSideVal, ok := foundPos["positionSide"].(string)
+			if !ok {
+				positionSideVal, _ = foundPos["side"].(string)
+			}
+			if positionSideVal == "SHORT" {
+				positionSide = "SHORT"
+			}
+		}
+
+		// Submit take profit order
+		if err := at.trader.SetTakeProfit(decision.Symbol, positionSide, quantity, decision.TakeProfit); err != nil {
+			logger.Infof("  ⚠️ Failed to set take profit: %v", err)
+			submitErrors = append(submitErrors, fmt.Sprintf("take-profit: %v", err))
+		} else {
+			logger.Infof("  ✓ Take profit set successfully: %.4f", decision.TakeProfit)
+		}
+	}
+
+	if len(submitErrors) == 2 {
+		// Both orders failed
+		return fmt.Errorf("OCO order submission failed: %s", strings.Join(submitErrors, ", "))
+	}
+
+	// Log successful execution
+	logger.Infof("  ✓ OCO order executed successfully for %s, StopLoss: %.4f, TakeProfit: %.4f",
+		decision.Symbol, decision.StopLoss, decision.TakeProfit)
+
+	// Record the OCO order action to database
+	if at.store != nil {
+		orderID := fmt.Sprintf("OCO_%s_%d", decision.Symbol, time.Now().Unix())
+		// Record the OCO order as an action
+		orderRecord := &store.TraderOrder{
+			TraderID:        at.id,
+			ExchangeID:      at.exchangeID,
+			ExchangeType:    at.exchange,
+			ExchangeOrderID: orderID,
+			Symbol:          decision.Symbol,
+			PositionSide:    "BOTH", // Indicates both stop-loss and take-profit
+			OrderAction:     "oco_order",
+			Type:            "OCO", // One-Cancels-Other order type
+			Side:            "OCO",
+			Quantity:        quantity,
+			Price:           marketData.CurrentPrice, // Reference price at time of order
+			StopPrice:       decision.StopLoss,       // Associated stop loss price (using correct field name)
+			Status:          "ACTIVE",                // Status indicating the OCO is active
+			FilledQuantity:  0,                       // Not filled yet, just activated
+			AvgFillPrice:    0,                       // Will be filled when triggered
+			Commission:      0,                       // No commission for OCO setup
+			FilledAt:        0,                       // Will be set when triggered
+			CreatedAt:       time.Now().UTC().UnixMilli(),
+			UpdatedAt:       time.Now().UTC().UnixMilli(),
+		}
+
+		if err := at.store.Order().CreateOrder(orderRecord); err != nil {
+			logger.Infof("  ⚠️ Failed to record OCO order: %v", err)
+		} else {
+			logger.Infof("  📊 OCO order recorded: %s SL: %.4f TP: %.4f",
+				decision.Symbol, decision.StopLoss, decision.TakeProfit)
+		}
+	}
+
+	return nil
+}
+
+// executeBracketOrderWithRecord executes bracket order action (similar to OCO but with both SL and TP orders)
+func (at *AutoTrader) executeBracketOrderWithRecord(decision *kernel.Decision, actionRecord *store.DecisionAction) error {
+	logger.Infof("  🔄 Executing bracket order: %s", decision.Symbol)
+
+	// [CODE ENFORCED] Check trade frequency limits
+	if err := at.enforceTradeFrequencyLimits(decision.Symbol); err != nil {
+		return err
+	}
+
+	// Get current positions to determine quantity and side
+	positions, err := at.trader.GetPositions()
+	if err != nil {
+		return fmt.Errorf("failed to get positions: %w", err)
+	}
+
+	// Find the position for this symbol
+	var foundPos map[string]interface{}
+	for _, pos := range positions {
+		if pos["symbol"] == decision.Symbol {
+			foundPos = pos
+			break
+		}
+	}
+
+	// Determine if we're working with an existing position or opening a new one
+	isExistingPosition := foundPos != nil
+
+	// Get current market price for reference
+	marketData, err := market.Get(decision.Symbol)
+	if err != nil {
+		logger.Warnf("  ⚠️ Failed to get market data for %s: %v", decision.Symbol, err)
+		return err
+	}
+
+	// Calculate quantity based on position size if opening a new position
+	var quantity float64
+	if !isExistingPosition {
+		if decision.PositionSizeUSD > 0 {
+			quantity = decision.PositionSizeUSD / marketData.CurrentPrice
+			actionRecord.Quantity = quantity
+		} else {
+			// Default to 0.001 BTC equivalent if no position size specified
+			quantity = 0.001
+			actionRecord.Quantity = quantity
+		}
+	} else {
+		// For existing position, use current position quantity
+		qtyFloat, ok := foundPos["positionAmt"].(float64)
+		if !ok {
+			// Try to get as json.Number if it fails as float64
+			quantityNum, ok2 := foundPos["positionAmt"].(*json.Number)
+			if !ok2 {
+				return fmt.Errorf("failed to get position amount")
+			}
+			var err error
+			qtyFloat, err = quantityNum.Float64()
+			if err != nil {
+				return fmt.Errorf("failed to convert quantity to float: %w", err)
+			}
+		}
+		quantity = math.Abs(qtyFloat) // Use absolute value
+		actionRecord.Quantity = quantity
+	}
+
+	actionRecord.Price = marketData.CurrentPrice
+
+	// Debug log for exchange API call
+	logger.Infof("  📡 Submitting bracket order to exchange: Symbol=%s, Quantity=%.8f, StopLoss=%.4f, TakeProfit=%.4f",
+		decision.Symbol, quantity, decision.StopLoss, decision.TakeProfit)
+
+	// Submit bracket order to exchange
+	// This implementation submits both stop-loss and take-profit orders separately
+	var submitErrors []string
+
+	// Submit stop-loss order
+	if decision.StopLoss > 0 {
+		// Determine position side for stop loss
+		positionSide := "LONG"
+		if foundPos != nil {
+			positionSideVal, ok := foundPos["positionSide"].(string)
+			if !ok {
+				positionSideVal, _ = foundPos["side"].(string)
+			}
+			if positionSideVal == "SHORT" {
+				positionSide = "SHORT"
+			}
+		}
+
+		// Submit stop loss order
+		if err := at.trader.SetStopLoss(decision.Symbol, positionSide, quantity, decision.StopLoss); err != nil {
+			logger.Infof("  ⚠️ Failed to set stop loss: %v", err)
+			submitErrors = append(submitErrors, fmt.Sprintf("stop-loss: %v", err))
+		} else {
+			logger.Infof("  ✓ Stop loss set successfully: %.4f", decision.StopLoss)
+		}
+	}
+
+	// Submit take-profit order
+	if decision.TakeProfit > 0 {
+		// Determine position side for take profit
+		positionSide := "LONG"
+		if foundPos != nil {
+			positionSideVal, ok := foundPos["positionSide"].(string)
+			if !ok {
+				positionSideVal, _ = foundPos["side"].(string)
+			}
+			if positionSideVal == "SHORT" {
+				positionSide = "SHORT"
+			}
+		}
+
+		// Submit take profit order
+		if err := at.trader.SetTakeProfit(decision.Symbol, positionSide, quantity, decision.TakeProfit); err != nil {
+			logger.Infof("  ⚠️ Failed to set take profit: %v", err)
+			submitErrors = append(submitErrors, fmt.Sprintf("take-profit: %v", err))
+		} else {
+			logger.Infof("  ✓ Take profit set successfully: %.4f", decision.TakeProfit)
+		}
+	}
+
+	if len(submitErrors) == 2 {
+		// Both orders failed
+		return fmt.Errorf("bracket order submission failed: %s", strings.Join(submitErrors, ", "))
+	}
+
+	// Log successful execution
+	logger.Infof("  ✓ Bracket order executed successfully for %s, StopLoss: %.4f, TakeProfit: %.4f",
+		decision.Symbol, decision.StopLoss, decision.TakeProfit)
+
+	// Record the bracket order action to database
+	if at.store != nil {
+		orderID := fmt.Sprintf("BRACKET_%s_%d", decision.Symbol, time.Now().Unix())
+		// Record the bracket order as an action
+		orderRecord := &store.TraderOrder{
+			TraderID:        at.id,
+			ExchangeID:      at.exchangeID,
+			ExchangeType:    at.exchange,
+			ExchangeOrderID: orderID,
+			Symbol:          decision.Symbol,
+			PositionSide:    "BOTH", // Indicates both stop-loss and take-profit
+			OrderAction:     "bracket_order",
+			Type:            "BRACKET", // Bracket order type
+			Side:            "BRACKET",
+			Quantity:        quantity,
+			Price:           marketData.CurrentPrice, // Reference price at time of order
+			StopPrice:       decision.StopLoss,       // Associated stop loss price
+			Status:          "ACTIVE",                // Status indicating the bracket order is active
+			FilledQuantity:  0,                       // Not filled yet, just activated
+			AvgFillPrice:    0,                       // Will be filled when triggered
+			Commission:      0,                       // No commission for bracket setup
+			FilledAt:        0,                       // Will be set when triggered
+			CreatedAt:       time.Now().UTC().UnixMilli(),
+			UpdatedAt:       time.Now().UTC().UnixMilli(),
+		}
+
+		if err := at.store.Order().CreateOrder(orderRecord); err != nil {
+			logger.Infof("  ⚠️ Failed to record bracket order: %v", err)
+		} else {
+			logger.Infof("  📊 Bracket order recorded: %s SL: %.4f TP: %.4f",
+				decision.Symbol, decision.StopLoss, decision.TakeProfit)
+		}
+	}
+
 	return nil
 }
