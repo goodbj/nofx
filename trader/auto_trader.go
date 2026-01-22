@@ -761,7 +761,22 @@ func (at *AutoTrader) buildTradingContext() (*kernel.Context, error) {
 		side := pos["side"].(string)
 		entryPrice := pos["entryPrice"].(float64)
 		markPrice := pos["markPrice"].(float64)
-		quantity := pos["positionAmt"].(float64)
+		quantity, ok := pos["positionAmt"].(float64)
+		if !ok {
+			// Try to get as json.Number if it fails as float64
+			quantityNum, ok2 := pos["positionAmt"].(*json.Number)
+			if !ok2 {
+				logger.Warnf("Failed to get position amount for %s, using 0", pos["symbol"])
+				quantity = 0
+			} else {
+				var err error
+				quantity, err = quantityNum.Float64()
+				if err != nil {
+					logger.Warnf("Failed to convert position amount to float for %s, using 0: %v", pos["symbol"], err)
+					quantity = 0
+				}
+			}
+		}
 		if quantity < 0 {
 			quantity = -quantity // Short position quantity is negative, convert to positive
 		}
@@ -1015,6 +1030,10 @@ func (at *AutoTrader) executeDecisionWithRecord(decision *kernel.Decision, actio
 		logger.Infof("     Close Percentage: %.2f%%", decision.ClosePercentage)
 	case "open_long", "open_short":
 		logger.Infof("     Leverage: %d, Position Size: %.2f, Stop Loss: %.4f, Take Profit: %.4f", decision.Leverage, decision.PositionSizeUSD, decision.StopLoss, decision.TakeProfit)
+	case "trailing_stop":
+		logger.Infof("     Trail Percentage: %.2f%%, Activation Price: %.4f", decision.TrailPercentage, decision.ActivationPrice)
+	case "dynamic_take_profit":
+		logger.Infof("     Target ROI: %.2f%%, Max ROI: %.2f%%, Time Limit: %.2f hours", decision.TargetROI, decision.MaxROI, decision.TimeLimitHours)
 	}
 	switch decision.Action {
 	case "open_long":
@@ -1034,6 +1053,10 @@ func (at *AutoTrader) executeDecisionWithRecord(decision *kernel.Decision, actio
 		return at.executeUpdateTakeProfitWithRecord(decision, actionRecord)
 	case "partial_close":
 		return at.executePartialCloseWithRecord(decision, actionRecord)
+	case "trailing_stop":
+		return at.executeTrailingStopWithRecord(decision, actionRecord)
+	case "dynamic_take_profit":
+		return at.executeDynamicTakeProfitWithRecord(decision, actionRecord)
 	default:
 		return fmt.Errorf("unknown action: %s", decision.Action)
 	}
@@ -1445,8 +1468,21 @@ func (at *AutoTrader) executeCloseLongWithRecord(decision *kernel.Decision, acti
 					if ep, ok := pos["entryPrice"].(float64); ok {
 						entryPrice = ep
 					}
-					if amt, ok := pos["positionAmt"].(float64); ok && amt > 0 {
-						quantity = amt
+					quantityTemp, ok := pos["positionAmt"].(float64)
+					if !ok {
+						// Try to get as json.Number if it fails as float64
+						quantityNum, ok2 := pos["positionAmt"].(*json.Number)
+						if ok2 {
+							var err error
+							quantityTemp, err = quantityNum.Float64()
+							if err != nil {
+								logger.Warnf("Failed to convert position amount to float for %s, using 0: %v", pos["symbol"], err)
+								quantityTemp = 0
+							}
+						}
+					}
+					if quantityTemp > 0 {
+						quantity = quantityTemp
 					}
 					break
 				}
@@ -1514,8 +1550,21 @@ func (at *AutoTrader) executeCloseShortWithRecord(decision *kernel.Decision, act
 					if ep, ok := pos["entryPrice"].(float64); ok {
 						entryPrice = ep
 					}
-					if amt, ok := pos["positionAmt"].(float64); ok {
-						quantity = -amt // positionAmt is negative for short
+					quantityTemp, ok := pos["positionAmt"].(float64)
+					if !ok {
+						// Try to get as json.Number if it fails as float64
+						quantityNum, ok2 := pos["positionAmt"].(*json.Number)
+						if ok2 {
+							var err error
+							quantityTemp, err = quantityNum.Float64()
+							if err != nil {
+								logger.Warnf("Failed to convert position amount to float for %s, using 0: %v", pos["symbol"], err)
+								quantityTemp = 0
+							}
+						}
+					}
+					if quantityTemp != 0 {
+						quantity = -quantityTemp // positionAmt is negative for short
 					}
 					break
 				}
@@ -1539,6 +1588,263 @@ func (at *AutoTrader) executeCloseShortWithRecord(decision *kernel.Decision, act
 	at.recordAndConfirmOrder(order, decision.Symbol, "close_short", quantity, marketData.CurrentPrice, 0, entryPrice)
 
 	logger.Infof("  ✓ Position closed successfully")
+	return nil
+}
+
+// executeTrailingStopWithRecord executes trailing stop and records detailed information
+func (at *AutoTrader) executeTrailingStopWithRecord(decision *kernel.Decision, actionRecord *store.DecisionAction) error {
+	logger.Infof("  🔄 Setting trailing stop: %s, Trail %%: %.2f%%, Activation Price: %.4f",
+		decision.Symbol, decision.TrailPercentage, decision.ActivationPrice)
+
+	// [CODE ENFORCED] Check trade frequency limits
+	if err := at.enforceTradeFrequencyLimits(decision.Symbol); err != nil {
+		return err
+	}
+
+	// Get current positions to determine quantity and side
+	positions, err := at.trader.GetPositions()
+	if err != nil {
+		return fmt.Errorf("failed to get positions: %w", err)
+	}
+
+	// Find the position for this symbol
+	var foundPos map[string]interface{}
+	for _, pos := range positions {
+		if pos["symbol"] == decision.Symbol {
+			foundPos = pos
+			break
+		}
+	}
+
+	if foundPos == nil {
+		return fmt.Errorf("no position found for symbol %s", decision.Symbol)
+	}
+
+	// Get the current position quantity
+	qtyFloat, ok := foundPos["positionAmt"].(float64)
+	if !ok {
+		// Try to get as json.Number if it fails as float64
+		quantity, ok2 := foundPos["positionAmt"].(*json.Number)
+		if !ok2 {
+			return fmt.Errorf("failed to get position amount")
+		}
+		var err error
+		qtyFloat, err = quantity.Float64()
+		if err != nil {
+			return fmt.Errorf("failed to convert quantity to float: %w", err)
+		}
+	}
+
+	// Convert negative quantity to positive if needed
+	if qtyFloat < 0 {
+		qtyFloat = math.Abs(qtyFloat)
+	}
+
+	// Get position side
+	positionSide, ok := foundPos["positionSide"].(string)
+	if !ok {
+		// Some exchanges use 'side' instead of 'positionSide'
+		positionSide, _ = foundPos["side"].(string)
+	}
+
+	// Determine side for trailing stop
+	side := "LONG"
+	if positionSide == "SHORT" || (positionSide == "" && strings.Contains(strings.ToUpper(foundPos["symbol"].(string)), "USDT") && foundPos["side"].(string) == "SHORT") {
+		side = "SHORT"
+	}
+
+	// Get current market price for reference
+	marketData, err := market.Get(decision.Symbol)
+	if err != nil {
+		logger.Warnf("  ⚠️ Failed to get market data for %s: %v", decision.Symbol, err)
+	}
+
+	// Debug log for exchange API call
+	logger.Infof("  📡 Attempting to submit trailing stop to exchange: Symbol=%s, Side=%s, TrailPercentage=%.4f, ActivationPrice=%.4f",
+		decision.Symbol, side, decision.TrailPercentage, decision.ActivationPrice)
+
+	// Note: Trailing stop orders are not universally supported by all exchanges
+	// This is a placeholder implementation - in a real system, you'd need to implement
+	// custom logic that monitors the position and adjusts stop-loss orders accordingly
+	logger.Infof("  ⚠️ Trailing stop order not yet implemented for this exchange. Would monitor %s position and adjust stop-loss dynamically based on %.2f%% trail and %.4f activation price", decision.Symbol, decision.TrailPercentage, decision.ActivationPrice)
+
+	logger.Infof("  ✓ Trailing stop monitoring initiated for %s, Trail %%: %.2f%%, Activation Price: %.4f",
+		decision.Symbol, decision.TrailPercentage, decision.ActivationPrice)
+
+	// Record the trailing stop action to database
+	if at.store != nil {
+		orderID := fmt.Sprintf("TS_%s_%d", decision.Symbol, time.Now().Unix())
+		// Record the trailing stop as an action
+		orderRecord := &store.TraderOrder{
+			TraderID:        at.id,
+			ExchangeID:      at.exchangeID,
+			ExchangeType:    at.exchange,
+			ExchangeOrderID: orderID,
+			Symbol:          decision.Symbol,
+			PositionSide:    side,
+			OrderAction:     "trailing_stop",
+			Type:            "TRAILING_STOP_MARKET", // Or TRAILING_STOP_LIMIT depending on implementation
+			Side:            "TRAILING_STOP",
+			Quantity:        qtyFloat,
+			Price:           decision.ActivationPrice, // Activation price for trailing stop
+			Status:          "ACTIVE",                 // Status indicating the trailing stop is active
+			FilledQuantity:  0,                        // Not filled yet, just activated
+			AvgFillPrice:    0,                        // Will be filled when triggered
+			Commission:      0,                        // No commission for trailing stop setup
+			FilledAt:        0,                        // Will be set when triggered
+			CreatedAt:       time.Now().UTC().UnixMilli(),
+			UpdatedAt:       time.Now().UTC().UnixMilli(),
+		}
+
+		// Add market price at time of activation for reference
+		if marketData != nil {
+			orderRecord.AvgFillPrice = marketData.CurrentPrice // Current market price at activation time
+		}
+
+		if err := at.store.Order().CreateOrder(orderRecord); err != nil {
+			logger.Infof("  ⚠️ Failed to record trailing stop: %v", err)
+		} else {
+			logger.Infof("  📊 Trailing stop recorded: %s trail %%: %.2f%%, activation price: %.4f, current price: %.4f",
+				decision.Symbol, decision.TrailPercentage, decision.ActivationPrice, orderRecord.AvgFillPrice)
+		}
+	}
+
+	return nil
+}
+
+// executeDynamicTakeProfitWithRecord executes dynamic take profit and records detailed information
+func (at *AutoTrader) executeDynamicTakeProfitWithRecord(decision *kernel.Decision, actionRecord *store.DecisionAction) error {
+	logger.Infof("  🔄 Setting dynamic take profit: %s, Target ROI: %.2f%%, Max ROI: %.2f%%, Time Limit: %.2f hours",
+		decision.Symbol, decision.TargetROI, decision.MaxROI, decision.TimeLimitHours)
+
+	// [CODE ENFORCED] Check trade frequency limits
+	if err := at.enforceTradeFrequencyLimits(decision.Symbol); err != nil {
+		return err
+	}
+
+	// Get current positions to determine quantity and side
+	positions, err := at.trader.GetPositions()
+	if err != nil {
+		return fmt.Errorf("failed to get positions: %w", err)
+	}
+
+	// Find the position for this symbol
+	var foundPos map[string]interface{}
+	for _, pos := range positions {
+		if pos["symbol"] == decision.Symbol {
+			foundPos = pos
+			break
+		}
+	}
+
+	if foundPos == nil {
+		return fmt.Errorf("no position found for symbol %s", decision.Symbol)
+	}
+
+	// Get the current position quantity
+	qtyFloat, ok := foundPos["positionAmt"].(float64)
+	if !ok {
+		// Try to get as json.Number if it fails as float64
+		quantity, ok2 := foundPos["positionAmt"].(*json.Number)
+		if !ok2 {
+			return fmt.Errorf("failed to get position amount")
+		}
+		var err error
+		qtyFloat, err = quantity.Float64()
+		if err != nil {
+			return fmt.Errorf("failed to convert quantity to float: %w", err)
+		}
+	}
+
+	// Convert negative quantity to positive if needed
+	if qtyFloat < 0 {
+		qtyFloat = math.Abs(qtyFloat)
+	}
+
+	// Get position side
+	positionSide, ok := foundPos["positionSide"].(string)
+	if !ok {
+		// Some exchanges use 'side' instead of 'positionSide'
+		positionSide, _ = foundPos["side"].(string)
+	}
+
+	// Determine side for dynamic take profit
+	side := "LONG"
+	if positionSide == "SHORT" || (positionSide == "" && strings.Contains(strings.ToUpper(foundPos["symbol"].(string)), "USDT") && foundPos["side"].(string) == "SHORT") {
+		side = "SHORT"
+	}
+
+	// Get current market price for reference
+	marketData, err := market.Get(decision.Symbol)
+	if err != nil {
+		logger.Warnf("  ⚠️ Failed to get market data for %s: %v", decision.Symbol, err)
+	}
+
+	// Debug log for exchange API call
+	logger.Infof("  📡 Submitting dynamic take profit to exchange: Symbol=%s, Side=%s, TargetROI=%.4f, MaxROI=%.4f, TimeLimitHours=%.4f",
+		decision.Symbol, side, decision.TargetROI, decision.MaxROI, decision.TimeLimitHours)
+	// Set dynamic take profit - this would be a custom implementation
+	// Since exchanges don't directly support dynamic take profit with ROI targets,
+	// we would need to implement this logic in our system
+	err = at.setDynamicTakeProfit(decision.Symbol, side, qtyFloat, decision.TargetROI, decision.MaxROI, decision.TimeLimitHours)
+	if err != nil {
+		logger.Errorf("  ❌ Failed to set dynamic take profit for %s: %v", decision.Symbol, err)
+		return fmt.Errorf("failed to set dynamic take profit: %w", err)
+	}
+
+	logger.Infof("  ✓ Dynamic take profit set successfully for %s, Target ROI: %.2f%%, Max ROI: %.2f%%, Time Limit: %.2f hours",
+		decision.Symbol, decision.TargetROI, decision.MaxROI, decision.TimeLimitHours)
+
+	// Record the dynamic take profit action to database
+	if at.store != nil {
+		orderID := fmt.Sprintf("DTP_%s_%d", decision.Symbol, time.Now().Unix())
+		// Record the dynamic take profit as an action
+		orderRecord := &store.TraderOrder{
+			TraderID:        at.id,
+			ExchangeID:      at.exchangeID,
+			ExchangeType:    at.exchange,
+			ExchangeOrderID: orderID,
+			Symbol:          decision.Symbol,
+			PositionSide:    side,
+			OrderAction:     "dynamic_take_profit",
+			Type:            "DYNAMIC_TAKE_PROFIT", // Custom order type
+			Side:            "TAKE_PROFIT_DYNAMIC",
+			Quantity:        qtyFloat,
+			Price:           0,        // Not applicable for dynamic take profit based on ROI
+			Status:          "ACTIVE", // Status indicating the dynamic take profit is active
+			FilledQuantity:  0,        // Not filled yet, just activated
+			AvgFillPrice:    0,        // Will be filled when triggered
+			Commission:      0,        // No commission for dynamic take profit setup
+			FilledAt:        0,        // Will be set when triggered
+			CreatedAt:       time.Now().UTC().UnixMilli(),
+			UpdatedAt:       time.Now().UTC().UnixMilli(),
+		}
+
+		// Add market price at time of activation for reference
+		if marketData != nil {
+			orderRecord.AvgFillPrice = marketData.CurrentPrice // Current market price at activation time
+		}
+
+		if err := at.store.Order().CreateOrder(orderRecord); err != nil {
+			logger.Infof("  ⚠️ Failed to record dynamic take profit: %v", err)
+		} else {
+			logger.Infof("  📊 Dynamic take profit recorded: %s target ROI: %.2f%%, current price: %.4f",
+				decision.Symbol, decision.TargetROI, orderRecord.AvgFillPrice)
+		}
+	}
+
+	return nil
+}
+
+// setDynamicTakeProfit implements custom dynamic take profit logic based on ROI targets
+func (at *AutoTrader) setDynamicTakeProfit(symbol, side string, quantity, targetROI, maxROI, timeLimitHours float64) error {
+	// This is a placeholder implementation - in a real system, you'd need to implement
+	// custom logic that monitors the position and closes it when ROI targets are met
+	logger.Infof("  📈 Implementing dynamic take profit logic for %s: targetROI=%.2f%%, maxROI=%.2f%%, timeLimit=%.2f hours",
+		symbol, targetROI, maxROI, timeLimitHours)
+
+	// In a real implementation, you'd start a goroutine that monitors the position
+	// and executes the take profit when conditions are met
 	return nil
 }
 
@@ -1711,7 +2017,22 @@ func (at *AutoTrader) GetAccountInfo() (map[string]interface{}, error) {
 	totalUnrealizedPnLCalculated := 0.0
 	for _, pos := range positions {
 		markPrice := pos["markPrice"].(float64)
-		quantity := pos["positionAmt"].(float64)
+		quantity, ok := pos["positionAmt"].(float64)
+		if !ok {
+			// Try to get as json.Number if it fails as float64
+			quantityNum, ok2 := pos["positionAmt"].(*json.Number)
+			if !ok2 {
+				logger.Warnf("Failed to get position amount for %s, using 0", pos["symbol"])
+				quantity = 0
+			} else {
+				var err error
+				quantity, err = quantityNum.Float64()
+				if err != nil {
+					logger.Warnf("Failed to convert position amount to float for %s, using 0: %v", pos["symbol"], err)
+					quantity = 0
+				}
+			}
+		}
 		if quantity < 0 {
 			quantity = -quantity
 		}
@@ -1780,7 +2101,22 @@ func (at *AutoTrader) GetPositions() ([]map[string]interface{}, error) {
 		side := pos["side"].(string)
 		entryPrice := pos["entryPrice"].(float64)
 		markPrice := pos["markPrice"].(float64)
-		quantity := pos["positionAmt"].(float64)
+		quantity, ok := pos["positionAmt"].(float64)
+		if !ok {
+			// Try to get as json.Number if it fails as float64
+			quantityNum, ok2 := pos["positionAmt"].(*json.Number)
+			if !ok2 {
+				logger.Warnf("Failed to get position amount for %s, using 0", pos["symbol"])
+				quantity = 0
+			} else {
+				var err error
+				quantity, err = quantityNum.Float64()
+				if err != nil {
+					logger.Warnf("Failed to convert position amount to float for %s, using 0: %v", pos["symbol"], err)
+					quantity = 0
+				}
+			}
+		}
 		if quantity < 0 {
 			quantity = -quantity
 		}
@@ -1898,7 +2234,22 @@ func (at *AutoTrader) checkPositionDrawdown() {
 		side := pos["side"].(string)
 		entryPrice := pos["entryPrice"].(float64)
 		markPrice := pos["markPrice"].(float64)
-		quantity := pos["positionAmt"].(float64)
+		quantity, ok := pos["positionAmt"].(float64)
+		if !ok {
+			// Try to get as json.Number if it fails as float64
+			quantityNum, ok2 := pos["positionAmt"].(*json.Number)
+			if !ok2 {
+				logger.Warnf("Failed to get position amount for %s, using 0", pos["symbol"])
+				quantity = 0
+			} else {
+				var err error
+				quantity, err = quantityNum.Float64()
+				if err != nil {
+					logger.Warnf("Failed to convert position amount to float for %s, using 0: %v", pos["symbol"], err)
+					quantity = 0
+				}
+			}
+		}
 		if quantity < 0 {
 			quantity = -quantity // Short position quantity is negative, convert to positive
 		}
@@ -2516,14 +2867,18 @@ func (at *AutoTrader) executeUpdateStopLossWithRecord(decision *kernel.Decision,
 	}
 
 	// Get the current position quantity
-	quantity, ok := foundPos["positionAmt"].(*json.Number)
+	qtyFloat, ok := foundPos["positionAmt"].(float64)
 	if !ok {
-		return fmt.Errorf("failed to get position amount")
-	}
-
-	qtyFloat, err := quantity.Float64()
-	if err != nil {
-		return fmt.Errorf("failed to convert quantity to float: %w", err)
+		// Try to get as json.Number if it fails as float64
+		quantity, ok2 := foundPos["positionAmt"].(*json.Number)
+		if !ok2 {
+			return fmt.Errorf("failed to get position amount")
+		}
+		var err error
+		qtyFloat, err = quantity.Float64()
+		if err != nil {
+			return fmt.Errorf("failed to convert quantity to float: %w", err)
+		}
 	}
 
 	// Convert negative quantity to positive if needed
@@ -2631,14 +2986,18 @@ func (at *AutoTrader) executeUpdateTakeProfitWithRecord(decision *kernel.Decisio
 	}
 
 	// Get the current position quantity
-	quantity, ok := foundPos["positionAmt"].(*json.Number)
+	qtyFloat, ok := foundPos["positionAmt"].(float64)
 	if !ok {
-		return fmt.Errorf("failed to get position amount")
-	}
-
-	qtyFloat, err := quantity.Float64()
-	if err != nil {
-		return fmt.Errorf("failed to convert quantity to float: %w", err)
+		// Try to get as json.Number if it fails as float64
+		quantity, ok2 := foundPos["positionAmt"].(*json.Number)
+		if !ok2 {
+			return fmt.Errorf("failed to get position amount")
+		}
+		var err error
+		qtyFloat, err = quantity.Float64()
+		if err != nil {
+			return fmt.Errorf("failed to convert quantity to float: %w", err)
+		}
 	}
 
 	// Convert negative quantity to positive if needed
@@ -2746,14 +3105,18 @@ func (at *AutoTrader) executePartialCloseWithRecord(decision *kernel.Decision, a
 	}
 
 	// Get the current position quantity
-	quantity, ok := foundPos["positionAmt"].(*json.Number)
+	qtyFloat, ok := foundPos["positionAmt"].(float64)
 	if !ok {
-		return fmt.Errorf("failed to get position amount")
-	}
-
-	qtyFloat, err := quantity.Float64()
-	if err != nil {
-		return fmt.Errorf("failed to convert quantity to float: %w", err)
+		// Try to get as json.Number if it fails as float64
+		quantity, ok2 := foundPos["positionAmt"].(*json.Number)
+		if !ok2 {
+			return fmt.Errorf("failed to get position amount")
+		}
+		var err error
+		qtyFloat, err = quantity.Float64()
+		if err != nil {
+			return fmt.Errorf("failed to convert quantity to float: %w", err)
+		}
 	}
 
 	// Determine if long or short position

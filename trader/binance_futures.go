@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"log"
 	"math"
@@ -305,10 +306,24 @@ func (t *FuturesTrader) SetLeverage(symbol string, leverage int) error {
 	if err == nil {
 		for _, pos := range positions {
 			if pos["symbol"] == symbol {
-				if lev, ok := pos["leverage"].(float64); ok {
-					currentLeverage = int(lev)
-					break
+				// Handle both float64 and *json.Number types for leverage
+				levInterface := pos["leverage"]
+				var lev float64
+				if levVal, ok := levInterface.(float64); ok {
+					lev = levVal
+				} else if levNum, ok := levInterface.(*json.Number); ok {
+					var err error
+					lev, err = levNum.Float64()
+					if err != nil {
+						logger.Warnf("Failed to convert leverage to float for %s, using 0: %v", symbol, err)
+						continue // Skip this position and try the next one
+					}
+				} else {
+					logger.Warnf("Failed to get leverage for %s, using 0", symbol)
+					continue // Skip this position and try the next one
 				}
+				currentLeverage = int(lev)
+				break
 			}
 		}
 	}
@@ -328,11 +343,52 @@ func (t *FuturesTrader) SetLeverage(symbol string, leverage int) error {
 		Do(ctx)
 
 	if err != nil {
+		errMsg := err.Error()
+		logger.Warnf("Failed to set leverage for %s to %dx: %v", symbol, leverage, err)
+
 		// If error message contains "No need to change", leverage is already the target value
-		if contains(err.Error(), "No need to change") {
+		if contains(errMsg, "No need to change") {
 			logger.Infof("  ✓ %s leverage is already %dx", symbol, leverage)
 			return nil
 		}
+
+		// If it's error -1000 (unknown error), check if leverage is already set correctly
+		if contains(errMsg, "code=-1000") {
+			logger.Infof("  ⚠ Got error -1000 when setting leverage for %s, checking current leverage...", symbol)
+			// Try to get current positions to see if leverage is already correct
+			positions, posErr := t.GetPositions()
+			if posErr == nil {
+				for _, pos := range positions {
+					if pos["symbol"] == symbol {
+						// Handle both float64 and *json.Number types for leverage
+						levInterface := pos["leverage"]
+						var currentLev float64
+						if levVal, ok := levInterface.(float64); ok {
+							currentLev = levVal
+						} else if levNum, ok := levInterface.(*json.Number); ok {
+							var convErr error
+							currentLev, convErr = levNum.Float64()
+							if convErr != nil {
+								logger.Warnf("Could not convert leverage to float, proceeding with setting leverage: %v", convErr)
+								break
+							}
+						} else {
+							logger.Warnf("Could not get leverage, proceeding with setting leverage")
+							break
+						}
+
+						if int(currentLev) == leverage {
+							logger.Infof("  ✓ %s leverage is already %dx as requested", symbol, leverage)
+							return nil
+						}
+						logger.Infof("  ℹ %s current leverage is %dx, requested %dx", symbol, int(currentLev), leverage)
+						break
+					}
+				}
+			}
+		}
+
+		// For other errors, return the original error
 		return fmt.Errorf("failed to set leverage: %w", err)
 	}
 
@@ -352,9 +408,10 @@ func (t *FuturesTrader) OpenLong(symbol string, quantity float64, leverage int) 
 		logger.Infof("  ⚠ Failed to cancel old pending orders (may not have any): %v", err)
 	}
 
-	// Set leverage
+	// Set leverage (non-fatal if fails)
 	if err := t.SetLeverage(symbol, leverage); err != nil {
-		return nil, err
+		logger.Infof("  ⚠ Failed to set leverage for %s: %v", symbol, err)
+		// Continue execution even if leverage setting fails
 	}
 
 	// Note: Margin mode should be set by the caller (AutoTrader) before opening position via SetMarginMode
@@ -409,9 +466,10 @@ func (t *FuturesTrader) OpenShort(symbol string, quantity float64, leverage int)
 		logger.Infof("  ⚠ Failed to cancel old pending orders (may not have any): %v", err)
 	}
 
-	// Set leverage
+	// Set leverage (non-fatal if fails)
 	if err := t.SetLeverage(symbol, leverage); err != nil {
-		return nil, err
+		logger.Infof("  ⚠ Failed to set leverage for %s: %v", symbol, err)
+		// Continue execution even if leverage setting fails
 	}
 
 	// Note: Margin mode should be set by the caller (AutoTrader) before opening position via SetMarginMode
@@ -470,7 +528,21 @@ func (t *FuturesTrader) CloseLong(symbol string, quantity float64) (map[string]i
 
 		for _, pos := range positions {
 			if pos["symbol"] == symbol && pos["side"] == "long" {
-				quantity = pos["positionAmt"].(float64)
+				// Handle both float64 and *json.Number types for positionAmt
+				positionAmt, ok := pos["positionAmt"].(float64)
+				if !ok {
+					// Try to get as json.Number if it fails as float64
+					positionAmtNum, ok2 := pos["positionAmt"].(*json.Number)
+					if !ok2 {
+						return nil, fmt.Errorf("failed to get position amount for %s", symbol)
+					}
+					var err error
+					positionAmt, err = positionAmtNum.Float64()
+					if err != nil {
+						return nil, fmt.Errorf("failed to convert position amount to float for %s: %w", symbol, err)
+					}
+				}
+				quantity = positionAmt
 				break
 			}
 		}
@@ -527,7 +599,21 @@ func (t *FuturesTrader) CloseShort(symbol string, quantity float64) (map[string]
 
 		for _, pos := range positions {
 			if pos["symbol"] == symbol && pos["side"] == "short" {
-				quantity = -pos["positionAmt"].(float64) // Short position quantity is negative, take absolute value
+				// Handle both float64 and *json.Number types for positionAmt
+				positionAmt, ok := pos["positionAmt"].(float64)
+				if !ok {
+					// Try to get as json.Number if it fails as float64
+					positionAmtNum, ok2 := pos["positionAmt"].(*json.Number)
+					if !ok2 {
+						return nil, fmt.Errorf("failed to get position amount for %s", symbol)
+					}
+					var err error
+					positionAmt, err = positionAmtNum.Float64()
+					if err != nil {
+						return nil, fmt.Errorf("failed to convert position amount to float for %s: %w", symbol, err)
+					}
+				}
+				quantity = -positionAmt // Short position quantity is negative, take absolute value
 				break
 			}
 		}
@@ -890,8 +976,21 @@ func (t *FuturesTrader) PartialClose(symbol string, side string, percentage floa
 	}
 
 	// 计算部分平仓数量
-	currentQty := (*currentPos)["positionAmt"].(float64)
-	absCurrentQty := math.Abs(currentQty)
+	// Handle both float64 and *json.Number types for positionAmt
+	positionAmt, ok := (*currentPos)["positionAmt"].(float64)
+	if !ok {
+		// Try to get as json.Number if it fails as float64
+		positionAmtNum, ok2 := (*currentPos)["positionAmt"].(*json.Number)
+		if !ok2 {
+			return nil, fmt.Errorf("failed to get position amount for %s", symbol)
+		}
+		var err error
+		positionAmt, err = positionAmtNum.Float64()
+		if err != nil {
+			return nil, fmt.Errorf("failed to convert position amount to float for %s: %w", symbol, err)
+		}
+	}
+	absCurrentQty := math.Abs(positionAmt)
 	closeQty := absCurrentQty * (percentage / 100.0)
 
 	// 格式化数量
@@ -955,7 +1054,21 @@ func (t *FuturesTrader) UpdateStopLoss(symbol string, positionSide string, newSt
 	for _, pos := range positions {
 		if pos["symbol"] == symbol {
 			if (positionSide == "LONG" && pos["side"] == "long") || (positionSide == "SHORT" && pos["side"] == "short") {
-				currentQty = math.Abs(pos["positionAmt"].(float64))
+				// Handle both float64 and *json.Number types for positionAmt
+				positionAmt, ok := pos["positionAmt"].(float64)
+				if !ok {
+					// Try to get as json.Number if it fails as float64
+					positionAmtNum, ok2 := pos["positionAmt"].(*json.Number)
+					if !ok2 {
+						return fmt.Errorf("failed to get position amount for %s", symbol)
+					}
+					var err error
+					positionAmt, err = positionAmtNum.Float64()
+					if err != nil {
+						return fmt.Errorf("failed to convert position amount to float for %s: %w", symbol, err)
+					}
+				}
+				currentQty = math.Abs(positionAmt)
 				break
 			}
 		}
@@ -986,7 +1099,21 @@ func (t *FuturesTrader) UpdateTakeProfit(symbol string, positionSide string, new
 	for _, pos := range positions {
 		if pos["symbol"] == symbol {
 			if (positionSide == "LONG" && pos["side"] == "long") || (positionSide == "SHORT" && pos["side"] == "short") {
-				currentQty = math.Abs(pos["positionAmt"].(float64))
+				// Handle both float64 and *json.Number types for positionAmt
+				positionAmt, ok := pos["positionAmt"].(float64)
+				if !ok {
+					// Try to get as json.Number if it fails as float64
+					positionAmtNum, ok2 := pos["positionAmt"].(*json.Number)
+					if !ok2 {
+						return fmt.Errorf("failed to get position amount for %s", symbol)
+					}
+					var err error
+					positionAmt, err = positionAmtNum.Float64()
+					if err != nil {
+						return fmt.Errorf("failed to convert position amount to float for %s: %w", symbol, err)
+					}
+				}
+				currentQty = math.Abs(positionAmt)
 				break
 			}
 		}
