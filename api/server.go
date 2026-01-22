@@ -156,6 +156,7 @@ func (s *Server) setupRoutes() {
 			protected.POST("/traders/:id/start", s.handleStartTrader)
 			protected.POST("/traders/:id/stop", s.handleStopTrader)
 			protected.POST("/traders/:id/execute-decision", s.handleExecuteDecision)
+					protected.POST("/traders/:id/execute-multiple-decisions", s.handleExecuteMultipleDecisions)
 			protected.PUT("/traders/:id/prompt", s.handleUpdateTraderPrompt)
 			protected.POST("/traders/:id/sync-balance", s.handleSyncBalance)
 			protected.POST("/traders/:id/close-position", s.handleClosePosition)
@@ -1103,6 +1104,158 @@ func (s *Server) handleExecuteDecision(c *gin.Context) {
 		responseData["result"] = result
 	}
 	c.JSON(http.StatusOK, responseData)
+}
+
+// handleExecuteMultipleDecisions Execute multiple trading decisions in batch
+func (s *Server) handleExecuteMultipleDecisions(c *gin.Context) {
+	userID := c.GetString("user_id")
+	traderID := c.Param("id")
+
+	logger.Infof("🔄 Manual batch decision execution initiated for trader %s by user %s", traderID, userID)
+
+	// Verify trader belongs to current user
+	_, err := s.store.Trader().GetFullConfig(userID, traderID)
+	if err != nil {
+		logger.Errorf("❌ User %s trying to access trader %s: %v", userID, traderID, err)
+		c.JSON(http.StatusNotFound, gin.H{"error": "Trader does not exist or no access permission"})
+		return
+	}
+
+	trader, err := s.traderManager.GetTraderExecutor(traderID)
+	if err != nil {
+		logger.Errorf("❌ Failed to get trader executor %s from manager: %v", traderID, err)
+		c.JSON(http.StatusNotFound, gin.H{"error": "Trader does not exist"})
+		return
+	}
+
+	// Parse the batch of decisions
+	var decisions []kernel.Decision
+	if err := c.ShouldBindJSON(&decisions); err != nil {
+		logger.Errorf("❌ Failed to parse batch decisions: %v", err)
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid decision format"})
+		return
+	}
+
+	logger.Infof("✅ Received %d decisions to execute", len(decisions))
+
+	// Execute each decision
+	results := make([]map[string]interface{}, 0, len(decisions))
+	for i, decision := range decisions {
+		logger.Infof("Executing decision %d: %s %s", i+1, decision.Action, decision.Symbol)
+		
+		result := map[string]interface{}{
+			"index": i,
+			"symbol": decision.Symbol,
+			"action": decision.Action,
+			"success": false,
+			"error": "",
+		}
+		
+		if err := trader.ExecuteDecision(&decision); err != nil {
+			logger.Errorf("❌ Failed to execute decision %d for %s %s: %v", i+1, decision.Symbol, decision.Action, err)
+			result["error"] = err.Error()
+		} else {
+			logger.Infof("✅ Decision %d executed successfully: %s %s", i+1, decision.Action, decision.Symbol)
+			result["success"] = true
+		}
+		
+		results = append(results, result)
+	}
+
+	logger.Infof("✅ Batch execution completed for trader %s, %d/%d decisions successful", trader.GetName(), countSuccessfulResults(results), len(results))
+	
+	c.JSON(http.StatusOK, gin.H{
+		"message": "Batch decisions executed",
+		"total_decisions": len(decisions),
+		"successful": countSuccessfulResults(results),
+		"results": results,
+	})
+}
+
+func countSuccessfulResults(results []map[string]interface{}) int {
+	count := 0
+	for _, result := range results {
+		if success, ok := result["success"].(bool); ok && success {
+			count++
+		}
+	}
+	return count
+}
+
+// handleExecuteMultipleDecisions Execute multiple trading decisions in batch
+func (s *Server) handleExecuteMultipleDecisions(c *gin.Context) {
+	userID := c.GetString("user_id")
+	traderID := c.Param("id")
+
+	logger.Infof("🔄 Manual batch decision execution initiated for trader %s by user %s", traderID, userID)
+
+	// Verify trader belongs to current user
+	_, err := s.store.Trader().GetFullConfig(userID, traderID)
+	if err != nil {
+		logger.Errorf("❌ User %s trying to access trader %s: %v", userID, traderID, err)
+		c.JSON(http.StatusNotFound, gin.H{"error": "Trader does not exist or no access permission"})
+		return
+	}
+
+	trader, err := s.traderManager.GetTraderExecutor(traderID)
+	if err != nil {
+		logger.Errorf("❌ Failed to get trader executor %s from manager: %v", traderID, err)
+		c.JSON(http.StatusNotFound, gin.H{"error": "Trader does not exist"})
+		return
+	}
+
+	// Parse the batch of decisions
+	var decisions []kernel.Decision
+	if err := c.ShouldBindJSON(&decisions); err != nil {
+		logger.Errorf("❌ Failed to parse batch decisions: %v", err)
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid decision format"})
+		return
+	}
+
+	logger.Infof("✅ Received %d decisions to execute", len(decisions))
+
+	// Execute each decision
+	results := make([]map[string]interface{}, 0, len(decisions))
+	for i, decision := range decisions {
+		logger.Infof("Executing decision %d: %s %s", i+1, decision.Action, decision.Symbol)
+		
+		result := map[string]interface{}{
+			"index": i,
+			"symbol": decision.Symbol,
+			"action": decision.Action,
+			"success": false,
+			"error": "",
+		}
+		
+		if err := trader.ExecuteDecision(&decision); err != nil {
+			logger.Errorf("❌ Failed to execute decision %d for %s %s: %v", i+1, decision.Symbol, decision.Action, err)
+			result["error"] = err.Error()
+		} else {
+			logger.Infof("✅ Decision %d executed successfully: %s %s", i+1, decision.Action, decision.Symbol)
+			result["success"] = true
+		}
+		
+		results = append(results, result)
+	}
+
+	logger.Infof("✅ Batch execution completed for trader %s, %d/%d decisions successful", trader.GetName(), countSuccessfulResults(results), len(results))
+	
+	c.JSON(http.StatusOK, gin.H{
+		"message": "Batch decisions executed",
+		"total_decisions": len(decisions),
+		"successful": countSuccessfulResults(results),
+		"results": results,
+	})
+}
+
+func countSuccessfulResults(results []map[string]interface{}) int {
+	count := 0
+	for _, result := range results {
+		if success, ok := result["success"].(bool); ok && success {
+			count++
+		}
+	}
+	return count
 }
 
 // handleUpdateTraderPrompt Update trader custom prompt

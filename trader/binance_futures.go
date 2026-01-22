@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"math"
+	"net/http"
 	"nofx/hook"
 	"nofx/logger"
 	"strconv"
@@ -77,6 +78,13 @@ func NewFuturesTrader(apiKey, secretKey, userId, customEndpoint string) *Futures
 		client = futures.NewClient(apiKey, secretKey)
 	}
 
+	// Increase HTTP client timeout to handle network instability, especially for testnet
+	if client.HTTPClient == nil {
+		client.HTTPClient = &http.Client{Timeout: 30 * time.Second}
+	} else {
+		client.HTTPClient.Timeout = 30 * time.Second
+	}
+
 	hookRes := hook.HookExec[hook.NewBinanceTraderResult](hook.NEW_BINANCE_TRADER, userId, client)
 	if hookRes != nil && hookRes.GetResult() != nil {
 		client = hookRes.GetResult()
@@ -101,9 +109,11 @@ func NewFuturesTrader(apiKey, secretKey, userId, customEndpoint string) *Futures
 // setDualSidePosition sets dual-side position mode (called during initialization)
 func (t *FuturesTrader) setDualSidePosition() error {
 	// Try to set dual-side position mode
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
 	err := t.client.NewChangePositionModeService().
 		DualSide(true). // true = dual-side position (Hedge Mode)
-		Do(context.Background())
+		Do(ctx)
 
 	if err != nil {
 		// If error message contains "No need to change", it means already in dual-side position mode
@@ -122,7 +132,9 @@ func (t *FuturesTrader) setDualSidePosition() error {
 
 // syncBinanceServerTime syncs Binance server time to ensure request timestamps are valid
 func syncBinanceServerTime(client *futures.Client) {
-	serverTime, err := client.NewServerTimeService().Do(context.Background())
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	serverTime, err := client.NewServerTimeService().Do(ctx)
 	if err != nil {
 		logger.Infof("⚠️ Failed to sync Binance server time: %v", err)
 		return
@@ -148,7 +160,9 @@ func (t *FuturesTrader) GetBalance() (map[string]interface{}, error) {
 
 	// Cache expired or doesn't exist, call API
 	logger.Infof("🔄 Cache expired, calling Binance API to get account balance...")
-	account, err := t.client.NewGetAccountService().Do(context.Background())
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	account, err := t.client.NewGetAccountService().Do(ctx)
 	if err != nil {
 		logger.Infof("❌ Binance API call failed: %v", err)
 		return nil, fmt.Errorf("failed to get account info: %w", err)
@@ -187,7 +201,9 @@ func (t *FuturesTrader) GetPositions() ([]map[string]interface{}, error) {
 
 	// Cache expired or doesn't exist, call API
 	logger.Infof("🔄 Cache expired, calling Binance API to get position information...")
-	positions, err := t.client.NewGetPositionRiskService().Do(context.Background())
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	positions, err := t.client.NewGetPositionRiskService().Do(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get positions: %w", err)
 	}
@@ -238,10 +254,12 @@ func (t *FuturesTrader) SetMarginMode(symbol string, isCrossMargin bool) error {
 	}
 
 	// Try to set margin mode
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
 	err := t.client.NewChangeMarginTypeService().
 		Symbol(symbol).
 		MarginType(marginType).
-		Do(context.Background())
+		Do(ctx)
 
 	marginModeStr := "Cross Margin"
 	if !isCrossMargin {
@@ -302,10 +320,12 @@ func (t *FuturesTrader) SetLeverage(symbol string, leverage int) error {
 	}
 
 	// Change leverage
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
 	_, err = t.client.NewChangeLeverageService().
 		Symbol(symbol).
 		Leverage(leverage).
-		Do(context.Background())
+		Do(ctx)
 
 	if err != nil {
 		// If error message contains "No need to change", leverage is already the target value
@@ -357,6 +377,8 @@ func (t *FuturesTrader) OpenLong(symbol string, quantity float64, leverage int) 
 	}
 
 	// Create market buy order (using br ID)
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
 	order, err := t.client.NewCreateOrderService().
 		Symbol(symbol).
 		Side(futures.SideTypeBuy).
@@ -364,7 +386,7 @@ func (t *FuturesTrader) OpenLong(symbol string, quantity float64, leverage int) 
 		Type(futures.OrderTypeMarket).
 		Quantity(quantityStr).
 		NewClientOrderID(getBrOrderID()).
-		Do(context.Background())
+		Do(ctx)
 
 	if err != nil {
 		return nil, fmt.Errorf("failed to open long position: %w", err)
@@ -412,6 +434,8 @@ func (t *FuturesTrader) OpenShort(symbol string, quantity float64, leverage int)
 	}
 
 	// Create market sell order (using br ID)
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
 	order, err := t.client.NewCreateOrderService().
 		Symbol(symbol).
 		Side(futures.SideTypeSell).
@@ -419,7 +443,7 @@ func (t *FuturesTrader) OpenShort(symbol string, quantity float64, leverage int)
 		Type(futures.OrderTypeMarket).
 		Quantity(quantityStr).
 		NewClientOrderID(getBrOrderID()).
-		Do(context.Background())
+		Do(ctx)
 
 	if err != nil {
 		return nil, fmt.Errorf("failed to open short position: %w", err)
@@ -463,6 +487,8 @@ func (t *FuturesTrader) CloseLong(symbol string, quantity float64) (map[string]i
 	}
 
 	// Create market sell order (close long, using br ID)
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
 	order, err := t.client.NewCreateOrderService().
 		Symbol(symbol).
 		Side(futures.SideTypeSell).
@@ -470,7 +496,7 @@ func (t *FuturesTrader) CloseLong(symbol string, quantity float64) (map[string]i
 		Type(futures.OrderTypeMarket).
 		Quantity(quantityStr).
 		NewClientOrderID(getBrOrderID()).
-		Do(context.Background())
+		Do(ctx)
 
 	if err != nil {
 		return nil, fmt.Errorf("failed to close long position: %w", err)
@@ -518,6 +544,8 @@ func (t *FuturesTrader) CloseShort(symbol string, quantity float64) (map[string]
 	}
 
 	// Create market buy order (close short, using br ID)
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
 	order, err := t.client.NewCreateOrderService().
 		Symbol(symbol).
 		Side(futures.SideTypeBuy).
@@ -525,7 +553,7 @@ func (t *FuturesTrader) CloseShort(symbol string, quantity float64) (map[string]
 		Type(futures.OrderTypeMarket).
 		Quantity(quantityStr).
 		NewClientOrderID(getBrOrderID()).
-		Do(context.Background())
+		Do(ctx)
 
 	if err != nil {
 		return nil, fmt.Errorf("failed to close short position: %w", err)
@@ -552,9 +580,11 @@ func (t *FuturesTrader) CancelStopLossOrders(symbol string) error {
 	var cancelErrors []error
 
 	// 1. Cancel legacy stop-loss orders
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
 	orders, err := t.client.NewListOpenOrdersService().
 		Symbol(symbol).
-		Do(context.Background())
+		Do(ctx)
 
 	if err == nil {
 		for _, order := range orders {
@@ -563,10 +593,12 @@ func (t *FuturesTrader) CancelStopLossOrders(symbol string) error {
 			// Only cancel stop-loss orders (don't cancel take-profit orders)
 			// Use string comparison since OrderType constants were removed in v2.8.9
 			if orderType == "STOP_MARKET" || orderType == "STOP" {
+				ctx1, cancel1 := context.WithTimeout(context.Background(), 20*time.Second)
+				defer cancel1()
 				_, err := t.client.NewCancelOrderService().
 					Symbol(symbol).
 					OrderID(order.OrderID).
-					Do(context.Background())
+					Do(ctx1)
 
 				if err != nil {
 					errMsg := fmt.Sprintf("Order ID %d: %v", order.OrderID, err)
@@ -582,17 +614,21 @@ func (t *FuturesTrader) CancelStopLossOrders(symbol string) error {
 	}
 
 	// 2. Cancel Algo stop-loss orders
+	ctx2, cancel2 := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel2()
 	algoOrders, err := t.client.NewListOpenAlgoOrdersService().
 		Symbol(symbol).
-		Do(context.Background())
+		Do(ctx2)
 
 	if err == nil {
 		for _, algoOrder := range algoOrders {
 			// Only cancel stop-loss orders
 			if algoOrder.OrderType == futures.AlgoOrderTypeStopMarket || algoOrder.OrderType == futures.AlgoOrderTypeStop {
+				ctx3, cancel3 := context.WithTimeout(context.Background(), 20*time.Second)
+				defer cancel3()
 				_, err := t.client.NewCancelAlgoOrderService().
 					AlgoID(algoOrder.AlgoId).
-					Do(context.Background())
+					Do(ctx3)
 
 				if err != nil {
 					errMsg := fmt.Sprintf("Algo ID %d: %v", algoOrder.AlgoId, err)
@@ -628,9 +664,11 @@ func (t *FuturesTrader) CancelTakeProfitOrders(symbol string) error {
 	var cancelErrors []error
 
 	// 1. Cancel legacy take-profit orders
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
 	orders, err := t.client.NewListOpenOrdersService().
 		Symbol(symbol).
-		Do(context.Background())
+		Do(ctx)
 
 	if err == nil {
 		for _, order := range orders {
@@ -639,10 +677,12 @@ func (t *FuturesTrader) CancelTakeProfitOrders(symbol string) error {
 			// Only cancel take-profit orders (don't cancel stop-loss orders)
 			// Use string comparison since OrderType constants were removed in v2.8.9
 			if orderType == "TAKE_PROFIT_MARKET" || orderType == "TAKE_PROFIT" {
+				ctx1, cancel1 := context.WithTimeout(context.Background(), 20*time.Second)
+				defer cancel1()
 				_, err := t.client.NewCancelOrderService().
 					Symbol(symbol).
 					OrderID(order.OrderID).
-					Do(context.Background())
+					Do(ctx1)
 
 				if err != nil {
 					errMsg := fmt.Sprintf("Order ID %d: %v", order.OrderID, err)
@@ -658,17 +698,21 @@ func (t *FuturesTrader) CancelTakeProfitOrders(symbol string) error {
 	}
 
 	// 2. Cancel Algo take-profit orders
+	ctx2, cancel2 := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel2()
 	algoOrders, err := t.client.NewListOpenAlgoOrdersService().
 		Symbol(symbol).
-		Do(context.Background())
+		Do(ctx2)
 
 	if err == nil {
 		for _, algoOrder := range algoOrders {
 			// Only cancel take-profit orders
 			if algoOrder.OrderType == futures.AlgoOrderTypeTakeProfitMarket || algoOrder.OrderType == futures.AlgoOrderTypeTakeProfit {
+				ctx3, cancel3 := context.WithTimeout(context.Background(), 20*time.Second)
+				defer cancel3()
 				_, err := t.client.NewCancelAlgoOrderService().
 					AlgoID(algoOrder.AlgoId).
-					Do(context.Background())
+					Do(ctx3)
 
 				if err != nil {
 					errMsg := fmt.Sprintf("Algo ID %d: %v", algoOrder.AlgoId, err)
@@ -701,9 +745,11 @@ func (t *FuturesTrader) CancelTakeProfitOrders(symbol string) error {
 // Now uses both legacy API and new Algo Order API
 func (t *FuturesTrader) CancelAllOrders(symbol string) error {
 	// 1. Cancel all legacy orders
+	ctx1, cancel1 := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel1()
 	err := t.client.NewCancelAllOpenOrdersService().
 		Symbol(symbol).
-		Do(context.Background())
+		Do(ctx1)
 
 	if err != nil {
 		logger.Infof("  ⚠ Failed to cancel legacy orders: %v", err)
@@ -712,9 +758,11 @@ func (t *FuturesTrader) CancelAllOrders(symbol string) error {
 	}
 
 	// 2. Cancel all Algo orders
+	ctx2, cancel2 := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel2()
 	err = t.client.NewCancelAllAlgoOpenOrdersService().
 		Symbol(symbol).
-		Do(context.Background())
+		Do(ctx2)
 
 	if err != nil {
 		// Ignore "no algo orders" error
@@ -735,9 +783,11 @@ func (t *FuturesTrader) CancelStopOrders(symbol string) error {
 	var cancelErrors []error
 
 	// 1. Cancel legacy stop-loss and take-profit orders
+	ctx1, cancel1 := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel1()
 	orders, err := t.client.NewListOpenOrdersService().
 		Symbol(symbol).
-		Do(context.Background())
+		Do(ctx1)
 
 	if err == nil {
 		for _, order := range orders {
@@ -745,10 +795,12 @@ func (t *FuturesTrader) CancelStopOrders(symbol string) error {
 
 			// Cancel both stop-loss and take-profit orders
 			if orderType == "STOP_MARKET" || orderType == "STOP" || orderType == "TAKE_PROFIT_MARKET" || orderType == "TAKE_PROFIT" {
+				ctx2, cancel2 := context.WithTimeout(context.Background(), 20*time.Second)
+				defer cancel2()
 				_, err := t.client.NewCancelOrderService().
 					Symbol(symbol).
 					OrderID(order.OrderID).
-					Do(context.Background())
+					Do(ctx2)
 
 				if err != nil {
 					errMsg := fmt.Sprintf("Order ID %d: %v", order.OrderID, err)
@@ -764,9 +816,11 @@ func (t *FuturesTrader) CancelStopOrders(symbol string) error {
 	}
 
 	// 2. Cancel Algo stop-loss and take-profit orders
+	ctx3, cancel3 := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel3()
 	algoOrders, err := t.client.NewListOpenAlgoOrdersService().
 		Symbol(symbol).
-		Do(context.Background())
+		Do(ctx3)
 
 	if err == nil {
 		for _, algoOrder := range algoOrders {
@@ -776,9 +830,11 @@ func (t *FuturesTrader) CancelStopOrders(symbol string) error {
 				algoOrder.OrderType == futures.AlgoOrderTypeTakeProfitMarket ||
 				algoOrder.OrderType == futures.AlgoOrderTypeTakeProfit {
 
+				ctx4, cancel4 := context.WithTimeout(context.Background(), 20*time.Second)
+				defer cancel4()
 				_, err := t.client.NewCancelAlgoOrderService().
 					AlgoID(algoOrder.AlgoId).
-					Do(context.Background())
+					Do(ctx4)
 
 				if err != nil {
 					errMsg := fmt.Sprintf("Algo ID %d: %v", algoOrder.AlgoId, err)
@@ -857,13 +913,15 @@ func (t *FuturesTrader) PartialClose(symbol string, side string, percentage floa
 		posSideType = futures.PositionSideTypeShort
 	}
 
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
 	order, err = t.client.NewCreateOrderService().
 		Symbol(symbol).
 		Side(sideType).
 		PositionSide(posSideType).
 		Type(futures.OrderTypeMarket).
 		Quantity(quantityStr).
-		Do(context.Background())
+		Do(ctx)
 
 	if err != nil {
 		return nil, fmt.Errorf("部分平仓失败: %w", err)
@@ -944,7 +1002,9 @@ func (t *FuturesTrader) UpdateTakeProfit(symbol string, positionSide string, new
 
 // GetMarketPrice 获取市场价格
 func (t *FuturesTrader) GetMarketPrice(symbol string) (float64, error) {
-	prices, err := t.client.NewListPricesService().Symbol(symbol).Do(context.Background())
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	prices, err := t.client.NewListPricesService().Symbol(symbol).Do(ctx)
 	if err != nil {
 		return 0, fmt.Errorf("failed to get price: %w", err)
 	}
@@ -984,6 +1044,8 @@ func (t *FuturesTrader) SetStopLoss(symbol string, positionSide string, quantity
 	}
 
 	// Use new Algo Order API
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
 	_, err := t.client.NewCreateAlgoOrderService().
 		Symbol(symbol).
 		Side(side).
@@ -993,7 +1055,7 @@ func (t *FuturesTrader) SetStopLoss(symbol string, positionSide string, quantity
 		WorkingType(futures.WorkingTypeContractPrice).
 		ClosePosition(true).
 		ClientAlgoId(getBrOrderID()).
-		Do(context.Background())
+		Do(ctx)
 
 	if err != nil {
 		return fmt.Errorf("failed to set stop-loss: %w", err)
@@ -1018,6 +1080,8 @@ func (t *FuturesTrader) SetTakeProfit(symbol string, positionSide string, quanti
 	}
 
 	// Use new Algo Order API
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
 	_, err := t.client.NewCreateAlgoOrderService().
 		Symbol(symbol).
 		Side(side).
@@ -1027,7 +1091,7 @@ func (t *FuturesTrader) SetTakeProfit(symbol string, positionSide string, quanti
 		WorkingType(futures.WorkingTypeContractPrice).
 		ClosePosition(true).
 		ClientAlgoId(getBrOrderID()).
-		Do(context.Background())
+		Do(ctx)
 
 	if err != nil {
 		return fmt.Errorf("failed to set take-profit: %w", err)
@@ -1065,7 +1129,9 @@ func (t *FuturesTrader) CheckMinNotional(symbol string, quantity float64) error 
 
 // GetSymbolPrecision gets the quantity precision for a trading pair
 func (t *FuturesTrader) GetSymbolPrecision(symbol string) (int, error) {
-	exchangeInfo, err := t.client.NewExchangeInfoService().Do(context.Background())
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	exchangeInfo, err := t.client.NewExchangeInfoService().Do(ctx)
 	if err != nil {
 		return 0, fmt.Errorf("failed to get trading rules: %w", err)
 	}
@@ -1165,10 +1231,12 @@ func (t *FuturesTrader) GetOrderStatus(symbol string, orderID string) (map[strin
 		return nil, fmt.Errorf("invalid order ID: %s", orderID)
 	}
 
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
 	order, err := t.client.NewGetOrderService().
 		Symbol(symbol).
 		OrderID(orderIDInt).
-		Do(context.Background())
+		Do(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get order status: %w", err)
 	}
@@ -1266,11 +1334,13 @@ func (t *FuturesTrader) GetTrades(startTime time.Time, limit int) ([]TradeRecord
 	}
 
 	// Use Income API to get REALIZED_PNL records (all symbols)
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
 	incomes, err := t.client.NewGetIncomeHistoryService().
 		IncomeType("REALIZED_PNL").
 		StartTime(startTime.UnixMilli()).
 		Limit(int64(limit)).
-		Do(context.Background())
+		Do(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get income history: %w", err)
 	}
@@ -1308,11 +1378,13 @@ func (t *FuturesTrader) GetTradesForSymbol(symbol string, startTime time.Time, l
 		limit = 1000
 	}
 
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
 	accountTrades, err := t.client.NewListAccountTradeService().
 		Symbol(symbol).
 		StartTime(startTime.UnixMilli()).
 		Limit(limit).
-		Do(context.Background())
+		Do(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get trade history for %s: %w", symbol, err)
 	}
@@ -1351,11 +1423,13 @@ func (t *FuturesTrader) GetTradesForSymbolFromID(symbol string, fromID int64, li
 		limit = 1000
 	}
 
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
 	accountTrades, err := t.client.NewListAccountTradeService().
 		Symbol(symbol).
 		FromID(fromID).
 		Limit(limit).
-		Do(context.Background())
+		Do(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get trade history for %s from ID %d: %w", symbol, fromID, err)
 	}
@@ -1387,11 +1461,13 @@ func (t *FuturesTrader) GetTradesForSymbolFromID(symbol string, fromID int64, li
 // GetCommissionSymbols returns symbols that have new commission records since lastSyncTime
 // COMMISSION income is generated for every trade, so this is more reliable than REALIZED_PNL
 func (t *FuturesTrader) GetCommissionSymbols(lastSyncTime time.Time) ([]string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
 	incomes, err := t.client.NewGetIncomeHistoryService().
 		IncomeType("COMMISSION").
 		StartTime(lastSyncTime.UnixMilli()).
 		Limit(1000).
-		Do(context.Background())
+		Do(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get commission history: %w", err)
 	}
@@ -1414,11 +1490,13 @@ func (t *FuturesTrader) GetCommissionSymbols(lastSyncTime time.Time) ([]string, 
 // GetPnLSymbols returns symbols that have REALIZED_PNL records since lastSyncTime
 // This is a fallback when COMMISSION detection fails (VIP users, BNB fee discount)
 func (t *FuturesTrader) GetPnLSymbols(lastSyncTime time.Time) ([]string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
 	incomes, err := t.client.NewGetIncomeHistoryService().
 		IncomeType("REALIZED_PNL").
 		StartTime(lastSyncTime.UnixMilli()).
 		Limit(1000).
-		Do(context.Background())
+		Do(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get PnL history: %w", err)
 	}
@@ -1440,9 +1518,11 @@ func (t *FuturesTrader) GetPnLSymbols(lastSyncTime time.Time) ([]string, error) 
 
 // GetOpenOrders gets all open/pending orders for a symbol
 func (t *FuturesTrader) GetOpenOrders(symbol string) ([]OpenOrder, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
 	orders, err := t.client.NewListOpenOrdersService().
 		Symbol(symbol).
-		Do(context.Background())
+		Do(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get open orders: %w", err)
 	}
