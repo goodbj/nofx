@@ -1,6 +1,5 @@
 import { useEffect, useState, useRef } from 'react'
 import { mutate } from 'swr'
-import { useAuth } from '../contexts/AuthContext'
 import { api } from '../lib/api'
 import { ChartTabs } from '../components/ChartTabs'
 import { DecisionCard } from '../components/DecisionCard'
@@ -145,7 +144,6 @@ export function TraderDashboardPage({
   onNavigateToTraders,
   exchanges,
 }: TraderDashboardPageProps) {
-  const { token } = useAuth();
   const [closingPosition, setClosingPosition] = useState<string | null>(null)
   const [selectedChartSymbol, setSelectedChartSymbol] = useState<
     string | undefined
@@ -179,7 +177,6 @@ export function TraderDashboardPage({
   // 获取 AI 提示词预览
   const fetchPromptPreview = async () => {
     console.log('fetchPromptPreview called, selectedTraderId:', selectedTraderId)
-    
     if (!selectedTraderId) {
       console.log('No selectedTraderId, showing warning')
       notify.warning(
@@ -190,16 +187,12 @@ export function TraderDashboardPage({
       return
     }
 
+    const token = localStorage.getItem('token')
     if (!token) {
-      console.log('No token found from auth context')
-      notify.error(
-        language === 'zh'
-          ? '认证令牌不存在，请重新登录'
-          : 'Authentication token not found, please log in again'
-      )
+      console.log('No token found in localStorage')
       return
     }
-    console.log('Token found from auth context, proceeding with API call')
+    console.log('Token found, proceeding with API call')
 
     setIsLoadingPrompt(true)
     try {
@@ -266,19 +259,11 @@ export function TraderDashboardPage({
       return
     }
 
-    if (!token) {
-      notify.error(
-        language === 'zh'
-          ? '认证令牌不存在，请重新登录'
-          : 'Authentication token not found, please log in again'
-      )
-      return
-    }
-
     setSubmitAILoading(true)
     setSubmitAIResult('')
 
     try {
+      const token = localStorage.getItem('token')
       const response = await fetch(
         `${import.meta.env.VITE_API_BASE || ''}/api/test/submit-ai-decision`,
         {
@@ -1223,7 +1208,7 @@ ${promptPreview.user_prompt}`
                     </div>
                   )}
                   {/* Generate Prompt Button moved here */}
-                  <div className="mt-3 flex justify-end gap-2">
+                  <div className="mt-3 flex justify-end">
                     <button
                       onClick={fetchPromptPreview}
                       disabled={isLoadingPrompt || !selectedTraderId}
@@ -1249,17 +1234,6 @@ ${promptPreview.user_prompt}`
                             : 'Get Prompt Data'}
                         </>
                       )}
-                    </button>
-                    {/* Test Button - No restrictions */}
-                    <button
-                      onClick={() => {
-                        console.log('Test button clicked!');
-                        alert('测试按钮正常工作！');
-                      }}
-                      className="px-4 py-2.5 rounded-lg bg-gradient-to-r from-green-600 to-teal-600 text-white font-medium transition-all flex items-center justify-center gap-2 min-w-[120px]"
-                    >
-                      <Zap className="w-4 h-4" />
-                      测试按钮
                     </button>
                   </div>
                 </div>

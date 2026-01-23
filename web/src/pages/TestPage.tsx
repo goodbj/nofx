@@ -36,30 +36,12 @@ const TestPage: React.FC = () => {
   const [isFetchingPrice, setIsFetchingPrice] = useState(false);
   const [countdown, setCountdown] = useState(0);
 
-  const [activeTab, setActiveTab] = useState('batch-trade'); // 'api-test', 'batch-trade', 'test-scripts', 'ai-prompt'
+  const [activeTab, setActiveTab] = useState('batch-trade'); // 'api-test', 'batch-trade', 'test-scripts'
   const [testScripts, setTestScripts] = useState<string[]>([]);
   const [fetchingScripts, setFetchingScripts] = useState(false);
-  
-  // AI Prompt 状态
-  const [promptData, setPromptData] = useState<{
-    system_prompt: string;
-    user_prompt: string;
-    timestamp: string;
-    timestamp_ms: number;
-    system_bytes: number;
-    user_bytes: number;
-    total_bytes: number;
-    system_chars: number;
-    user_chars: number;
-    total_chars: number;
-    estimated_tokens: number;
-    actual_request_json?: string; // 实际发送的 JSON 请求体
-  } | null>(null);
-  const [promptLoading, setPromptLoading] = useState(false);
-  const [promptError, setPromptError] = useState<string>('');
+    
   const [systemConfig, setSystemConfig] = useState<any>(null);
-  const [showTechnicalDetails, setShowTechnicalDetails] = useState(false); // 显示技术验证详情
-
+  
   // 获取测试脚本列表
   const fetchTestScripts = async () => {
     if (!token) return;
@@ -78,37 +60,10 @@ const TestPage: React.FC = () => {
       setFetchingScripts(false);
     }
   };
-
-  // 获取最近一次的 AI Prompt
-  const fetchLastPrompt = async () => {
-    if (!token) return;
-    setPromptLoading(true);
-    setPromptError('');
-    try {
-      const response = await fetch('/api/test/last-prompt', {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      if (response.ok) {
-        const data = await response.json();
-        setPromptData(data);
-      } else {
-        const errorData = await response.json();
-        setPromptError(errorData.error || '获取失败');
-        setPromptData(null);
-      }
-    } catch (error: any) {
-      setPromptError(`${t('error_occurred')}${error.message}`);
-      setPromptData(null);
-    } finally {
-      setPromptLoading(false);
-    }
-  };
-
+  
   useEffect(() => {
     if (activeTab === 'test-scripts') {
       fetchTestScripts();
-    } else if (activeTab === 'ai-prompt') {
-      fetchLastPrompt();
     }
   }, [activeTab, token]);
   
@@ -323,73 +278,7 @@ const TestPage: React.FC = () => {
     }
   };
 
-  // 计算费用
-  const calculateCost = (tokens: number, modelName: string = 'default'): { usd: number; cny: number } => {
-    if (!systemConfig?.model_pricing) {
-      return { usd: 0, cny: 0 };
-    }
 
-    // 匹配模型定价
-    const lowerModelName = modelName.toLowerCase();
-    let pricing = systemConfig.model_pricing[lowerModelName] || systemConfig.model_pricing['default'];
-
-    // 尝试模糊匹配
-    if (!pricing) {
-      const keys = Object.keys(systemConfig.model_pricing);
-      for (const key of keys) {
-        if (lowerModelName.includes(key) || key.includes(lowerModelName)) {
-          pricing = systemConfig.model_pricing[key];
-          break;
-        }
-      }
-    }
-
-    if (!pricing) {
-      pricing = { input_price: 0.5, output_price: 2.0 };
-    }
-
-    // 价格是每百万 tokens，需要转换
-    const costUSD = (tokens / 1000000) * pricing.input_price;
-    const exchangeRate = systemConfig.usd_to_cny_rate || 7.2;
-    const costCNY = costUSD * exchangeRate;
-
-    return { usd: costUSD, cny: costCNY };
-  };
-
-  // 格式化费用显示
-  const formatCost = (cost: { usd: number; cny: number }): string => {
-    const displayUnit = systemConfig?.cost_display_unit || 'BOTH';
-    
-    if (cost.usd === 0) return '免费 (本地模型)';
-
-    const formatNumber = (num: number): string => {
-      if (num >= 1) return num.toFixed(4);
-      if (num >= 0.001) return num.toFixed(6);
-      return num.toExponential(2);
-    };
-
-    switch (displayUnit) {
-      case 'USD':
-        return `$${formatNumber(cost.usd)}`;
-      case 'CNY':
-        return `¥${formatNumber(cost.cny)}`;
-      case 'BOTH':
-      default:
-        return `$${formatNumber(cost.usd)} (¥${formatNumber(cost.cny)})`;
-    }
-  };
-
-  // 复制到剪贴板
-  const copyToClipboard = async (text: string, label: string) => {
-    try {
-      await navigator.clipboard.writeText(text);
-      // 可以添加一个toast提示
-      alert(`${label} 已复制到剪贴板！`);
-    } catch (error) {
-      console.error('复制失败:', error);
-      alert('复制失败，请手动复制');
-    }
-  };
 
   const runTest = async (reqCommand?: string) => {
     if (!token) {
@@ -587,6 +476,8 @@ const TestPage: React.FC = () => {
     }
   };
 
+
+
   const tradeTemplates = [
     { id: 'open_long_btc', name: t('open_long_btc'), description: t('buy_btc_long'), category: 'long', template: 'dynamic:open_long:BTCUSDT' },
     { id: 'close_long_btc', name: t('close_long_btc'), description: t('close_btc_long'), category: 'long', template: '[\n  {\n    "symbol": "BTCUSDT",\n    "action": "close_long",\n    "confidence": 100,\n    "reasoning": "Manual test"\n  }\n]' },
@@ -755,13 +646,7 @@ const TestPage: React.FC = () => {
               >
                 {t('test_scripts_tab')}
               </button>
-              <button
-                className={`px-4 py-2 font-medium text-sm rounded-t-lg transition-colors ${activeTab === 'ai-prompt' ? 'text-blue-400 border-b-2 border-blue-400 bg-gray-800' : 'text-gray-400 hover:text-gray-200'}`}
-                onClick={() => setActiveTab('ai-prompt')}
-                style={activeTab === 'ai-prompt' ? { color: '#93C5FD', borderBottom: '2px solid #93C5FD', background: '#2D3748' } : {}}
-              >
-                📄 AI Prompt
-              </button>
+
             </nav>
           </div>
           
@@ -973,200 +858,7 @@ const TestPage: React.FC = () => {
               </div>
             )}
 
-            {activeTab === 'ai-prompt' && (
-              <div className="space-y-4">
-                <div className="flex justify-between items-center mb-4">
-                  <div>
-                    <h2 className="text-xl font-bold">📄 最近一次 AI Prompt</h2>
-                    <p className="text-sm text-gray-400 mt-1">
-                      查看系统实际发送给 AI 的完整提示词文档（包含K线数据、技术指标、持仓信息等）
-                    </p>
-                  </div>
-                  <button 
-                    onClick={fetchLastPrompt} 
-                    disabled={promptLoading}
-                    className="px-4 py-2 rounded-md bg-[#3182CE] text-white hover:bg-[#2B6CB0] disabled:bg-gray-600 transition-colors flex items-center gap-2"
-                  >
-                    {promptLoading ? (
-                      <>
-                        <span className="animate-spin">🔄</span>
-                        加载中...
-                      </>
-                    ) : (
-                      <>
-                        🔄 刷新
-                      </>
-                    )}
-                  </button>
-                </div>
 
-                {promptError && (
-                  <div className="p-4 rounded-lg bg-red-900/30 border border-red-700 text-red-200">
-                    <p className="font-semibold">❌ 错误</p>
-                    <p className="text-sm mt-1">{promptError}</p>
-                  </div>
-                )}
-
-                {promptData && (
-                  <div className="space-y-4">
-                    {/* 数据说明 */}
-                    <div className="p-4 rounded-lg bg-indigo-900/30 border border-indigo-700">
-                      <p className="text-sm text-indigo-200 font-semibold mb-2">📌 此文档包含的数据：</p>
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs text-indigo-100">
-                        <div>✅ 完整K线数据表格（OHLCV + 时间戳）</div>
-                        <div>✅ 技术指标（EMA、MACD、RSI、BOLL等）</div>
-                        <div>✅ 当前持仓详情（入场价、盈亏、止盈止损）</div>
-                        <div>✅ 账户余额和可用保证金</div>
-                        <div>✅ 候选币种市场数据</div>
-                        <div>✅ 开仓持仓排名、资金流向</div>
-                      </div>
-                      <p className="text-xs text-indigo-300 mt-2">
-                        💡 这是调用 <code className="bg-indigo-800 px-1 rounded">CallWithMessages()</code> 前一刻的完整文档，与AI实际接收的内容100%一致
-                      </p>
-                    </div>
-
-                    {/* 统计信息卡片 */}
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                      <div className="p-3 rounded-lg bg-blue-900/30 border border-blue-700">
-                        <p className="text-xs text-blue-300 mb-1">⏰ 生成时间</p>
-                        <p className="text-sm font-mono text-blue-100">
-                          {new Date(promptData.timestamp).toLocaleString('zh-CN', { 
-                            year: 'numeric', 
-                            month: '2-digit', 
-                            day: '2-digit', 
-                            hour: '2-digit', 
-                            minute: '2-digit', 
-                            second: '2-digit' 
-                          })}
-                        </p>
-                      </div>
-
-                      <div className="p-3 rounded-lg bg-purple-900/30 border border-purple-700">
-                        <p className="text-xs text-purple-300 mb-1">📊 数据统计</p>
-                        <div className="text-sm font-mono text-purple-100 space-y-1">
-                          <p>总字节: {promptData.total_bytes.toLocaleString()}</p>
-                          <p>总字符: {promptData.total_chars.toLocaleString()}</p>
-                          <p>估算Tokens: {promptData.estimated_tokens.toLocaleString()}</p>
-                        </div>
-                      </div>
-
-                      <div className="p-3 rounded-lg bg-green-900/30 border border-green-700">
-                        <p className="text-xs text-green-300 mb-1">💰 预估费用</p>
-                        <p className="text-sm font-mono text-green-100">
-                          {formatCost(calculateCost(promptData.estimated_tokens))}
-                        </p>
-                        <p className="text-xs text-green-400 mt-1">
-                          (仅输入token，输出需额外计算)
-                        </p>
-                      </div>
-                    </div>
-
-                    {/* System Prompt */}
-                    <div className="bg-gray-800/30 p-4 rounded-xl border border-white/5">
-                      <div className="flex justify-between items-center mb-3">
-                        <div className="flex items-center gap-3">
-                          <h3 className="text-lg font-bold text-green-400">🤖 System Prompt</h3>
-                          <span className="text-xs text-gray-400 font-mono">
-                            {promptData.system_bytes.toLocaleString()} bytes / {promptData.system_chars.toLocaleString()} chars
-                          </span>
-                        </div>
-                        <button 
-                          onClick={() => copyToClipboard(promptData.system_prompt, 'System Prompt')}
-                          className="px-3 py-1 text-xs rounded bg-gray-700 hover:bg-gray-600 transition-colors flex items-center gap-1"
-                          title="复制 System Prompt"
-                        >
-                          📋 复制
-                        </button>
-                      </div>
-                      <pre className="p-4 rounded-md text-xs overflow-auto max-h-96 font-mono bg-[#1E293B] border border-[#334155] whitespace-pre-wrap">
-                        {promptData.system_prompt}
-                      </pre>
-                    </div>
-
-                    {/* User Prompt */}
-                    <div className="bg-gray-800/30 p-4 rounded-xl border border-white/5">
-                      <div className="flex justify-between items-center mb-3">
-                        <div className="flex items-center gap-3">
-                          <h3 className="text-lg font-bold text-yellow-400">💬 User Prompt</h3>
-                          <span className="text-xs text-gray-400 font-mono">
-                            {promptData.user_bytes.toLocaleString()} bytes / {promptData.user_chars.toLocaleString()} chars
-                          </span>
-                        </div>
-                        <button 
-                          onClick={() => copyToClipboard(promptData.user_prompt, 'User Prompt')}
-                          className="px-3 py-1 text-xs rounded bg-gray-700 hover:bg-gray-600 transition-colors flex items-center gap-1"
-                          title="复制 User Prompt"
-                        >
-                          📋 复制
-                        </button>
-                      </div>
-                      <pre className="p-4 rounded-md text-xs overflow-auto max-h-96 font-mono bg-[#1E293B] border border-[#334155] whitespace-pre-wrap">
-                        {promptData.user_prompt}
-                      </pre>
-                    </div>
-
-                    {/* 全文复制按钮 */}
-                    <div className="flex justify-center">
-                      <button 
-                        onClick={() => copyToClipboard(
-                          `=== System Prompt ===
-
-${promptData.system_prompt}
-
-=== User Prompt ===
-
-${promptData.user_prompt}`,
-                          '完整 Prompt'
-                        )}
-                        className="px-6 py-2 rounded-md bg-[#805AD5] text-white hover:bg-[#6B46C1] transition-colors flex items-center gap-2"
-                      >
-                        📋 复制完整 Prompt (System + User)
-                      </button>
-                    </div>
-
-                    {/* 技术验证区域（可折叠） */}
-                    {promptData.actual_request_json && (
-                      <div className="border-t border-gray-700 pt-4">
-                        <button
-                          onClick={() => setShowTechnicalDetails(!showTechnicalDetails)}
-                          className="w-full flex items-center justify-between p-3 rounded-lg bg-gray-800/50 hover:bg-gray-700/50 transition-colors"
-                        >
-                          <span className="text-sm font-semibold text-gray-300">
-                            🔧 技术验证：查看实际发送给AI的JSON请求体
-                          </span>
-                          <span className="text-gray-400">{showTechnicalDetails ? '▼' : '▶'}</span>
-                        </button>
-                        
-                        {showTechnicalDetails && (
-                          <div className="mt-4 p-4 rounded-lg bg-gray-900 border border-gray-700">
-                            <p className="text-xs text-yellow-300 mb-3">
-                              ⚠️ 这是mcp.Client.buildMCPRequestBody()生成的JSON结构，与实际HTTP请求完全一致。
-                              您可以对比 messages[0].content (system) 和 messages[1].content (user) 确认内容无修改。
-                            </p>
-                            <pre className="p-4 rounded-md text-xs overflow-auto max-h-96 font-mono bg-black text-green-400 border border-green-700">
-                              {promptData.actual_request_json}
-                            </pre>
-                            <button 
-                              onClick={() => copyToClipboard(promptData.actual_request_json || '', 'JSON 请求体')}
-                              className="mt-3 px-3 py-1 text-xs rounded bg-green-700 hover:bg-green-600 transition-colors"
-                            >
-                              📋 复制 JSON 请求体
-                            </button>
-                          </div>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                )}
-
-                {!promptData && !promptError && !promptLoading && (
-                  <div className="text-center py-12 text-gray-400">
-                    <p className="text-lg mb-2">📭 暂无 Prompt 数据</p>
-                    <p className="text-sm">请先执行一次手动扫描，或等待自动决策周期执行</p>
-                  </div>
-                )}
-              </div>
-            )}
           </div>
         </div>
       </div>
