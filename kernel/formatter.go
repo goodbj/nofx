@@ -15,6 +15,90 @@ import (
 // 将交易上下文转换为AI友好的格式，确保AI能够100%理解数据
 // ============================================================================
 
+// CompressionLevel 压缩级别
+type CompressionLevel int
+
+const (
+	CompressionNone       CompressionLevel = 0 // 无压缩（>128K上下文）
+	CompressionLight      CompressionLevel = 1 // 轻度压缩（32K-128K，>90%容量）
+	CompressionModerate   CompressionLevel = 2 // 中度压缩（8K-32K，>80%容量）
+	CompressionAggressive CompressionLevel = 3 // 激进压缩（<8K）
+)
+
+// CompressionConfig 压缩配置
+type CompressionConfig struct {
+	Level            CompressionLevel // 压缩级别
+	MaxKlines        int              // K线最大数量
+	CompactFormat    bool             // 是否使用紧凑格式
+	SimplifySchema   bool             // 是否简化Schema
+	RemoveVolume     bool             // 是否移除成交量数据
+	CompactTimestamp bool             // 是否压缩时间戳格式
+}
+
+// GetCompressionConfig 根据模型上下文和当前长度获取压缩配置
+func GetCompressionConfig(modelContextSize, currentPromptLength int) CompressionConfig {
+	usagePercent := float64(currentPromptLength) / float64(modelContextSize) * 100
+
+	// 根据模型上下文大小和使用率动态调整
+	if modelContextSize >= 131072 { // >128K
+		return CompressionConfig{
+			Level:            CompressionNone,
+			MaxKlines:        30,
+			CompactFormat:    false,
+			SimplifySchema:   false,
+			RemoveVolume:     false,
+			CompactTimestamp: false,
+		}
+	} else if modelContextSize >= 32768 { // 32K-128K
+		if usagePercent > 90 {
+			return CompressionConfig{
+				Level:            CompressionLight,
+				MaxKlines:        25,
+				CompactFormat:    false,
+				SimplifySchema:   false,
+				RemoveVolume:     false,
+				CompactTimestamp: true,
+			}
+		}
+		return CompressionConfig{
+			Level:            CompressionNone,
+			MaxKlines:        30,
+			CompactFormat:    false,
+			SimplifySchema:   false,
+			RemoveVolume:     false,
+			CompactTimestamp: false,
+		}
+	} else if modelContextSize >= 8192 { // 8K-32K
+		if usagePercent > 80 {
+			return CompressionConfig{
+				Level:            CompressionModerate,
+				MaxKlines:        15,
+				CompactFormat:    true,
+				SimplifySchema:   true,
+				RemoveVolume:     false,
+				CompactTimestamp: true,
+			}
+		}
+		return CompressionConfig{
+			Level:            CompressionLight,
+			MaxKlines:        20,
+			CompactFormat:    false,
+			SimplifySchema:   false,
+			RemoveVolume:     false,
+			CompactTimestamp: true,
+		}
+	} else { // <8K
+		return CompressionConfig{
+			Level:            CompressionAggressive,
+			MaxKlines:        10,
+			CompactFormat:    true,
+			SimplifySchema:   true,
+			RemoveVolume:     true,
+			CompactTimestamp: true,
+		}
+	}
+}
+
 // FormatContextForAI 将交易上下文格式化为AI可理解的文本（包含Schema）
 func FormatContextForAI(ctx *Context, lang Language) string {
 	var sb strings.Builder
@@ -29,6 +113,24 @@ func FormatContextForAI(ctx *Context, lang Language) string {
 	return sb.String()
 }
 
+// FormatContextForAIWithCompression 将交易上下文格式化为AI可理解的文本（带压缩配置）
+func FormatContextForAIWithCompression(ctx *Context, lang Language, config CompressionConfig) string {
+	var sb strings.Builder
+
+	// 1. 添加Schema说明（根据压缩配置决定是否简化）
+	if config.SimplifySchema {
+		sb.WriteString(GetSimplifiedSchemaPrompt(lang))
+	} else {
+		sb.WriteString(GetSchemaPrompt(lang))
+	}
+	sb.WriteString("\n---\n\n")
+
+	// 2. 当前状态概览（应用压缩配置）
+	sb.WriteString(formatContextDataWithCompression(ctx, lang, config))
+
+	return sb.String()
+}
+
 // FormatContextDataOnly 仅格式化上下文数据，不包含Schema（用于已有Schema的场景）
 func FormatContextDataOnly(ctx *Context, lang Language) string {
 	return formatContextData(ctx, lang)
@@ -36,6 +138,17 @@ func FormatContextDataOnly(ctx *Context, lang Language) string {
 
 // formatContextData 格式化核心数据部分
 func formatContextData(ctx *Context, lang Language) string {
+	return formatContextDataWithCompression(ctx, lang, CompressionConfig{
+		MaxKlines:        30,
+		CompactFormat:    false,
+		SimplifySchema:   false,
+		RemoveVolume:     false,
+		CompactTimestamp: false,
+	})
+}
+
+// formatContextDataWithCompression 格式化核心数据部分（带压缩配置）
+func formatContextDataWithCompression(ctx *Context, lang Language, config CompressionConfig) string {
 	var sb strings.Builder
 
 	// 1. 当前状态概览
@@ -79,12 +192,12 @@ func formatContextData(ctx *Context, lang Language) string {
 		}
 	}
 
-	// 6. 候选币种（带市场数据）
+	// 6. 候选币种（带市场数据，应用压缩配置）
 	if len(ctx.CandidateCoins) > 0 {
 		if lang == LangChinese {
-			sb.WriteString(formatCandidateCoinsZH(ctx))
+			sb.WriteString(formatCandidateCoinsZHWithCompression(ctx, config))
 		} else {
-			sb.WriteString(formatCandidateCoinsEN(ctx))
+			sb.WriteString(formatCandidateCoinsENWithCompression(ctx, config))
 		}
 	}
 
@@ -267,6 +380,16 @@ func formatCurrentPositionsZH(ctx *Context) string {
 
 // formatCandidateCoinsZH 格式化候选币种（中文）
 func formatCandidateCoinsZH(ctx *Context) string {
+	return formatCandidateCoinsZHWithCompression(ctx, CompressionConfig{
+		MaxKlines:        30,
+		CompactFormat:    false,
+		RemoveVolume:     false,
+		CompactTimestamp: false,
+	})
+}
+
+// formatCandidateCoinsZHWithCompression 格式化候选币种（带压缩配置，中文）
+func formatCandidateCoinsZHWithCompression(ctx *Context, config CompressionConfig) string {
 	var sb strings.Builder
 	sb.WriteString("## 候选币种\n\n")
 
@@ -278,9 +401,9 @@ func formatCandidateCoinsZH(ctx *Context) string {
 			if mdata, ok := ctx.MarketDataMap[coin.Symbol]; ok {
 				sb.WriteString(fmt.Sprintf("当前价格: %.4f\n\n", mdata.CurrentPrice))
 
-				// K线数据（多时间框架）
+				// K线数据（多时间框架，应用压缩配置）
 				if mdata.TimeframeData != nil {
-					sb.WriteString(formatKlineDataZH(coin.Symbol, mdata.TimeframeData, ctx.Timeframes))
+					sb.WriteString(formatKlineDataZHWithCompression(coin.Symbol, mdata.TimeframeData, ctx.Timeframes, config))
 				}
 			}
 		}
@@ -316,31 +439,69 @@ func formatCandidateCoinsZH(ctx *Context) string {
 
 // formatKlineDataZH 格式化K线数据（中文）
 func formatKlineDataZH(symbol string, tfData map[string]*market.TimeframeSeriesData, timeframes []string) string {
+	return formatKlineDataZHWithCompression(symbol, tfData, timeframes, CompressionConfig{
+		MaxKlines:        30,
+		CompactFormat:    false,
+		RemoveVolume:     false,
+		CompactTimestamp: false,
+	})
+}
+
+// formatKlineDataZHWithCompression 格式化K线数据（带压缩配置，中文）
+func formatKlineDataZHWithCompression(symbol string, tfData map[string]*market.TimeframeSeriesData, timeframes []string, config CompressionConfig) string {
 	var sb strings.Builder
 
 	for _, tf := range timeframes {
 		if data, ok := tfData[tf]; ok && len(data.Klines) > 0 {
 			sb.WriteString(fmt.Sprintf("#### %s 时间框架 (从旧到新)\n\n", tf))
 			sb.WriteString("```\n")
-			sb.WriteString("时间(UTC)      开盘      最高      最低      收盘      成交量\n")
 
-			// 只显示最近30根K线
+			// 根据压缩配置决定表头
+			if config.CompactFormat {
+				if config.RemoveVolume {
+					sb.WriteString("时间       开盘    最高    最低    收盘\n")
+				} else {
+					sb.WriteString("时间       开盘    最高    最低    收盘    成交量\n")
+				}
+			} else {
+				sb.WriteString("时间(UTC)      开盘      最高      最低      收盘      成交量\n")
+			}
+
+			// 计算显示范围
+			maxKlines := config.MaxKlines
+			if maxKlines <= 0 {
+				maxKlines = 30
+			}
 			startIdx := 0
-			if len(data.Klines) > 30 {
-				startIdx = len(data.Klines) - 30
+			if len(data.Klines) > maxKlines {
+				startIdx = len(data.Klines) - maxKlines
 			}
 
 			for i := startIdx; i < len(data.Klines); i++ {
 				k := data.Klines[i]
 				t := time.UnixMilli(k.Time).UTC()
-				sb.WriteString(fmt.Sprintf("%s    %.4f    %.4f    %.4f    %.4f    %.2f\n",
-					t.Format("01-02 15:04"),
-					k.Open,
-					k.High,
-					k.Low,
-					k.Close,
-					k.Volume,
-				))
+
+				// 根据压缩配置选择时间格式
+				var timeStr string
+				if config.CompactTimestamp {
+					timeStr = t.Format("01-02 15:04")
+				} else {
+					timeStr = t.Format("01-02 15:04")
+				}
+
+				// 根据压缩配置选择输出格式
+				if config.CompactFormat {
+					if config.RemoveVolume {
+						sb.WriteString(fmt.Sprintf("%s %.4f %.4f %.4f %.4f\n",
+							timeStr, k.Open, k.High, k.Low, k.Close))
+					} else {
+						sb.WriteString(fmt.Sprintf("%s %.4f %.4f %.4f %.4f %.2f\n",
+							timeStr, k.Open, k.High, k.Low, k.Close, k.Volume))
+					}
+				} else {
+					sb.WriteString(fmt.Sprintf("%-14s %-9.4f %-9.4f %-9.4f %-9.4f %-12.2f\n",
+						timeStr, k.Open, k.High, k.Low, k.Close, k.Volume))
+				}
 			}
 
 			// 标记最后一根K线
@@ -354,7 +515,6 @@ func formatKlineDataZH(symbol string, tfData map[string]*market.TimeframeSeriesD
 
 	return sb.String()
 }
-
 
 // getOIInterpretationZH 获取OI变化解读（中文）
 func getOIInterpretationZH(oiChange, priceChange string) string {
@@ -533,6 +693,16 @@ func formatCurrentPositionsEN(ctx *Context) string {
 
 // formatCandidateCoinsEN 格式化候选币种（英文）
 func formatCandidateCoinsEN(ctx *Context) string {
+	return formatCandidateCoinsENWithCompression(ctx, CompressionConfig{
+		MaxKlines:        30,
+		CompactFormat:    false,
+		RemoveVolume:     false,
+		CompactTimestamp: false,
+	})
+}
+
+// formatCandidateCoinsENWithCompression 格式化候选币种（带压缩配置，英文）
+func formatCandidateCoinsENWithCompression(ctx *Context, config CompressionConfig) string {
 	var sb strings.Builder
 	sb.WriteString("## Candidate Coins\n\n")
 
@@ -544,7 +714,7 @@ func formatCandidateCoinsEN(ctx *Context) string {
 				sb.WriteString(fmt.Sprintf("Current Price: %.4f\n\n", mdata.CurrentPrice))
 
 				if mdata.TimeframeData != nil {
-					sb.WriteString(formatKlineDataEN(coin.Symbol, mdata.TimeframeData, ctx.Timeframes))
+					sb.WriteString(formatKlineDataENWithCompression(coin.Symbol, mdata.TimeframeData, ctx.Timeframes, config))
 				}
 			}
 		}
@@ -578,6 +748,16 @@ func formatCandidateCoinsEN(ctx *Context) string {
 
 // formatKlineDataEN 格式化K线数据（英文）
 func formatKlineDataEN(symbol string, tfData map[string]*market.TimeframeSeriesData, timeframes []string) string {
+	return formatKlineDataENWithCompression(symbol, tfData, timeframes, CompressionConfig{
+		MaxKlines:        30,
+		CompactFormat:    false,
+		RemoveVolume:     false,
+		CompactTimestamp: false,
+	})
+}
+
+// formatKlineDataENWithCompression 格式化K线数据（带压缩配置，英文）
+func formatKlineDataENWithCompression(symbol string, tfData map[string]*market.TimeframeSeriesData, timeframes []string, config CompressionConfig) string {
 	var sb strings.Builder
 
 	// Sort timeframes for consistent output
@@ -589,24 +769,46 @@ func formatKlineDataEN(symbol string, tfData map[string]*market.TimeframeSeriesD
 		if data, ok := tfData[tf]; ok && len(data.Klines) > 0 {
 			sb.WriteString(fmt.Sprintf("#### %s Timeframe (oldest → latest)\n\n", tf))
 			sb.WriteString("```\n")
-			sb.WriteString("Time(UTC)      Open      High      Low       Close     Volume\n")
 
+			// 根据压缩配置决定表头
+			if config.CompactFormat {
+				if config.RemoveVolume {
+					sb.WriteString("Time       Open    High    Low     Close\n")
+				} else {
+					sb.WriteString("Time       Open    High    Low     Close   Volume\n")
+				}
+			} else {
+				sb.WriteString("Time(UTC)      Open      High      Low       Close     Volume\n")
+			}
+
+			// 计算显示范围
+			maxKlines := config.MaxKlines
+			if maxKlines <= 0 {
+				maxKlines = 30
+			}
 			startIdx := 0
-			if len(data.Klines) > 30 {
-				startIdx = len(data.Klines) - 30
+			if len(data.Klines) > maxKlines {
+				startIdx = len(data.Klines) - maxKlines
 			}
 
 			for i := startIdx; i < len(data.Klines); i++ {
 				k := data.Klines[i]
 				t := time.UnixMilli(k.Time).UTC()
-				sb.WriteString(fmt.Sprintf("%s    %.4f    %.4f    %.4f    %.4f    %.2f\n",
-					t.Format("01-02 15:04"),
-					k.Open,
-					k.High,
-					k.Low,
-					k.Close,
-					k.Volume,
-				))
+				timeStr := t.Format("01-02 15:04")
+
+				// 根据压缩配置选择输出格式
+				if config.CompactFormat {
+					if config.RemoveVolume {
+						sb.WriteString(fmt.Sprintf("%s %.4f %.4f %.4f %.4f\n",
+							timeStr, k.Open, k.High, k.Low, k.Close))
+					} else {
+						sb.WriteString(fmt.Sprintf("%s %.4f %.4f %.4f %.4f %.2f\n",
+							timeStr, k.Open, k.High, k.Low, k.Close, k.Volume))
+					}
+				} else {
+					sb.WriteString(fmt.Sprintf("%s    %.4f    %.4f    %.4f    %.4f    %.2f\n",
+						timeStr, k.Open, k.High, k.Low, k.Close, k.Volume))
+				}
 			}
 
 			if len(data.Klines) > 0 {
@@ -619,7 +821,6 @@ func formatKlineDataEN(symbol string, tfData map[string]*market.TimeframeSeriesD
 
 	return sb.String()
 }
-
 
 // getOIInterpretationEN 获取OI变化解读（英文）
 func getOIInterpretationEN(oiChange, priceChange string) string {

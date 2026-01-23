@@ -323,6 +323,9 @@ func (client *Client) call(systemPrompt, userPrompt string) (string, error) {
 		return "", err
 	}
 
+	// DEBUG: 在发送给 AI 之前打印最终请求体（仅在 debug 日志级别下生效）
+	client.logger.Debugf("[MCP %s] Final request body before send:\n%s", client.String(), string(jsonData))
+
 	// Step 3: Build URL (via hooks for dynamic dispatch)
 	requestUrl := client.hooks.buildUrl()
 	client.logger.Infof("📡 [MCP %s] Request URL: %s", client.String(), requestUrl)

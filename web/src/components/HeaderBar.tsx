@@ -107,7 +107,7 @@ export default function HeaderBar({
                 { page: 'debate', path: '/debate', label: t('debateNav', language), requiresAuth: true },
                 { page: 'backtest', path: '/backtest', label: 'Backtest', requiresAuth: true },
                 { page: 'faq', path: '/faq', label: t('faqNav', language), requiresAuth: false },
-                { page: 'test', path: '/test', label: '测试', requiresAuth: true },
+                { page: 'test', path: '/test', label: t('testCodeNav', language), requiresAuth: true },
               ]
 
               const handleNavClick = (tab: typeof navTabs[0]) => {
@@ -337,7 +337,7 @@ export default function HeaderBar({
                     { page: 'debate', path: '/debate', label: t('debateNav', language), requiresAuth: true },
                     { page: 'backtest', path: '/backtest', label: 'Backtest', requiresAuth: true },
                     { page: 'faq', path: '/faq', label: t('faqNav', language), requiresAuth: false },
-                    { page: 'test', path: '/test', label: '测试', requiresAuth: true },
+                    { page: 'test', path: '/test', label: t('testCodeNav', language), requiresAuth: true },
                   ]
 
                   const handleMobileNavClick = (tab: typeof navTabs[0]) => {

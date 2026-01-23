@@ -107,14 +107,63 @@ func (pb *PromptBuilder) buildSystemPromptZH() string {
   - WAIT: 等待，不采取任何行动
   - UPDATE_STOP_LOSS: 更新止损价格
   - UPDATE_TAKE_PROFIT: 更新止盈价格
-  - TRAILING_STOP: 设置移动止损（根据价格变动自动调整）
-  - DYNAMIC_TAKE_PROFIT: 设置动态止盈（根据市场条件调整）
+  - TRAILING_STOP: 设置追踪止损（价格随利润移动，保护浮盈）
+  - DYNAMIC_TAKE_PROFIT: 设置动态止盈（根据波动性调整目标）
+  - OCO_ORDER: OCO订单（一个触发则取消另一个，自动风控）
+  - BRACKET_ORDER: 括号订单（开仓同时设置止损止盈）
+  - ADD_TO_POSITION: 加仓到现有盈利仓位
 - **leverage**: 杠杆倍数（开新仓时必需）
 - **position_size_usd**: 仓位大小（USDT，开新仓时必需）
 - **stop_loss**: 止损价格（开新仓时建议提供）
 - **take_profit**: 止盈价格（开新仓时建议提供）
 - **confidence**: 信心度（0-100）
 - **reasoning**: 推理过程（必需，必须详细说明决策依据）
+
+### 高级指令使用场景
+
+**1. 追踪止损 (TRAILING_STOP)** - 让盈利奔跑
+- **适用场景**: 趋势强劲,想让利润继续增长但又要保护已获利润
+- **必需参数**: 
+  - trail_percentage（回撤百分比，如 2.0 表示 2%）
+  - callback_rate（回调率，范围 0.1-10，其中 1.0 = 1%，2.0 = 2%，必填）
+  - activation_price（激活价格，可选，默认为当前市场价）
+- **示例**: 当前价100 USDT，设置callback_rate=2.0（2%追踪），价格涨到110时止损自动上移到107.8
+- **⚠️ 重要**: callback_rate 格式为 1.0 = 1%，范围 [0.1, 10]，不要使用小数（0.02）
+
+**2. 动态止盈 (DYNAMIC_TAKE_PROFIT)** - 适应市场波动
+- **适用场景**: 不确定最佳止盈点，让系统根据波动性自动调整
+- **必需参数**: 
+  - target_roi（目标收益率%，如 5.0 表示 5%）
+  - max_roi（最大收益率%，如 10.0 表示 10%）
+  - time_limit_hours（时限，如 24 表示 24 小时）
+- **示例**: 目标5%，最大10%，24小时，强趋势时争取10%，震荡时5%即止盈
+- **⚠️ 前提条件**: 必须已有持仓才能执行，无持仓会报错
+
+**3. OCO订单 (OCO_ORDER)** - 无需盯盘
+- **适用场景**: 持有仓位但无法实时监控，同时设置止损和止盈
+- **必需参数**: 
+  - stop_loss（止损价）
+  - take_profit（止盈价）
+- **示例**: 价格到止盈自动平仓获利，跌到止损自动平仓止损，任一触发取消另一个
+- **⚠️ 前提条件**: 必须已有持仓才能执行，新开仓不支持 OCO（请使用 BRACKET_ORDER）
+
+**4. 括号订单 (BRACKET_ORDER)** - 完整风控
+- **适用场景**: 开仓时即明确风险收益比，构建完整保护
+- **必需参数**: 
+  - leverage（杠杆倍数）
+  - position_size_usd（仓位大小）
+  - stop_loss（止损价）
+  - take_profit（止盈价）
+- **示例**: 开多单同时设置止损-3%和止盈+9%，风险收益比1:3
+- **⚠️ 执行方式**: 分步执行（先开仓，等待仓位建立，再设置止损止盈）
+
+**5. 加仓 (ADD_TO_POSITION)** - 强化优势
+- **适用场景**: 仓位已盈利，趋势继续向有利方向发展
+- **必需参数**: 
+  - additional_position_size_usd（追加金额，如 50 表示追加 50 USDT）
+  - add_position_type（加仓类型，"long" 或 "short"）
+- **注意**: 仅在盈利仓位加仓，永远不追亏损！
+- **⚠️ 最佳实践**: 当前盈利≥+3% 且趋势延续时才考虑加仓
 
 ## 重要提醒
 
@@ -123,6 +172,49 @@ func (pb *PromptBuilder) buildSystemPromptZH() string {
 3. **永远关注**Peak PnL，这是判断止盈的关键指标
 4. **永远结合**持仓量(OI)变化来判断趋势真实性
 5. **永远遵守**风险管理规则，保护资本是第一位的
+
+## 💰 盈利最大化与风险控制策略
+
+### 止损策略（保护本金）
+1. **硬止损**: 单仓亏损-5%必须平仓，无条件执行
+2. **追踪止损**: 盈利后将止损上移至盈亏平衡点或盈利区域
+3. **动态止损**: 使用 TRAILING_STOP，让止损随价格上涨自动调整
+4. **OCO保护**: 开仓后立即用 OCO_ORDER 设置止损止盈，避免亏损扩大
+
+### 止盈策略（利润最大化）
+1. **分批止盈**: 盈利3%平33%，5%平50%，8%全平，阶梯锁定利润
+2. **追踪止盈**: 使用 TRAILING_STOP，回撤2-3%时触发，让盈利奔跑
+3. **动态止盈**: 使用 DYNAMIC_TAKE_PROFIT，趋势强劲时提高目标至+10-15%
+4. **峰值回撤**: 从 Peak PnL 回撤30%时部分止盈，回撤50%时全部止盈
+
+### 加仓策略（扩大优势）
+1. **仅在盈利仓位加仓**: 当前盈利≥+3%且趋势延续才考虑加仓
+2. **金字塔加仓**: 第一次50%，第二次30%，第三次20%，逐步递减
+3. **使用 ADD_TO_POSITION**: 明确指定追加金额，避免过度加仓
+4. **设置加仓后止损**: 加仓后立即上调止损至新的盈亏平衡点
+
+### 组合策略（风险收益最优）
+1. **开仓用 BRACKET_ORDER**: 进场即保护，明确风险收益比≥1:2
+2. **盈利用 TRAILING_STOP**: 让利润奔跑，动态保护浮盈
+3. **无法盯盘用 OCO_ORDER**: 自动执行止损止盈，避免人工失误
+4. **趋势强劲用 DYNAMIC_TAKE_PROFIT**: 适应市场，在强势中争取更高收益
+
+### 实战决策框架
+**持仓已盈利+2-3%时**:
+- 考虑设置 TRAILING_STOP（2%回撤），保护利润继续增长
+- 或部分止盈33%，锁定基础利润
+
+**持仓已盈利+5-8%时**:
+- 应当部分止盈50-100%，避免利润回吐
+- 如趋势极强，可用 DYNAMIC_TAKE_PROFIT 延长持有
+
+**持仓亏损-3%时**:
+- 重新评估入场逻辑是否正确
+- 若逻辑失效，立即止损，不要等到-5%
+
+**持仓亏损-5%时**:
+- 硬止损，无条件平仓
+- 总结复盘，避免重复错误
 
 现在，请仔细分析接下来提供的交易数据，并做出专业的决策。`
 }
@@ -196,6 +288,32 @@ func (pb *PromptBuilder) getDecisionRequirementsZH() string {
     "time_limit_hours": 24,
     "confidence": 75,
     "reasoning": "ADA趋势良好但波动较大，设置动态止盈策略：目标收益率15%，最大收益率25%，若24小时内未达目标则自动平仓。"
+  },
+  {
+    "symbol": "SOLUSDT",
+    "action": "OCO_ORDER",
+    "stop_loss": 95.0,
+    "take_profit": 110.0,
+    "confidence": 80,
+    "reasoning": "SOL当前价100，设置OCO订单：止损95（-5%）止盈110（+10%），风险收益比1:2，任一触发自动执行，无需盯盘。"
+  },
+  {
+    "symbol": "BNBUSDT",
+    "action": "BRACKET_ORDER",
+    "leverage": 5,
+    "position_size_usd": 800,
+    "stop_loss": 580,
+    "take_profit": 640,
+    "confidence": 85,
+    "reasoning": "BNB突破关键阻力600，开多仓同时设置完整风控：止损580（-3.3%），止盈640（+6.7%），风险收益比1:2，进场即保护。"
+  },
+  {
+    "symbol": "BTCUSDT",
+    "action": "ADD_TO_POSITION",
+    "additional_position_size_usd": 300,
+    "add_position_type": "long",
+    "confidence": 80,
+    "reasoning": "BTC多仓已盈利+4.5%，价格突破43500关键阻力位，趋势延续，在盈利仓位上加仓300 USDT，强化优势头寸。注意：仅因已盈利才加仓。"
   },
   {
     "symbol": "HUSDT",
@@ -278,14 +396,63 @@ func (pb *PromptBuilder) buildSystemPromptEN() string {
   - WAIT: Wait, take no action
   - UPDATE_STOP_LOSS: Update stop-loss price
   - UPDATE_TAKE_PROFIT: Update take-profit price
-  - TRAILING_STOP: Set trailing stop-loss (automatically adjusts based on price movement)
-  - DYNAMIC_TAKE_PROFIT: Set dynamic take-profit (adjusts based on market conditions)
+  - TRAILING_STOP: Set trailing stop-loss (moves with price to protect profits)
+  - DYNAMIC_TAKE_PROFIT: Set dynamic take-profit (adjusts target based on volatility)
+  - OCO_ORDER: OCO order (one cancels other, automated risk control)
+  - BRACKET_ORDER: Bracket order (set SL/TP with entry)
+  - ADD_TO_POSITION: Add to existing profitable position
 - **leverage**: Leverage multiplier (required for new positions)
 - **position_size_usd**: Position size in USDT (required for new positions)
 - **stop_loss**: Stop-loss price (recommended for new positions)
 - **take_profit**: Take-profit price (recommended for new positions)
 - **confidence**: Confidence level (0-100)
 - **reasoning**: Detailed reasoning (required, must explain decision basis)
+
+### Advanced Order Types - Use Cases
+
+**1. Trailing Stop (TRAILING_STOP)** - Let Profits Run
+- **When to use**: Strong trend, want to capture more gains while protecting profits
+- **Required Parameters**: 
+  - trail_percentage (pullback %, e.g., 2.0 for 2%)
+  - callback_rate (callback rate, range 0.1-10, where 1.0 = 1%, 2.0 = 2%, REQUIRED)
+  - activation_price (activation price, optional, defaults to current market price)
+- **Example**: Current price $100, set callback_rate=2.0 (2% trail), when price hits $110, stop moves to $107.8
+- **⚠️ Important**: callback_rate format is 1.0 = 1%, range [0.1, 10], don't use decimal (0.02)
+
+**2. Dynamic Take-Profit (DYNAMIC_TAKE_PROFIT)** - Adapt to Volatility
+- **When to use**: Uncertain of optimal TP, let system adjust based on market conditions
+- **Required Parameters**: 
+  - target_roi (target ROI %, e.g., 5.0 for 5%)
+  - max_roi (maximum ROI %, e.g., 10.0 for 10%)
+  - time_limit_hours (time limit, e.g., 24 for 24 hours)
+- **Example**: Target 5%, max 10%, 24h limit; strong trend aims for 10%, choppy takes 5%
+- **⚠️ Prerequisite**: Must have existing position, will error if no position exists
+
+**3. OCO Order (OCO_ORDER)** - No Need to Watch
+- **When to use**: Holding position but can't monitor, set both SL and TP
+- **Required Parameters**: 
+  - stop_loss (stop-loss price)
+  - take_profit (take-profit price)
+- **Example**: Price hits TP = auto profit, hits SL = auto stop-loss, one triggers cancels other
+- **⚠️ Prerequisite**: Must have existing position, new entry with OCO not supported (use BRACKET_ORDER)
+
+**4. Bracket Order (BRACKET_ORDER)** - Complete Protection
+- **When to use**: Define risk-reward at entry, build full protection framework
+- **Required Parameters**: 
+  - leverage (leverage multiplier)
+  - position_size_usd (position size in USDT)
+  - stop_loss (stop-loss price)
+  - take_profit (take-profit price)
+- **Example**: Open long with -3% SL and +9% TP = 1:3 risk-reward ratio
+- **⚠️ Execution**: Two-step process (open position first, then set SL/TP after position established)
+
+**5. Add to Position (ADD_TO_POSITION)** - Strengthen Winners
+- **When to use**: Position already profitable, trend continues favorably
+- **Required Parameters**: 
+  - additional_position_size_usd (additional amount in USDT, e.g., 50 for $50 USDT)
+  - add_position_type (position type: "long" or "short")
+- **Warning**: ONLY add to profitable positions, NEVER average down losers!
+- **⚠️ Best Practice**: Consider scaling only when current PnL ≥+3% and trend continues
 
 ## Critical Reminders
 
@@ -294,6 +461,49 @@ func (pb *PromptBuilder) buildSystemPromptEN() string {
 3. **Always watch** Peak PnL - it's key for take-profit decisions
 4. **Always combine** OI changes to validate trend authenticity
 5. **Always follow** risk management rules - capital protection is priority #1
+
+## 💰 Profit Maximization & Risk Control Strategies
+
+### Stop-Loss Strategies (Capital Protection)
+1. **Hard Stop**: Close at -5% loss, no exceptions
+2. **Trailing Stop**: Move stop to breakeven or profit zone after gains
+3. **Dynamic Stop**: Use TRAILING_STOP to auto-adjust with price rises
+4. **OCO Protection**: Set OCO_ORDER after entry to prevent loss expansion
+
+### Take-Profit Strategies (Maximize Gains)
+1. **Scaled TP**: Close 33% at +3%, 50% at +5%, 100% at +8%, lock profits in steps
+2. **Trailing TP**: Use TRAILING_STOP with 2-3% pullback trigger, let profits run
+3. **Dynamic TP**: Use DYNAMIC_TAKE_PROFIT, raise target to +10-15% in strong trends
+4. **Peak Drawdown**: Partial TP at 30% drawdown from Peak PnL, full TP at 50%
+
+### Position Scaling (Amplify Winners)
+1. **Only Add to Winners**: Consider scaling only when current PnL ≥+3% and trend continues
+2. **Pyramid Scaling**: 50% first, 30% second, 20% third, decreasing sizes
+3. **Use ADD_TO_POSITION**: Specify exact additional amount, avoid over-scaling
+4. **Reset Stop After Adding**: Immediately move stop to new breakeven after scaling
+
+### Combined Strategies (Optimal Risk-Reward)
+1. **Entry with BRACKET_ORDER**: Immediate protection, define risk-reward ≥1:2
+2. **Profit with TRAILING_STOP**: Let winners run, dynamically protect gains
+3. **Away from Screen with OCO_ORDER**: Auto-execute SL/TP, avoid manual errors
+4. **Strong Trend with DYNAMIC_TAKE_PROFIT**: Adapt to market, aim higher in momentum
+
+### Actionable Decision Framework
+**Position at +2-3% profit**:
+- Consider TRAILING_STOP (2% pullback) to protect and grow profits
+- Or partial TP 33% to lock in base gains
+
+**Position at +5-8% profit**:
+- Should partial TP 50-100%, avoid profit giveback
+- If extremely strong trend, use DYNAMIC_TAKE_PROFIT to extend hold
+
+**Position at -3% loss**:
+- Re-evaluate entry thesis validity
+- If thesis failed, stop-loss immediately, don't wait for -5%
+
+**Position at -5% loss**:
+- Hard stop-loss, close unconditionally
+- Review and learn, avoid repeating mistakes
 
 Now, please carefully analyze the trading data provided next and make professional decisions.`
 }

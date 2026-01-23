@@ -217,6 +217,8 @@ func (s *Server) setupRoutes() {
 
 			// Test API endpoint
 			protected.POST("/test/run", s.handleRunTest)
+			protected.GET("/test/list", s.handleListTests)
+			protected.GET("/test/last-prompt", s.handleGetLastPrompt)
 
 			// Backtest routes
 			backtest := protected.Group("/backtest")
@@ -3881,23 +3883,25 @@ func (s *Server) handleRunTest(c *gin.Context) {
 		return
 	}
 
-	// Only allow specific test commands for security
-	allowedCommands := []string{
-		"go run test/test_binance_testnet.go",
-		"go run test/test_binance_futures_connection.go",
-		"go run test/test_binance_futures_trader.go",
-	}
-
+	// Allow running any .go file in the test directory
 	isAllowed := false
-	for _, allowedCmd := range allowedCommands {
-		if req.Command == allowedCmd {
-			isAllowed = true
-			break
+	if strings.HasPrefix(req.Command, "go run test/") && strings.HasSuffix(req.Command, ".go") {
+		// Extract file path
+		parts := strings.Fields(req.Command)
+		if len(parts) >= 3 {
+			filePath := parts[2]
+			// Basic security check: ensure no directory traversal
+			if !strings.Contains(filePath, "..") {
+				// Check if file exists
+				if _, err := os.Stat(filePath); err == nil {
+					isAllowed = true
+				}
+			}
 		}
 	}
 
 	if !isAllowed {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Command not allowed"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Command not allowed or file not found"})
 		return
 	}
 
@@ -3930,3 +3934,70 @@ func (s *Server) handleRunTest(c *gin.Context) {
 		"success": err == nil,
 	})
 }
+
+// handleListTests List all test scripts in test directory
+func (s *Server) handleListTests(c *gin.Context) {
+	files, err := os.ReadDir("test")
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to read test directory"})
+		return
+	}
+
+	var tests []string
+	for _, file := range files {
+		if !file.IsDir() && strings.HasSuffix(file.Name(), ".go") {
+			tests = append(tests, file.Name())
+		}
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"tests": tests,
+	})
+}
+
+// handleGetLastPrompt 获取最近一次发送给 AI 的完整 prompt（全局缓存，已弃用）
+// 推荐使用 handleGetTraderPrompt 获取特定交易员的提示词
+func (s *Server) handleGetLastPrompt(c *gin.Context) {
+	systemPrompt, userPrompt, timestamp := kernel.GetLastPrompt()
+
+	if timestamp.IsZero() {
+		c.JSON(http.StatusNotFound, gin.H{
+			"error": "No AI prompt cached yet. Please trigger a manual scan or wait for automatic decision cycle.",
+		})
+		return
+	}
+
+	// 计算字节数和字符数
+	systemBytes := len([]byte(systemPrompt))
+	userBytes := len([]byte(userPrompt))
+	systemChars := len([]rune(systemPrompt))
+	userChars := len([]rune(userPrompt))
+	totalBytes := systemBytes + userBytes
+	totalChars := systemChars + userChars
+
+	// 估算 token 数 (粗略估计:英文 1 token ≈ 4 chars,中文 1 token ≈ 1.5 chars)
+	// 简化计算：总字符数 / 3
+	estimatedTokens := totalChars / 3
+
+	// 获取实际发送给 AI 的 JSON 请求体示例
+	actualRequestJSON := kernel.GetLastActualRequestJSON()
+
+	c.JSON(http.StatusOK, gin.H{
+		"system_prompt":       systemPrompt,
+		"user_prompt":         userPrompt,
+		"timestamp":           timestamp.Format(time.RFC3339),
+		"timestamp_ms":        timestamp.UnixMilli(),
+		"system_bytes":        systemBytes,
+		"user_bytes":          userBytes,
+		"total_bytes":         totalBytes,
+		"system_chars":        systemChars,
+		"user_chars":          userChars,
+		"total_chars":         totalChars,
+		"estimated_tokens":    estimatedTokens,
+		"actual_request_json": actualRequestJSON, // 实际发送的 JSON 请求体
+	})
+}
+
+// ============================================================================
+// End of Server Implementation
+// ============================================================================

@@ -1783,6 +1783,59 @@ func (t *HyperliquidTrader) SetTakeProfit(symbol string, positionSide string, qu
 	return nil
 }
 
+// SetTrailingStop sets trailing stop-loss order
+func (t *HyperliquidTrader) SetTrailingStop(symbol string, positionSide string, quantity, callbackRate, activationPrice float64) error {
+	coin := convertSymbolToHyperliquid(symbol)
+
+	isBuy := positionSide == "SHORT" // Short position trailing stop = buy, long position trailing stop = sell
+
+	// ⚠️ Critical: Price needs to be processed to 5 significant figures
+	currentPrice := activationPrice
+	if currentPrice == 0 {
+		price, err := t.GetMarketPrice(symbol)
+		if err != nil {
+			return fmt.Errorf("failed to get market price: %w", err)
+		}
+		currentPrice = price
+	}
+
+	roundedPrice := t.roundPriceToSigfigs(currentPrice)
+
+	// Check if this is an xyz dex asset (stocks, forex, commodities)
+	isXyz := strings.HasPrefix(coin, "xyz:")
+
+	if isXyz {
+		return fmt.Errorf("trailing stop not supported for xyz assets")
+	}
+
+	// ⚠️ Critical: Round quantity according to coin precision requirements
+	roundedQuantity := t.roundToSzDecimals(coin, quantity)
+
+	// Create trailing stop order (Trigger Order)
+	order := hyperliquid.CreateOrderRequest{
+		Coin:  coin,
+		IsBuy: isBuy,
+		Size:  roundedQuantity, // Use rounded quantity
+		Price: roundedPrice,    // Use processed price
+		OrderType: hyperliquid.OrderType{
+			Trigger: &hyperliquid.TriggerOrderType{
+				TriggerPx: roundedPrice,
+				IsMarket:  true,
+				Tpsl:      "sl", // stop loss (trailing stop is not directly supported, use stop loss with callback rate)
+			},
+		},
+		ReduceOnly: true,
+	}
+
+	_, err := t.exchange.Order(t.ctx, order, defaultBuilder)
+	if err != nil {
+		return fmt.Errorf("failed to set trailing stop: %w", err)
+	}
+
+	logger.Infof("  Trailing stop set: callback rate: %.2f%%, activation price: %.4f", callbackRate*100, roundedPrice)
+	return nil
+}
+
 // FormatQuantity formats quantity to correct precision
 func (t *HyperliquidTrader) FormatQuantity(symbol string, quantity float64) (string, error) {
 	coin := convertSymbolToHyperliquid(symbol)

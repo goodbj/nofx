@@ -4,19 +4,19 @@ import "time"
 
 // ClosedPnLRecord represents a single closed position record from exchange
 type ClosedPnLRecord struct {
-	Symbol       string    // Trading pair (e.g., "BTCUSDT")
-	Side         string    // "long" or "short"
-	EntryPrice   float64   // Entry price
-	ExitPrice    float64   // Exit/close price
-	Quantity     float64   // Position size
-	RealizedPnL  float64   // Realized profit/loss
-	Fee          float64   // Trading fee/commission
-	Leverage     int       // Leverage used
-	EntryTime    time.Time // Position open time
-	ExitTime     time.Time // Position close time
-	OrderID      string    // Close order ID
-	CloseType    string    // "manual", "stop_loss", "take_profit", "liquidation", "unknown"
-	ExchangeID   string    // Exchange-specific position ID
+	Symbol      string    // Trading pair (e.g., "BTCUSDT")
+	Side        string    // "long" or "short"
+	EntryPrice  float64   // Entry price
+	ExitPrice   float64   // Exit/close price
+	Quantity    float64   // Position size
+	RealizedPnL float64   // Realized profit/loss
+	Fee         float64   // Trading fee/commission
+	Leverage    int       // Leverage used
+	EntryTime   time.Time // Position open time
+	ExitTime    time.Time // Position close time
+	OrderID     string    // Close order ID
+	CloseType   string    // "manual", "stop_loss", "take_profit", "liquidation", "unknown"
+	ExchangeID  string    // Exchange-specific position ID
 }
 
 // TradeRecord represents a single trade/fill from exchange
@@ -78,6 +78,9 @@ type Trader interface {
 
 	// SetTakeProfit Set take-profit order
 	SetTakeProfit(symbol string, positionSide string, quantity, takeProfitPrice float64) error
+
+	// SetTrailingStop Set trailing stop-loss order
+	SetTrailingStop(symbol string, positionSide string, quantity, callbackRate, activationPrice float64) error
 
 	// CancelStopLossOrders Cancel only stop-loss orders (BUG fix: don't delete take-profit when adjusting stop-loss)
 	CancelStopLossOrders(symbol string) error

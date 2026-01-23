@@ -120,18 +120,39 @@ func (c *OllamaClient) marshalRequestBody(requestBody map[string]any) ([]byte, e
 	}
 
 	// Convert messages to prompt
-	if messages, ok := requestBody["messages"].([]interface{}); ok {
+	if rawMessages, ok := requestBody["messages"]; ok {
 		var promptBuilder strings.Builder
-		for _, msgInterface := range messages {
-			if msg, ok := msgInterface.(map[string]interface{}); ok {
-				if role, ok := msg["role"].(string); ok {
-					if content, ok := msg["content"].(string); ok {
+
+		switch messages := rawMessages.(type) {
+		case []map[string]string:
+			// This is the type built by Client.buildMCPRequestBody
+			c.logger.Debugf("[Ollama] Building prompt from []map[string]string, len=%d", len(messages))
+			for _, msg := range messages {
+				role := msg["role"]
+				content := msg["content"]
+				if role != "" || content != "" {
+					promptBuilder.WriteString(fmt.Sprintf("%s: %s\n", strings.Title(role), content))
+				}
+			}
+		case []interface{}:
+			// Fallback: handle generic []interface{} (for compatibility)
+			c.logger.Debugf("[Ollama] Building prompt from []interface{}, len=%d", len(messages))
+			for _, msgInterface := range messages {
+				if msg, ok := msgInterface.(map[string]interface{}); ok {
+					role, _ := msg["role"].(string)
+					content, _ := msg["content"].(string)
+					if role != "" || content != "" {
 						promptBuilder.WriteString(fmt.Sprintf("%s: %s\n", strings.Title(role), content))
 					}
 				}
 			}
+		default:
+			c.logger.Debugf("[Ollama] messages field has unexpected type: %T", rawMessages)
 		}
+
 		ollamaBody["prompt"] = promptBuilder.String()
+	} else {
+		c.logger.Debugf("[Ollama] No messages field in requestBody, prompt will be empty")
 	}
 
 	// Copy options from OpenAI request to Ollama format

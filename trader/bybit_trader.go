@@ -634,6 +634,62 @@ func (t *BybitTrader) SetTakeProfit(symbol string, positionSide string, quantity
 	return nil
 }
 
+// SetTrailingStop sets trailing stop-loss order
+func (t *BybitTrader) SetTrailingStop(symbol string, positionSide string, quantity, callbackRate, activationPrice float64) error {
+	side := "Sell" // LONG position trailing stop uses Sell
+	if positionSide == "SHORT" {
+		side = "Buy" // SHORT position trailing stop uses Buy
+	}
+
+	// Get current price to determine triggerDirection
+	currentPrice, err := t.GetMarketPrice(symbol)
+	if err != nil {
+		return err
+	}
+
+	triggerDirection := 1 // Price rise trigger (for short positions trailing stop)
+	if positionSide == "LONG" {
+		triggerDirection = 2 // Price fall trigger (for long positions trailing stop)
+	}
+
+	// Use FormatQuantity to format quantity
+	qtyStr, _ := t.FormatQuantity(symbol, quantity)
+
+	params := map[string]interface{}{
+		"category":         "linear",
+		"symbol":           symbol,
+		"side":             side,
+		"orderType":        "Market",
+		"qty":              qtyStr,
+		"triggerDirection": triggerDirection,
+		"triggerBy":        "LastPrice",
+		"reduceOnly":       true,
+		"closeOnTrigger":   true,
+	}
+
+	// Add trailing stop specific parameters
+	activationPriceStr := fmt.Sprintf("%v", activationPrice)
+	if activationPrice == 0 {
+		// If no activation price provided, use current market price
+		activationPriceStr = fmt.Sprintf("%v", currentPrice)
+	}
+	params["triggerPrice"] = activationPriceStr
+	params["activePrice"] = activationPriceStr
+	params["trailingStopPct"] = fmt.Sprintf("%.2f", callbackRate*100) // Convert to percentage
+
+	result, err := t.client.NewUtaBybitServiceWithParams(params).PlaceOrder(context.Background())
+	if err != nil {
+		return fmt.Errorf("failed to set trailing stop: %w", err)
+	}
+
+	if result.RetCode != 0 {
+		return fmt.Errorf("failed to set trailing stop: %s", result.RetMsg)
+	}
+
+	logger.Infof("  ✓ [Bybit] Trailing stop order set: %s, callback rate: %.2f%%, activation price: %.2f", symbol, callbackRate*100, activationPriceStr)
+	return nil
+}
+
 // CancelStopLossOrders cancels stop loss orders
 func (t *BybitTrader) CancelStopLossOrders(symbol string) error {
 	return t.cancelConditionalOrders(symbol, "StopLoss")

@@ -13,6 +13,7 @@ import (
 	"nofx/store"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -31,7 +32,35 @@ var (
 	// XML tag extraction (supports any characters in reasoning chain)
 	reReasoningTag = regexp.MustCompile(`(?s)<reasoning>(.*?)</reasoning>`)
 	reDecisionTag  = regexp.MustCompile(`(?s)<decision>(.*?)</decision>`)
+
+	// 全局缓存：最近一次的 AI Prompt
+	lastPromptMutex       sync.RWMutex
+	lastSystemPrompt      string
+	lastUserPrompt        string
+	lastPromptTime        time.Time
+	lastActualRequestJSON string // 实际发送给 AI 的 JSON 请求体（用于验证）
 )
+
+// GetLastPrompt 获取最近一次的 AI Prompt
+func GetLastPrompt() (systemPrompt, userPrompt string, timestamp time.Time) {
+	lastPromptMutex.RLock()
+	defer lastPromptMutex.RUnlock()
+	return lastSystemPrompt, lastUserPrompt, lastPromptTime
+}
+
+// GetLastActualRequestJSON 获取实际发送给 AI 的 JSON 请求体（用于调试验证）
+func GetLastActualRequestJSON() string {
+	lastPromptMutex.RLock()
+	defer lastPromptMutex.RUnlock()
+	return lastActualRequestJSON
+}
+
+// SetLastActualRequestJSON 设置实际发送的 JSON 请求体（由 mcp 客户端调用）
+func SetLastActualRequestJSON(jsonData string) {
+	lastPromptMutex.Lock()
+	lastActualRequestJSON = jsonData
+	lastPromptMutex.Unlock()
+}
 
 // ============================================================================
 // Type Definitions
@@ -130,7 +159,7 @@ type Context struct {
 // Decision AI trading decision
 type Decision struct {
 	Symbol string `json:"symbol"`
-	Action string `json:"action"` // "open_long", "open_short", "close_long", "close_short", "hold", "wait", "update_stop_loss", "update_take_profit", "partial_close", "trailing_stop", "dynamic_take_profit"
+	Action string `json:"action"` // "open_long", "open_short", "close_long", "close_short", "hold", "wait", "update_stop_loss", "update_take_profit", "partial_close", "trailing_stop", "dynamic_take_profit", "add_to_position"
 
 	// Opening position parameters
 	Leverage        int     `json:"leverage,omitempty"`
@@ -150,6 +179,10 @@ type Decision struct {
 	MaxROI          float64 `json:"max_roi,omitempty"`          // Maximum ROI percentage
 	TimeLimitHours  float64 `json:"time_limit_hours,omitempty"` // Time limit in hours for dynamic orders
 	CallbackRate    float64 `json:"callback_rate,omitempty"`    // Callback rate for trailing stop (as decimal, e.g., 0.02 for 2%)
+
+	// Add position parameters
+	AdditionalPositionSizeUSD float64 `json:"additional_position_size_usd,omitempty"` // Additional position size for adding to existing position
+	AddPositionType           string  `json:"add_position_type,omitempty"`            // Type of position to add to ("long" or "short")
 
 	// Common parameters
 	Confidence int     `json:"confidence,omitempty"` // Confidence level (0-100)
@@ -297,6 +330,28 @@ func GetFullDecisionWithStrategy(ctx *Context, mcpClient mcp.AIClient, engine *S
 
 	// 3. Build User Prompt using strategy engine
 	userPrompt := engine.BuildUserPrompt(ctx)
+
+	// 缓存 Prompt 到全局变量（用于前端查看）
+	lastPromptMutex.Lock()
+	lastSystemPrompt = systemPrompt
+	lastUserPrompt = userPrompt
+	lastPromptTime = time.Now()
+
+	// 生成实际发送给 AI 的 JSON 请求体示例（用于前端验证）
+	// 这与 mcp.Client.buildMCPRequestBody() 的输出完全一致
+	requestBodyExample := map[string]interface{}{
+		"model": "示例模型名称（实际值取决于您的AI模型配置）",
+		"messages": []map[string]string{
+			{"role": "system", "content": systemPrompt},
+			{"role": "user", "content": userPrompt},
+		},
+		"temperature": 0.5,
+		"max_tokens":  4096,
+	}
+	requestJSON, _ := json.MarshalIndent(requestBodyExample, "", "  ")
+	lastActualRequestJSON = string(requestJSON)
+
+	lastPromptMutex.Unlock()
 
 	// 4. Call AI API
 	aiCallStart := time.Now()

@@ -57,6 +57,51 @@ func (t *LighterTraderV2) SetTakeProfit(symbol string, positionSide string, quan
 	return nil
 }
 
+// SetTrailingStop Set trailing stop-loss order (implements Trader interface)
+func (t *LighterTraderV2) SetTrailingStop(symbol string, positionSide string, quantity, callbackRate, activationPrice float64) error {
+	if t.txClient == nil {
+		return fmt.Errorf("TxClient not initialized")
+	}
+
+	logger.Infof("🎯 LIGHTER Setting trailing stop: %s %s qty=%.4f, callback rate=%.4f, activation price=%.2f", symbol, positionSide, quantity, callbackRate, activationPrice)
+
+	// NOTE: Lighter does not support trailing stop orders natively.
+	// As a workaround, we can set a regular stop-loss order at a calculated price based on the callback rate.
+	// This is an approximation since true trailing stops adjust dynamically.
+
+	// Get current price if activation price is not provided
+	currentPrice := activationPrice
+	if currentPrice == 0 {
+		price, err := t.GetMarketPrice(symbol)
+		if err != nil {
+			return fmt.Errorf("failed to get market price: %w", err)
+		}
+		currentPrice = price
+	}
+
+	// Calculate stop price based on position side and callback rate
+	var stopPrice float64
+	if positionSide == "LONG" || positionSide == "long" {
+		// For long positions, stop loss is below market (callback rate determines distance)
+		stopPrice = currentPrice * (1 - callbackRate)
+	} else {
+		// For short positions, stop loss is above market (callback rate determines distance)
+		stopPrice = currentPrice * (1 + callbackRate)
+	}
+
+	// Determine order direction (long position uses sell order, short position uses buy order)
+	isAsk := (positionSide == "LONG" || positionSide == "long")
+
+	// Create stop-loss order instead of true trailing stop
+	_, err := t.CreateStopOrder(symbol, isAsk, quantity, stopPrice, "stop_loss")
+	if err != nil {
+		return fmt.Errorf("failed to set stop loss (trailing stop approximation): %w", err)
+	}
+
+	logger.Infof("✓ LIGHTER trailing stop approximated as stop loss: trigger price=%.2f", stopPrice)
+	return nil
+}
+
 // CancelAllOrders Cancel all orders (implements Trader interface)
 func (t *LighterTraderV2) CancelAllOrders(symbol string) error {
 	if t.txClient == nil {
@@ -237,9 +282,9 @@ func (t *LighterTraderV2) GetActiveOrders(symbol string) ([]OrderResponse, error
 
 	// Parse response
 	var apiResp struct {
-		Code    int              `json:"code"`
-		Message string           `json:"message"`
-		Data    []OrderResponse  `json:"data"`
+		Code    int             `json:"code"`
+		Message string          `json:"message"`
+		Data    []OrderResponse `json:"data"`
 	}
 
 	if err := json.Unmarshal(body, &apiResp); err != nil {

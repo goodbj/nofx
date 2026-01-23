@@ -8,12 +8,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"nofx/logger"
 	"math"
 	"math/big"
 	"net/http"
 	"net/url"
 	"nofx/hook"
+	"nofx/logger"
 	"sort"
 	"strconv"
 	"strings"
@@ -1051,6 +1051,58 @@ func (t *AsterTrader) SetTakeProfit(symbol string, positionSide string, quantity
 	return err
 }
 
+// SetTrailingStop Set trailing stop
+func (t *AsterTrader) SetTrailingStop(symbol string, positionSide string, quantity, callbackRate, activationPrice float64) error {
+	side := "SELL"
+	if positionSide == "SHORT" {
+		side = "BUY"
+	}
+
+	// Get current price if activation price is not provided
+	currentPrice := activationPrice
+	if currentPrice == 0 {
+		price, err := t.GetMarketPrice(symbol)
+		if err != nil {
+			return fmt.Errorf("failed to get market price: %w", err)
+		}
+		currentPrice = price
+	}
+
+	// Format price and quantity to correct precision
+	formattedPrice, err := t.formatPrice(symbol, currentPrice)
+	if err != nil {
+		return err
+	}
+	formattedQty, err := t.formatQuantity(symbol, quantity)
+	if err != nil {
+		return err
+	}
+
+	// Get precision information
+	prec, err := t.getPrecision(symbol)
+	if err != nil {
+		return err
+	}
+
+	// Convert to string with correct precision format
+	priceStr := t.formatFloatWithPrecision(formattedPrice, prec.PricePrecision)
+	qtyStr := t.formatFloatWithPrecision(formattedQty, prec.QuantityPrecision)
+
+	params := map[string]interface{}{
+		"symbol":          symbol,
+		"positionSide":    "BOTH",
+		"type":            "TRAILING_STOP_MARKET",
+		"side":            side,
+		"activationPrice": priceStr,
+		"callbackRate":    fmt.Sprintf("%.4f", callbackRate), // Callback rate as decimal (e.g., 0.02 for 2%)
+		"quantity":        qtyStr,
+		"timeInForce":     "GTC",
+	}
+
+	_, err = t.request("POST", "/fapi/v3/order", params)
+	return err
+}
+
 // CancelStopLossOrders Cancel stop-loss orders only (does not affect take-profit orders)
 func (t *AsterTrader) CancelStopLossOrders(symbol string) error {
 	// Get all open orders for this symbol
@@ -1262,14 +1314,14 @@ func (t *AsterTrader) GetOrderStatus(symbol string, orderID string) (map[string]
 
 	// Standardize return fields
 	response := map[string]interface{}{
-		"orderId":     result["orderId"],
-		"symbol":      result["symbol"],
-		"status":      result["status"],
-		"side":        result["side"],
-		"type":        result["type"],
-		"time":        result["time"],
-		"updateTime":  result["updateTime"],
-		"commission":  0.0, // Aster may require separate query
+		"orderId":    result["orderId"],
+		"symbol":     result["symbol"],
+		"status":     result["status"],
+		"side":       result["side"],
+		"type":       result["type"],
+		"time":       result["time"],
+		"updateTime": result["updateTime"],
+		"commission": 0.0, // Aster may require separate query
 	}
 
 	// Parse numeric fields

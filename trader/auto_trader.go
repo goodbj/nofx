@@ -600,21 +600,22 @@ func (at *AutoTrader) runCycle() error {
 		record.ErrorMessage = fmt.Sprintf("Failed to get AI decision: %v", err)
 
 		// Print system prompt and AI chain of thought (output even with errors for debugging)
-		if aiDecision != nil {
-			logger.Info("\n" + strings.Repeat("=", 70) + "\n")
-			logger.Infof("📋 System prompt (error case)")
-			logger.Info(strings.Repeat("=", 70))
-			logger.Info(aiDecision.SystemPrompt)
-			logger.Info(strings.Repeat("=", 70))
+		// DISABLED: Removed to reduce log size and improve restart performance
+		// if aiDecision != nil {
+		// 	logger.Info("\n" + strings.Repeat("=", 70) + "\n")
+		// 	logger.Infof("📋 System prompt (error case)")
+		// 	logger.Info(strings.Repeat("=", 70))
+		// 	logger.Info(aiDecision.SystemPrompt)
+		// 	logger.Info(strings.Repeat("=", 70))
 
-			if aiDecision.CoTTrace != "" {
-				logger.Info("\n" + strings.Repeat("-", 70) + "\n")
-				logger.Info("💭 AI chain of thought analysis (error case):")
-				logger.Info(strings.Repeat("-", 70))
-				logger.Info(aiDecision.CoTTrace)
-				logger.Info(strings.Repeat("-", 70))
-			}
-		}
+		// 	if aiDecision.CoTTrace != "" {
+		// 		logger.Info("\n" + strings.Repeat("-", 70) + "\n")
+		// 		logger.Info("💭 AI chain of thought analysis (error case):")
+		// 		logger.Info(strings.Repeat("-", 70))
+		// 		logger.Info(aiDecision.CoTTrace)
+		// 		logger.Info(strings.Repeat("-", 70))
+		// 	}
+		// }
 
 		at.saveDecision(record)
 		return fmt.Errorf("failed to get AI decision: %w", err)
@@ -864,7 +865,8 @@ func (at *AutoTrader) buildTradingContext() (*kernel.Context, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to get candidate coins: %w", err)
 	}
-	logger.Infof("📋 [%s] Strategy engine fetched candidate coins: %d", at.name, len(candidateCoins))
+	// [DEBUG] Strategy candidate coins count - Enable when debugging strategy selection
+	// logger.Infof("📋 [%s] Strategy engine fetched candidate coins: %d", at.name, len(candidateCoins))
 
 	// 4. Calculate total P&L
 	totalPnL := totalEquity - at.initialBalance
@@ -882,7 +884,8 @@ func (at *AutoTrader) buildTradingContext() (*kernel.Context, error) {
 	strategyConfig := at.strategyEngine.GetConfig()
 	btcEthLeverage := strategyConfig.RiskControl.BTCETHMaxLeverage
 	altcoinLeverage := strategyConfig.RiskControl.AltcoinMaxLeverage
-	logger.Infof("📋 [%s] Strategy leverage config: BTC/ETH=%dx, Altcoin=%dx", at.name, btcEthLeverage, altcoinLeverage)
+	// [DEBUG] Leverage configuration - Enable when verifying leverage settings
+	// logger.Infof("📋 [%s] Strategy leverage config: BTC/ETH=%dx, Altcoin=%dx", at.name, btcEthLeverage, altcoinLeverage)
 
 	// 6. Build context
 	ctx := &kernel.Context{
@@ -912,7 +915,8 @@ func (at *AutoTrader) buildTradingContext() (*kernel.Context, error) {
 		if err != nil {
 			logger.Infof("⚠️ [%s] Failed to get recent trades: %v", at.name, err)
 		} else {
-			logger.Infof("📊 [%s] Found %d recent closed trades for AI context", at.name, len(recentTrades))
+			// [DEBUG] Recent trades count - Enable when debugging trade history
+			// logger.Infof("📊 [%s] Found %d recent closed trades for AI context", at.name, len(recentTrades))
 			for _, trade := range recentTrades {
 				// Convert Unix timestamps to formatted strings for AI readability
 				entryTimeStr := ""
@@ -956,8 +960,9 @@ func (at *AutoTrader) buildTradingContext() (*kernel.Context, error) {
 				AvgLoss:        stats.AvgLoss,
 				MaxDrawdownPct: stats.MaxDrawdownPct,
 			}
-			logger.Infof("📈 [%s] Trading stats: %d trades, %.1f%% win rate, PF=%.2f, Sharpe=%.2f, DD=%.1f%%",
-				at.name, stats.TotalTrades, stats.WinRate, stats.ProfitFactor, stats.SharpeRatio, stats.MaxDrawdownPct)
+			// [DEBUG] Trading statistics - Enable when analyzing performance
+			// logger.Infof("📈 [%s] Trading stats: %d trades, %.1f%% win rate, PF=%.2f, Sharpe=%.2f, DD=%.1f%%",
+			// 	at.name, stats.TotalTrades, stats.WinRate, stats.ProfitFactor, stats.SharpeRatio, stats.MaxDrawdownPct)
 		}
 	} else {
 		logger.Infof("⚠️ [%s] Store is nil, cannot get recent trades", at.name)
@@ -979,39 +984,47 @@ func (at *AutoTrader) buildTradingContext() (*kernel.Context, error) {
 			symbols = append(symbols, sym)
 		}
 
-		logger.Infof("📊 [%s] Fetching quantitative data for %d symbols...", at.name, len(symbols))
+		// [DEBUG] Quantitative data fetching - Enable when debugging quant data interface
+		// logger.Infof("📊 [%s] Fetching quantitative data for %d symbols...", at.name, len(symbols))
 		ctx.QuantDataMap = at.strategyEngine.FetchQuantDataBatch(symbols)
-		logger.Infof("📊 [%s] Successfully fetched quantitative data for %d symbols", at.name, len(ctx.QuantDataMap))
+		// [DEBUG] Quantitative data result - Enable when debugging quant data interface
+		// logger.Infof("📊 [%s] Successfully fetched quantitative data for %d symbols", at.name, len(ctx.QuantDataMap))
 	}
 
 	// 9. Get OI ranking data (market-wide position changes)
 	if strategyConfig.Indicators.EnableOIRanking {
-		logger.Infof("📊 [%s] Fetching OI ranking data...", at.name)
+		// [DEBUG] OI ranking fetch - Enable when debugging OI ranking feature
+		// logger.Infof("📊 [%s] Fetching OI ranking data...", at.name)
 		ctx.OIRankingData = at.strategyEngine.FetchOIRankingData()
-		if ctx.OIRankingData != nil {
-			logger.Infof("📊 [%s] OI ranking data ready: %d top, %d low positions",
-				at.name, len(ctx.OIRankingData.TopPositions), len(ctx.OIRankingData.LowPositions))
-		}
+		// [DEBUG] OI ranking result - Enable when debugging OI ranking feature
+		// if ctx.OIRankingData != nil {
+		// 	logger.Infof("📊 [%s] OI ranking data ready: %d top, %d low positions",
+		// 		at.name, len(ctx.OIRankingData.TopPositions), len(ctx.OIRankingData.LowPositions))
+		// }
 	}
 
 	// 10. Get NetFlow ranking data (market-wide fund flow)
 	if strategyConfig.Indicators.EnableNetFlowRanking {
-		logger.Infof("💰 [%s] Fetching NetFlow ranking data...", at.name)
+		// [DEBUG] NetFlow ranking fetch - Enable when debugging fund flow feature
+		// logger.Infof("💰 [%s] Fetching NetFlow ranking data...", at.name)
 		ctx.NetFlowRankingData = at.strategyEngine.FetchNetFlowRankingData()
-		if ctx.NetFlowRankingData != nil {
-			logger.Infof("💰 [%s] NetFlow ranking data ready: inst_in=%d, inst_out=%d",
-				at.name, len(ctx.NetFlowRankingData.InstitutionFutureTop), len(ctx.NetFlowRankingData.InstitutionFutureLow))
-		}
+		// [DEBUG] NetFlow ranking result - Enable when debugging fund flow feature
+		// if ctx.NetFlowRankingData != nil {
+		// 	logger.Infof("💰 [%s] NetFlow ranking data ready: inst_in=%d, inst_out=%d",
+		// 		at.name, len(ctx.NetFlowRankingData.InstitutionFutureTop), len(ctx.NetFlowRankingData.InstitutionFutureLow))
+		// }
 	}
 
 	// 11. Get Price ranking data (market-wide gainers/losers)
 	if strategyConfig.Indicators.EnablePriceRanking {
-		logger.Infof("📈 [%s] Fetching Price ranking data...", at.name)
+		// [DEBUG] Price ranking fetch - Enable when debugging price ranking feature
+		// logger.Infof("📈 [%s] Fetching Price ranking data...", at.name)
 		ctx.PriceRankingData = at.strategyEngine.FetchPriceRankingData()
-		if ctx.PriceRankingData != nil {
-			logger.Infof("📈 [%s] Price ranking data ready for %d durations",
-				at.name, len(ctx.PriceRankingData.Durations))
-		}
+		// [DEBUG] Price ranking result - Enable when debugging price ranking feature
+		// if ctx.PriceRankingData != nil {
+		// 	logger.Infof("📈 [%s] Price ranking data ready for %d durations",
+		// 		at.name, len(ctx.PriceRankingData.Durations))
+		// }
 	}
 
 	return ctx, nil
@@ -1029,21 +1042,22 @@ func (at *AutoTrader) executeDecisionWithRecord(decision *kernel.Decision, actio
 
 	// Log the incoming decision for debugging
 	logger.Infof("  🤖 Processing AI decision: Symbol=%s, Action=%s, Confidence=%d", decision.Symbol, decision.Action, decision.Confidence)
+	// [DEBUG] Decision parameters - Enable when debugging specific decision execution
 	// Log additional parameters based on action type
-	switch decision.Action {
-	case "update_stop_loss":
-		logger.Infof("     New Stop Loss: %.4f", decision.NewStopLoss)
-	case "update_take_profit":
-		logger.Infof("     New Take Profit: %.4f", decision.NewTakeProfit)
-	case "partial_close":
-		logger.Infof("     Close Percentage: %.2f%%", decision.ClosePercentage)
-	case "open_long", "open_short":
-		logger.Infof("     Leverage: %d, Position Size: %.2f, Stop Loss: %.4f, Take Profit: %.4f", decision.Leverage, decision.PositionSizeUSD, decision.StopLoss, decision.TakeProfit)
-	case "trailing_stop":
-		logger.Infof("     Trail Percentage: %.2f%%, Activation Price: %.4f", decision.TrailPercentage, decision.ActivationPrice)
-	case "dynamic_take_profit":
-		logger.Infof("     Target ROI: %.2f%%, Max ROI: %.2f%%, Time Limit: %.2f hours", decision.TargetROI, decision.MaxROI, decision.TimeLimitHours)
-	}
+	// switch decision.Action {
+	// case "update_stop_loss":
+	// 	logger.Infof("     New Stop Loss: %.4f", decision.NewStopLoss)
+	// case "update_take_profit":
+	// 	logger.Infof("     New Take Profit: %.4f", decision.NewTakeProfit)
+	// case "partial_close":
+	// 	logger.Infof("     Close Percentage: %.2f%%", decision.ClosePercentage)
+	// case "open_long", "open_short":
+	// 	logger.Infof("     Leverage: %d, Position Size: %.2f, Stop Loss: %.4f, Take Profit: %.4f", decision.Leverage, decision.PositionSizeUSD, decision.StopLoss, decision.TakeProfit)
+	// case "trailing_stop":
+	// 	logger.Infof("     Trail Percentage: %.2f%%, Activation Price: %.4f", decision.TrailPercentage, decision.ActivationPrice)
+	// case "dynamic_take_profit":
+	// 	logger.Infof("     Target ROI: %.2f%%, Max ROI: %.2f%%, Time Limit: %.2f hours", decision.TargetROI, decision.MaxROI, decision.TimeLimitHours)
+	// }
 	switch decision.Action {
 	case "open_long":
 		return at.executeOpenLongWithRecord(decision, actionRecord)
@@ -1070,6 +1084,8 @@ func (at *AutoTrader) executeDecisionWithRecord(decision *kernel.Decision, actio
 		return at.executeOCOOrderWithRecord(decision, actionRecord)
 	case "bracket_order":
 		return at.executeBracketOrderWithRecord(decision, actionRecord)
+	case "add_to_position":
+		return at.executeAddToPositionWithRecord(decision, actionRecord)
 	default:
 		return fmt.Errorf("unknown action: %s", decision.Action)
 	}
@@ -1308,11 +1324,19 @@ func (at *AutoTrader) executeOpenLongWithRecord(decision *kernel.Decision, actio
 	at.positionFirstSeenTime[posKey] = time.Now().UnixMilli()
 
 	// Set stop loss and take profit
-	if err := at.trader.SetStopLoss(decision.Symbol, "LONG", quantity, decision.StopLoss); err != nil {
-		logger.Infof("  ⚠ Failed to set stop loss: %v", err)
+	if decision.StopLoss > 0 {
+		if err := at.trader.SetStopLoss(decision.Symbol, "LONG", quantity, decision.StopLoss); err != nil {
+			logger.Errorf("  ❌ Failed to set stop loss for %s: %v", decision.Symbol, err)
+			return fmt.Errorf("failed to set stop loss: %w", err)
+		}
+		logger.Infof("  ✓ Stop loss set for %s: %.4f", decision.Symbol, decision.StopLoss)
 	}
-	if err := at.trader.SetTakeProfit(decision.Symbol, "LONG", quantity, decision.TakeProfit); err != nil {
-		logger.Infof("  ⚠ Failed to set take profit: %v", err)
+	if decision.TakeProfit > 0 {
+		if err := at.trader.SetTakeProfit(decision.Symbol, "LONG", quantity, decision.TakeProfit); err != nil {
+			logger.Errorf("  ❌ Failed to set take profit for %s: %v", decision.Symbol, err)
+			return fmt.Errorf("failed to set take profit: %w", err)
+		}
+		logger.Infof("  ✓ Take profit set for %s: %.4f", decision.Symbol, decision.TakeProfit)
 	}
 
 	return nil
@@ -1430,11 +1454,19 @@ func (at *AutoTrader) executeOpenShortWithRecord(decision *kernel.Decision, acti
 	at.positionFirstSeenTime[posKey] = time.Now().UnixMilli()
 
 	// Set stop loss and take profit
-	if err := at.trader.SetStopLoss(decision.Symbol, "SHORT", quantity, decision.StopLoss); err != nil {
-		logger.Infof("  ⚠ Failed to set stop loss: %v", err)
+	if decision.StopLoss > 0 {
+		if err := at.trader.SetStopLoss(decision.Symbol, "SHORT", quantity, decision.StopLoss); err != nil {
+			logger.Errorf("  ❌ Failed to set stop loss for %s: %v", decision.Symbol, err)
+			return fmt.Errorf("failed to set stop loss: %w", err)
+		}
+		logger.Infof("  ✓ Stop loss set for %s: %.4f", decision.Symbol, decision.StopLoss)
 	}
-	if err := at.trader.SetTakeProfit(decision.Symbol, "SHORT", quantity, decision.TakeProfit); err != nil {
-		logger.Infof("  ⚠ Failed to set take profit: %v", err)
+	if decision.TakeProfit > 0 {
+		if err := at.trader.SetTakeProfit(decision.Symbol, "SHORT", quantity, decision.TakeProfit); err != nil {
+			logger.Errorf("  ❌ Failed to set take profit for %s: %v", decision.Symbol, err)
+			return fmt.Errorf("failed to set take profit: %w", err)
+		}
+		logger.Infof("  ✓ Take profit set for %s: %.4f", decision.Symbol, decision.TakeProfit)
 	}
 
 	return nil
@@ -1672,17 +1704,29 @@ func (at *AutoTrader) executeTrailingStopWithRecord(decision *kernel.Decision, a
 		logger.Warnf("  ⚠️ Failed to get market data for %s: %v", decision.Symbol, err)
 	}
 
+	// Use current market price as activation price if not provided in decision
+	activationPrice := decision.ActivationPrice
+	if activationPrice == 0 && marketData != nil {
+		activationPrice = marketData.CurrentPrice
+		logger.Infof("  💡 Using current market price as activation price: %.4f", activationPrice)
+	}
+
 	// Debug log for exchange API call
 	logger.Infof("  📡 Attempting to submit trailing stop to exchange: Symbol=%s, Side=%s, TrailPercentage=%.4f, ActivationPrice=%.4f",
-		decision.Symbol, side, decision.TrailPercentage, decision.ActivationPrice)
+		decision.Symbol, side, decision.TrailPercentage, activationPrice)
 
-	// Note: Trailing stop orders are not universally supported by all exchanges
-	// This is a placeholder implementation - in a real system, you'd need to implement
-	// custom logic that monitors the position and adjusts stop-loss orders accordingly
-	logger.Infof("  ⚠️ Trailing stop order not yet implemented for this exchange. Would monitor %s position and adjust stop-loss dynamically based on %.2f%% trail and %.4f activation price", decision.Symbol, decision.TrailPercentage, decision.ActivationPrice)
+	// Submit trailing stop order to exchange
+	logger.Infof("  📡 Submitting trailing stop to exchange: Symbol=%s, Side=%s, CallbackRate=%.4f, ActivationPrice=%.4f",
+		decision.Symbol, side, decision.CallbackRate, activationPrice)
 
-	logger.Infof("  ✓ Trailing stop monitoring initiated for %s, Trail %%: %.2f%%, Activation Price: %.4f",
-		decision.Symbol, decision.TrailPercentage, decision.ActivationPrice)
+	err = at.trader.SetTrailingStop(decision.Symbol, side, qtyFloat, decision.CallbackRate, activationPrice)
+	if err != nil {
+		logger.Errorf("  ❌ Failed to set trailing stop for %s: %v", decision.Symbol, err)
+		return fmt.Errorf("failed to set trailing stop: %w", err)
+	}
+
+	logger.Infof("  ✓ Trailing stop set successfully for %s, Callback Rate: %.2f%%, Activation Price: %.4f",
+		decision.Symbol, decision.CallbackRate*100, decision.ActivationPrice)
 
 	// Record the trailing stop action to database
 	if at.store != nil {
@@ -1858,6 +1902,31 @@ func (at *AutoTrader) setDynamicTakeProfit(symbol, side string, quantity, target
 
 	// In a real implementation, you'd start a goroutine that monitors the position
 	// and executes the take profit when conditions are met
+	// For now, we'll simulate this by setting regular take profit based on target ROI
+	// First get current market price to calculate target price
+	marketData, err := market.Get(symbol)
+	if err != nil {
+		logger.Errorf("  ❌ Failed to get market data for dynamic take profit for %s: %v", symbol, err)
+		return fmt.Errorf("failed to get market data: %w", err)
+	}
+
+	// Calculate target price based on ROI
+	var targetPrice float64
+	if side == "LONG" {
+		// For long positions: targetPrice = currentPrice * (1 + targetROI/100)
+		targetPrice = marketData.CurrentPrice * (1 + targetROI/100)
+	} else {
+		// For short positions: targetPrice = currentPrice * (1 - targetROI/100)
+		targetPrice = marketData.CurrentPrice * (1 - targetROI/100)
+	}
+
+	// Set the take profit order at the calculated target price
+	if err := at.trader.SetTakeProfit(symbol, side, quantity, targetPrice); err != nil {
+		logger.Errorf("  ❌ Failed to set take profit for dynamic take profit for %s: %v", symbol, err)
+		return fmt.Errorf("failed to set take profit: %w", err)
+	}
+
+	logger.Infof("  ✓ Dynamic take profit set for %s at price %.4f (based on %.2f%% ROI)", symbol, targetPrice, targetROI)
 	return nil
 }
 
@@ -2918,10 +2987,17 @@ func (at *AutoTrader) executeUpdateStopLossWithRecord(decision *kernel.Decision,
 		logger.Warnf("  ⚠️ Failed to get market data for %s: %v", decision.Symbol, err)
 	}
 
+	// Use current market price if new stop loss price is 0
+	newStopLossPrice := decision.NewStopLoss
+	if newStopLossPrice == 0 && marketData != nil {
+		newStopLossPrice = marketData.CurrentPrice
+		logger.Infof("  💡 Using current market price as stop loss price: %.4f", newStopLossPrice)
+	}
+
 	// Debug log for exchange API call
-	logger.Infof("  📡 Submitting stop loss update to exchange: Symbol=%s, Side=%s, NewStopLoss=%.4f", decision.Symbol, side, decision.NewStopLoss)
+	logger.Infof("  📡 Submitting stop loss update to exchange: Symbol=%s, Side=%s, NewStopLoss=%.4f", decision.Symbol, side, newStopLossPrice)
 	// Update stop loss
-	err = at.trader.UpdateStopLoss(decision.Symbol, side, decision.NewStopLoss)
+	err = at.trader.UpdateStopLoss(decision.Symbol, side, newStopLossPrice)
 	if err != nil {
 		logger.Errorf("  ❌ Failed to update stop loss for %s: %v", decision.Symbol, err)
 		return fmt.Errorf("failed to update stop loss: %w", err)
@@ -3037,10 +3113,17 @@ func (at *AutoTrader) executeUpdateTakeProfitWithRecord(decision *kernel.Decisio
 		logger.Warnf("  ⚠️ Failed to get market data for %s: %v", decision.Symbol, err)
 	}
 
+	// Use current market price if new take profit price is 0
+	newTakeProfitPrice := decision.NewTakeProfit
+	if newTakeProfitPrice == 0 && marketData != nil {
+		newTakeProfitPrice = marketData.CurrentPrice
+		logger.Infof("  💡 Using current market price as take profit price: %.4f", newTakeProfitPrice)
+	}
+
 	// Debug log for exchange API call
-	logger.Infof("  📡 Submitting take profit update to exchange: Symbol=%s, Side=%s, NewTakeProfit=%.4f", decision.Symbol, side, decision.NewTakeProfit)
+	logger.Infof("  📡 Submitting take profit update to exchange: Symbol=%s, Side=%s, NewTakeProfit=%.4f", decision.Symbol, side, newTakeProfitPrice)
 	// Update take profit
-	err = at.trader.UpdateTakeProfit(decision.Symbol, side, decision.NewTakeProfit)
+	err = at.trader.UpdateTakeProfit(decision.Symbol, side, newTakeProfitPrice)
 	if err != nil {
 		logger.Errorf("  ❌ Failed to update take profit for %s: %v", decision.Symbol, err)
 		return fmt.Errorf("failed to update take profit: %w", err)
@@ -3139,12 +3222,12 @@ func (at *AutoTrader) executePartialCloseWithRecord(decision *kernel.Decision, a
 	// Calculate partial close quantity
 	partialQty := absQty * decision.ClosePercentage / 100
 
-	// Determine side for closing
-	side := "SELL"
+	// Determine position type for closing (used by PartialClose function)
+	positionType := "short"
 	if isLong {
-		side = "SELL" // Sell to close long
+		positionType = "long" // Long position to close
 	} else {
-		side = "BUY" // Buy to close short
+		positionType = "short" // Short position to close
 	}
 
 	// Get current market price for reference
@@ -3154,9 +3237,9 @@ func (at *AutoTrader) executePartialCloseWithRecord(decision *kernel.Decision, a
 	}
 
 	// Debug log for exchange API call
-	logger.Infof("  📡 Submitting partial close to exchange: Symbol=%s, Side=%s, ClosePercentage=%.2f%%", decision.Symbol, side, decision.ClosePercentage)
+	logger.Infof("  📡 Submitting partial close to exchange: Symbol=%s, Position Type=%s, ClosePercentage=%.2f%%", decision.Symbol, positionType, decision.ClosePercentage)
 	// Close partial position
-	order, err := at.trader.PartialClose(decision.Symbol, side, decision.ClosePercentage)
+	order, err := at.trader.PartialClose(decision.Symbol, positionType, decision.ClosePercentage)
 	if err != nil {
 		logger.Errorf("  ❌ Failed to partially close position for %s: %v", decision.Symbol, err)
 		return fmt.Errorf("failed to partially close position: %w", err)
@@ -3245,49 +3328,73 @@ func (at *AutoTrader) executeOCOOrderWithRecord(decision *kernel.Decision, actio
 	// which achieves similar functionality to an OCO order
 	var submitErrors []string
 
-	// Submit stop-loss order
-	if decision.StopLoss > 0 {
-		// Determine position side for stop loss
-		positionSide := "LONG"
-		if foundPos != nil {
-			positionSideVal, ok := foundPos["positionSide"].(string)
-			if !ok {
-				positionSideVal, _ = foundPos["side"].(string)
+	// Submit OCO order based on existing position
+	// If we have an existing position, set protective stop-loss/take-profit
+	// If no position exists, create entry orders with protective stops
+	if decision.StopLoss > 0 || decision.TakeProfit > 0 {
+		if isExistingPosition {
+			// For existing positions, set protective stop-loss and take-profit
+			positionSide := "LONG"
+			if foundPos != nil {
+				positionSideVal, ok := foundPos["positionSide"].(string)
+				if !ok {
+					positionSideVal, _ = foundPos["side"].(string)
+				}
+				if positionSideVal == "SHORT" {
+					positionSide = "SHORT"
+				}
 			}
-			if positionSideVal == "SHORT" {
-				positionSide = "SHORT"
-			}
-		}
 
-		// Submit stop loss order
-		if err := at.trader.SetStopLoss(decision.Symbol, positionSide, quantity, decision.StopLoss); err != nil {
-			logger.Infof("  ⚠️ Failed to set stop loss: %v", err)
-			submitErrors = append(submitErrors, fmt.Sprintf("stop-loss: %v", err))
+			// Submit stop loss order
+			if decision.StopLoss > 0 {
+				if err := at.trader.SetStopLoss(decision.Symbol, positionSide, quantity, decision.StopLoss); err != nil {
+					logger.Infof("  ⚠️ Failed to set stop loss: %v", err)
+					submitErrors = append(submitErrors, fmt.Sprintf("stop-loss: %v", err))
+				} else {
+					logger.Infof("  ✓ Stop loss set successfully: %.4f", decision.StopLoss)
+				}
+			}
+
+			// Submit take profit order
+			if decision.TakeProfit > 0 {
+				if err := at.trader.SetTakeProfit(decision.Symbol, positionSide, quantity, decision.TakeProfit); err != nil {
+					logger.Infof("  ⚠️ Failed to set take profit: %v", err)
+					submitErrors = append(submitErrors, fmt.Sprintf("take-profit: %v", err))
+				} else {
+					logger.Infof("  ✓ Take profit set successfully: %.4f", decision.TakeProfit)
+				}
+			}
 		} else {
-			logger.Infof("  ✓ Stop loss set successfully: %.4f", decision.StopLoss)
-		}
-	}
+			// For new positions, we should ideally create entry orders with stop/limit orders
+			// But since we don't have a direct method for this, we'll handle based on the intent
+			// If stop loss is below current price and take profit is above, likely trying to go LONG
+			// If stop loss is above current price and take profit is below, likely trying to go SHORT
 
-	// Submit take-profit order
-	if decision.TakeProfit > 0 {
-		// Determine position side for take profit
-		positionSide := "LONG"
-		if foundPos != nil {
-			positionSideVal, ok := foundPos["positionSide"].(string)
-			if !ok {
-				positionSideVal, _ = foundPos["side"].(string)
-			}
-			if positionSideVal == "SHORT" {
-				positionSide = "SHORT"
-			}
-		}
+			marketPrice := marketData.CurrentPrice
+			var intendedSide string
 
-		// Submit take profit order
-		if err := at.trader.SetTakeProfit(decision.Symbol, positionSide, quantity, decision.TakeProfit); err != nil {
-			logger.Infof("  ⚠️ Failed to set take profit: %v", err)
-			submitErrors = append(submitErrors, fmt.Sprintf("take-profit: %v", err))
-		} else {
-			logger.Infof("  ✓ Take profit set successfully: %.4f", decision.TakeProfit)
+			// Determine intended trade direction based on SL/TP prices vs current market price
+			if decision.StopLoss < marketPrice && decision.TakeProfit > marketPrice {
+				// Likely trying to go LONG: StopLoss below market, TakeProfit above market
+				intendedSide = "LONG"
+			} else if decision.StopLoss > marketPrice && decision.TakeProfit < marketPrice {
+				// Likely trying to go SHORT: StopLoss above market, TakeProfit below market
+				intendedSide = "SHORT"
+			} else {
+				// Ambiguous or invalid configuration
+				logger.Warnf("  ⚠️ Ambiguous OCO order configuration for %s: Market=%.2f, SL=%.2f, TP=%.2f",
+					decision.Symbol, marketPrice, decision.StopLoss, decision.TakeProfit)
+				submitErrors = append(submitErrors, fmt.Sprintf("invalid OCO configuration for entry: market=%.2f, sl=%.2f, tp=%.2f",
+					marketPrice, decision.StopLoss, decision.TakeProfit))
+			}
+
+			if intendedSide != "" {
+				// We could implement a proper entry order here, but for now we'll just log the intent
+				logger.Infof("  📊 OCO order intent: Enter %s position for %s, SL: %.4f, TP: %.4f",
+					intendedSide, decision.Symbol, decision.StopLoss, decision.TakeProfit)
+				logger.Infof("  ⚠️ Note: Entry orders with stop/limit not yet implemented in OCO. Please create entry position first.")
+				submitErrors = append(submitErrors, fmt.Sprintf("entry orders with OCO not supported, create position first"))
+			}
 		}
 	}
 
@@ -3337,16 +3444,16 @@ func (at *AutoTrader) executeOCOOrderWithRecord(decision *kernel.Decision, actio
 	return nil
 }
 
-// executeBracketOrderWithRecord executes bracket order action (similar to OCO but with both SL and TP orders)
+// executeBracketOrderWithRecord executes bracket order action (Step 1: Open position, Step 2: Set SL/TP)
 func (at *AutoTrader) executeBracketOrderWithRecord(decision *kernel.Decision, actionRecord *store.DecisionAction) error {
-	logger.Infof("  🔄 Executing bracket order: %s", decision.Symbol)
+	logger.Infof("  🔄 Executing bracket order (2-step): %s", decision.Symbol)
 
 	// [CODE ENFORCED] Check trade frequency limits
 	if err := at.enforceTradeFrequencyLimits(decision.Symbol); err != nil {
 		return err
 	}
 
-	// Get current positions to determine quantity and side
+	// Get current positions to check if position already exists
 	positions, err := at.trader.GetPositions()
 	if err != nil {
 		return fmt.Errorf("failed to get positions: %w", err)
@@ -3361,9 +3468,6 @@ func (at *AutoTrader) executeBracketOrderWithRecord(decision *kernel.Decision, a
 		}
 	}
 
-	// Determine if we're working with an existing position or opening a new one
-	isExistingPosition := foundPos != nil
-
 	// Get current market price for reference
 	marketData, err := market.Get(decision.Symbol)
 	if err != nil {
@@ -3371,61 +3475,108 @@ func (at *AutoTrader) executeBracketOrderWithRecord(decision *kernel.Decision, a
 		return err
 	}
 
-	// Calculate quantity based on position size if opening a new position
 	var quantity float64
-	if !isExistingPosition {
+	var positionSide string
+
+	// STEP 1: Open position if not exists
+	if foundPos == nil {
+		logger.Infof("  📊 Step 1/2: Opening new position for %s", decision.Symbol)
+
+		// Calculate quantity based on position size
 		if decision.PositionSizeUSD > 0 {
 			quantity = decision.PositionSizeUSD / marketData.CurrentPrice
-			actionRecord.Quantity = quantity
 		} else {
-			// Default to 0.001 BTC equivalent if no position size specified
-			quantity = 0.001
-			actionRecord.Quantity = quantity
+			return fmt.Errorf("bracket order requires position_size_usd")
 		}
+
+		// Determine trade direction based on stop loss and take profit prices
+		// LONG: StopLoss < CurrentPrice < TakeProfit
+		// SHORT: TakeProfit < CurrentPrice < StopLoss
+		if decision.StopLoss < marketData.CurrentPrice && decision.TakeProfit > marketData.CurrentPrice {
+			positionSide = "LONG"
+			logger.Infof("  📈 Detected LONG position intent (SL: %.2f < Price: %.2f < TP: %.2f)",
+				decision.StopLoss, marketData.CurrentPrice, decision.TakeProfit)
+		} else if decision.StopLoss > marketData.CurrentPrice && decision.TakeProfit < marketData.CurrentPrice {
+			positionSide = "SHORT"
+			logger.Infof("  📉 Detected SHORT position intent (TP: %.2f < Price: %.2f < SL: %.2f)",
+				decision.TakeProfit, marketData.CurrentPrice, decision.StopLoss)
+		} else {
+			return fmt.Errorf("invalid bracket order configuration: cannot determine direction (Market=%.2f, SL=%.2f, TP=%.2f)",
+				marketData.CurrentPrice, decision.StopLoss, decision.TakeProfit)
+		}
+
+		// Open the position
+		var openResult map[string]interface{}
+		if positionSide == "LONG" {
+			openResult, err = at.trader.OpenLong(decision.Symbol, quantity, decision.Leverage)
+		} else {
+			openResult, err = at.trader.OpenShort(decision.Symbol, quantity, decision.Leverage)
+		}
+
+		if err != nil {
+			return fmt.Errorf("failed to open %s position: %w", positionSide, err)
+		}
+
+		logger.Infof("  ✓ Step 1/2 Complete: %s position opened successfully (OrderID: %v)",
+			positionSide, openResult["orderId"])
+
+		// Wait a moment for position to be established
+		time.Sleep(500 * time.Millisecond)
+
+		// Refresh positions after opening
+		positions, err = at.trader.GetPositions()
+		if err != nil {
+			logger.Warnf("  ⚠️ Failed to refresh positions: %v", err)
+		} else {
+			for _, pos := range positions {
+				if pos["symbol"] == decision.Symbol {
+					foundPos = pos
+					break
+				}
+			}
+		}
+
+		actionRecord.Quantity = quantity
+		actionRecord.Price = marketData.CurrentPrice
 	} else {
-		// For existing position, use current position quantity
+		logger.Infof("  ℹ️ Position already exists for %s, will set SL/TP only", decision.Symbol)
+
+		// Get existing position details
 		qtyFloat, ok := foundPos["positionAmt"].(float64)
 		if !ok {
-			// Try to get as json.Number if it fails as float64
 			quantityNum, ok2 := foundPos["positionAmt"].(*json.Number)
 			if !ok2 {
 				return fmt.Errorf("failed to get position amount")
 			}
-			var err error
 			qtyFloat, err = quantityNum.Float64()
 			if err != nil {
 				return fmt.Errorf("failed to convert quantity to float: %w", err)
 			}
 		}
-		quantity = math.Abs(qtyFloat) // Use absolute value
-		actionRecord.Quantity = quantity
-	}
+		quantity = math.Abs(qtyFloat)
 
-	actionRecord.Price = marketData.CurrentPrice
-
-	// Debug log for exchange API call
-	logger.Infof("  📡 Submitting bracket order to exchange: Symbol=%s, Quantity=%.8f, StopLoss=%.4f, TakeProfit=%.4f",
-		decision.Symbol, quantity, decision.StopLoss, decision.TakeProfit)
-
-	// Submit bracket order to exchange
-	// This implementation submits both stop-loss and take-profit orders separately
-	var submitErrors []string
-
-	// Submit stop-loss order
-	if decision.StopLoss > 0 {
-		// Determine position side for stop loss
-		positionSide := "LONG"
-		if foundPos != nil {
-			positionSideVal, ok := foundPos["positionSide"].(string)
-			if !ok {
-				positionSideVal, _ = foundPos["side"].(string)
-			}
-			if positionSideVal == "SHORT" {
-				positionSide = "SHORT"
-			}
+		// Determine position side
+		positionSideVal, ok := foundPos["positionSide"].(string)
+		if !ok {
+			positionSideVal, _ = foundPos["side"].(string)
+		}
+		if positionSideVal == "SHORT" {
+			positionSide = "SHORT"
+		} else {
+			positionSide = "LONG"
 		}
 
-		// Submit stop loss order
+		actionRecord.Quantity = quantity
+		actionRecord.Price = marketData.CurrentPrice
+	}
+
+	// STEP 2: Set stop loss and take profit
+	logger.Infof("  📊 Step 2/2: Setting SL/TP for %s %s position", decision.Symbol, positionSide)
+
+	var submitErrors []string
+
+	// Set stop-loss order
+	if decision.StopLoss > 0 {
 		if err := at.trader.SetStopLoss(decision.Symbol, positionSide, quantity, decision.StopLoss); err != nil {
 			logger.Infof("  ⚠️ Failed to set stop loss: %v", err)
 			submitErrors = append(submitErrors, fmt.Sprintf("stop-loss: %v", err))
@@ -3434,21 +3585,8 @@ func (at *AutoTrader) executeBracketOrderWithRecord(decision *kernel.Decision, a
 		}
 	}
 
-	// Submit take-profit order
+	// Set take-profit order
 	if decision.TakeProfit > 0 {
-		// Determine position side for take profit
-		positionSide := "LONG"
-		if foundPos != nil {
-			positionSideVal, ok := foundPos["positionSide"].(string)
-			if !ok {
-				positionSideVal, _ = foundPos["side"].(string)
-			}
-			if positionSideVal == "SHORT" {
-				positionSide = "SHORT"
-			}
-		}
-
-		// Submit take profit order
 		if err := at.trader.SetTakeProfit(decision.Symbol, positionSide, quantity, decision.TakeProfit); err != nil {
 			logger.Infof("  ⚠️ Failed to set take profit: %v", err)
 			submitErrors = append(submitErrors, fmt.Sprintf("take-profit: %v", err))
@@ -3457,37 +3595,40 @@ func (at *AutoTrader) executeBracketOrderWithRecord(decision *kernel.Decision, a
 		}
 	}
 
+	// Check if both SL/TP failed
 	if len(submitErrors) == 2 {
-		// Both orders failed
-		return fmt.Errorf("bracket order submission failed: %s", strings.Join(submitErrors, ", "))
+		return fmt.Errorf("bracket order SL/TP failed: %s (position was opened, but protective orders failed)", strings.Join(submitErrors, ", "))
 	}
 
 	// Log successful execution
-	logger.Infof("  ✓ Bracket order executed successfully for %s, StopLoss: %.4f, TakeProfit: %.4f",
-		decision.Symbol, decision.StopLoss, decision.TakeProfit)
+	if len(submitErrors) == 0 {
+		logger.Infof("  ✅ Step 2/2 Complete: Bracket order fully executed for %s (SL: %.4f, TP: %.4f)",
+			decision.Symbol, decision.StopLoss, decision.TakeProfit)
+	} else {
+		logger.Infof("  ⚠️ Bracket order partially executed: %s", strings.Join(submitErrors, ", "))
+	}
 
 	// Record the bracket order action to database
 	if at.store != nil {
 		orderID := fmt.Sprintf("BRACKET_%s_%d", decision.Symbol, time.Now().Unix())
-		// Record the bracket order as an action
 		orderRecord := &store.TraderOrder{
 			TraderID:        at.id,
 			ExchangeID:      at.exchangeID,
 			ExchangeType:    at.exchange,
 			ExchangeOrderID: orderID,
 			Symbol:          decision.Symbol,
-			PositionSide:    "BOTH", // Indicates both stop-loss and take-profit
+			PositionSide:    positionSide,
 			OrderAction:     "bracket_order",
-			Type:            "BRACKET", // Bracket order type
-			Side:            "BRACKET",
+			Type:            "BRACKET",
+			Side:            positionSide,
 			Quantity:        quantity,
-			Price:           marketData.CurrentPrice, // Reference price at time of order
-			StopPrice:       decision.StopLoss,       // Associated stop loss price
-			Status:          "ACTIVE",                // Status indicating the bracket order is active
-			FilledQuantity:  0,                       // Not filled yet, just activated
-			AvgFillPrice:    0,                       // Will be filled when triggered
-			Commission:      0,                       // No commission for bracket setup
-			FilledAt:        0,                       // Will be set when triggered
+			Price:           marketData.CurrentPrice,
+			StopPrice:       decision.StopLoss,
+			Status:          "ACTIVE",
+			FilledQuantity:  quantity,
+			AvgFillPrice:    marketData.CurrentPrice,
+			Commission:      0,
+			FilledAt:        time.Now().UTC().UnixMilli(),
 			CreatedAt:       time.Now().UTC().UnixMilli(),
 			UpdatedAt:       time.Now().UTC().UnixMilli(),
 		}
@@ -3495,8 +3636,128 @@ func (at *AutoTrader) executeBracketOrderWithRecord(decision *kernel.Decision, a
 		if err := at.store.Order().CreateOrder(orderRecord); err != nil {
 			logger.Infof("  ⚠️ Failed to record bracket order: %v", err)
 		} else {
-			logger.Infof("  📊 Bracket order recorded: %s SL: %.4f TP: %.4f",
-				decision.Symbol, decision.StopLoss, decision.TakeProfit)
+			logger.Infof("  📊 Bracket order recorded: %s %s SL: %.4f TP: %.4f",
+				decision.Symbol, positionSide, decision.StopLoss, decision.TakeProfit)
+		}
+	}
+
+	return nil
+}
+
+// executeAddToPositionWithRecord executes add to position action and records detailed information
+func (at *AutoTrader) executeAddToPositionWithRecord(decision *kernel.Decision, actionRecord *store.DecisionAction) error {
+	logger.Infof("  ➕ Adding to position: %s", decision.Symbol)
+
+	// [CODE ENFORCED] Check trade frequency limits
+	if err := at.enforceTradeFrequencyLimits(decision.Symbol); err != nil {
+		return err
+	}
+
+	// Get current positions to determine existing position type
+	positions, err := at.trader.GetPositions()
+	if err != nil {
+		return fmt.Errorf("failed to get positions: %w", err)
+	}
+
+	// Find the existing position for this symbol
+	var foundPos map[string]interface{}
+	for _, pos := range positions {
+		if pos["symbol"] == decision.Symbol {
+			foundPos = pos
+			break
+		}
+	}
+
+	// Get current market price for calculations
+	marketData, err := market.Get(decision.Symbol)
+	if err != nil {
+		logger.Warnf("  ⚠️ Failed to get market data for %s: %v", decision.Symbol, err)
+		return err
+	}
+
+	// Determine if we're adding to a long or short position
+	addType := decision.AddPositionType
+	if addType == "" {
+		// If not specified in decision, try to determine from existing position
+		if foundPos != nil {
+			posSide, ok := foundPos["side"].(string)
+			if !ok {
+				posSide, _ = foundPos["positionSide"].(string)
+			}
+			addType = strings.ToUpper(posSide)
+		} else {
+			// If no existing position, default to adding to long
+			addType = "LONG"
+		}
+	} else {
+		// Convert user input to uppercase for validation
+		addType = strings.ToUpper(addType)
+	}
+
+	// Validate addType
+	if addType != "LONG" && addType != "SHORT" {
+		return fmt.Errorf("invalid add position type: %s, must be 'LONG' or 'SHORT'", addType)
+	}
+
+	// Calculate quantity based on additional position size
+	additionalSize := decision.AdditionalPositionSizeUSD
+	if additionalSize <= 0 {
+		// If not specified in decision, use PositionSizeUSD as fallback
+		additionalSize = decision.PositionSizeUSD
+	}
+	if additionalSize <= 0 {
+		return fmt.Errorf("additional position size must be greater than 0")
+	}
+
+	quantity := additionalSize / marketData.CurrentPrice
+
+	logger.Infof("  📊 Adding to %s position: %s, additional size: $%.2f, quantity: %.6f",
+		addType, decision.Symbol, additionalSize, quantity)
+
+	// Execute the additional position based on type
+	var order map[string]interface{}
+	switch addType {
+	case "LONG":
+		order, err = at.trader.OpenLong(decision.Symbol, quantity, decision.Leverage)
+		if err != nil {
+			logger.Errorf("  ❌ Failed to open long position %s: %v", decision.Symbol, err)
+			return fmt.Errorf("failed to add to long position: %w", err)
+		}
+	case "SHORT":
+		order, err = at.trader.OpenShort(decision.Symbol, quantity, decision.Leverage)
+		if err != nil {
+			logger.Errorf("  ❌ Failed to open short position %s: %v", decision.Symbol, err)
+			return fmt.Errorf("failed to add to short position: %w", err)
+		}
+	default:
+		return fmt.Errorf("unsupported position type: %s", addType)
+	}
+
+	logger.Infof("  ✓ Successfully added to %s position: %s, quantity: %.6f", addType, decision.Symbol, quantity)
+
+	// Update action record
+	actionRecord.Quantity = quantity
+	actionRecord.Price = marketData.CurrentPrice
+	actionRecord.Leverage = decision.Leverage
+
+	// Record order to database and poll for confirmation
+	at.recordAndConfirmOrder(order, decision.Symbol, "add_to_position", quantity, marketData.CurrentPrice, decision.Leverage, 0)
+
+	// Set stop loss and take profit if provided
+	if decision.StopLoss > 0 {
+		if err := at.trader.SetStopLoss(decision.Symbol, addType, quantity, decision.StopLoss); err != nil {
+			logger.Errorf("  ❌ Failed to set stop loss for %s: %v", decision.Symbol, err)
+			// Don't return error here as the main position addition was successful
+		} else {
+			logger.Infof("  ✓ Stop loss set for %s: %.4f", decision.Symbol, decision.StopLoss)
+		}
+	}
+	if decision.TakeProfit > 0 {
+		if err := at.trader.SetTakeProfit(decision.Symbol, addType, quantity, decision.TakeProfit); err != nil {
+			logger.Errorf("  ❌ Failed to set take profit for %s: %v", decision.Symbol, err)
+			// Don't return error here as the main position addition was successful
+		} else {
+			logger.Infof("  ✓ Take profit set for %s: %.4f", decision.Symbol, decision.TakeProfit)
 		}
 	}
 

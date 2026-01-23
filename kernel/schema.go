@@ -316,6 +316,20 @@ var TradingRules = struct {
 			ReasonZH: "严格控制单笔最大损失",
 			ReasonEN: "Strictly control maximum single-trade loss",
 		},
+		"DynamicTrailingStop": {
+			Value:    map[string]interface{}{"trail_percentage": 2.0, "activation_price_offset": 1.02},
+			DescZH:   "追踪止损：价格随利润移动的动态止损，回撤2%时触发",
+			DescEN:   "Trailing stop: dynamic stop-loss that moves with profit, triggers on 2% pullback",
+			ReasonZH: "让盈利奔跑的同时保护已获利润，避免从盈利变为亏损",
+			ReasonEN: "Let profits run while protecting gains, prevent turning profits into losses",
+		},
+		"DynamicTakeProfit": {
+			Value:    map[string]interface{}{"target_roi": 5.0, "max_roi": 10.0, "time_limit_hours": 24.0},
+			DescZH:   "动态止盈：根据市场波动调整止盈目标，目标ROI 5%，最大ROI 10%，时限24小时",
+			DescEN:   "Dynamic take-profit: adjust TP target based on market volatility, target ROI 5%, max ROI 10%, 24h time limit",
+			ReasonZH: "在趋势强劲时提高止盈目标，震荡时降低目标快速获利",
+			ReasonEN: "Raise TP in strong trends, lower in choppy markets for quick profits",
+		},
 	},
 
 	PositionControl: map[string]BilingualRuleDef{
@@ -336,6 +350,27 @@ var TradingRules = struct {
 			DescEN:   "Scale-out: Close 33% at +3%, 50% at +5%, 100% at +8%",
 			ReasonZH: "在保证利润的同时让盈利奔跑",
 			ReasonEN: "Lock profits while letting winners run",
+		},
+		"OCOOrder": {
+			Value:    map[string]interface{}{"enabled": true, "combine_sl_tp": true},
+			DescZH:   "OCO订单（一取消全）：同时设置止损和止盈，任一触发则取消另一个",
+			DescEN:   "OCO Order (One-Cancels-Other): Set SL and TP simultaneously, one triggers cancels the other",
+			ReasonZH: "自动化风险管理，无需手动监控，适合无法盯盘时使用",
+			ReasonEN: "Automated risk management, no manual monitoring needed, ideal when unable to watch",
+		},
+		"BracketOrder": {
+			Value:    map[string]interface{}{"enabled": true, "include_entry": true, "include_sl_tp": true},
+			DescZH:   "括号订单：开仓同时设置止损和止盈，形成完整风险管理框架",
+			DescEN:   "Bracket Order: Set SL and TP with entry, forming complete risk management framework",
+			ReasonZH: "进场即明确风险收益比，避免仓位暴露于无保护状态",
+			ReasonEN: "Define risk-reward ratio at entry, avoid unprotected position exposure",
+		},
+		"AddToPosition": {
+			Value:    map[string]interface{}{"enabled": true, "only_profitable": true, "max_additions": 2},
+			DescZH:   "加仓策略：仅在已盈利仓位上追加头寸，最多加仓2次",
+			DescEN:   "Add Position: Only add to profitable positions, max 2 additions",
+			ReasonZH: "强化优势头寸，利用趋势扩大收益，但严控加仓频率避免过度风险",
+			ReasonEN: "Strengthen winning positions, leverage trends for bigger gains, but limit frequency to avoid excess risk",
 		},
 	},
 }
@@ -552,4 +587,50 @@ func formatFieldDefEN(key string, field BilingualFieldDef) string {
 	}
 	result += "\n"
 	return result
+}
+
+// GetSimplifiedSchemaPrompt 获取简化版 Schema 提示词（用于压缩场景）
+func GetSimplifiedSchemaPrompt(lang Language) string {
+	if lang == LangChinese {
+		return getSimplifiedSchemaPromptZH()
+	}
+	return getSimplifiedSchemaPromptEN()
+}
+
+// getSimplifiedSchemaPromptZH 中文简化版 Schema
+func getSimplifiedSchemaPromptZH() string {
+	return `# 📖 数据字典
+
+## 核心指标
+- **总权益**(Equity): 账户净值 = 可用余额 + 未实现盈亏
+- **保证金使用率**(Margin%): 已用保证金 / 总权益 × 100 (<30%=安全, >70%=危险)
+- **盈亏%**(PnL%): 浮动盈亏比例 = (当前价 - 进场价) / 进场价 × 杠杆 × 100
+- **峰值盈亏**(Peak PnL%): 历史最高盈亏，用于判断止盈时机
+- **强平价**(Liq Price): 触及此价格会被强制平仓
+
+## OI 解读
+- **OI↑+价格↑**: 多头开仓，强势上涨
+- **OI↑+价格↓**: 空头开仓，弱势下跌
+- **OI↓+价格↑**: 空头平仓，可能反转
+- **OI↓+价格↓**: 多头平仓，可能见底
+`
+}
+
+// getSimplifiedSchemaPromptEN 英文简化版 Schema
+func getSimplifiedSchemaPromptEN() string {
+	return `# 📖 Data Dictionary
+
+## Core Metrics
+- **Equity**: Account value = Available Balance + Unrealized PnL
+- **Margin%**: Used Margin / Equity × 100 (<30%=safe, >70%=danger)
+- **PnL%**: Floating P&L = (Current - Entry) / Entry × Leverage × 100
+- **Peak PnL%**: Historical max PnL, for take-profit decisions
+- **Liq Price**: Force close if price hits this level
+
+## OI Interpretation
+- **OI↑+Price↑**: Long opening, strong bullish
+- **OI↑+Price↓**: Short opening, weak bearish
+- **OI↓+Price↑**: Short closing, potential reversal
+- **OI↓+Price↓**: Long closing, potential bottom
+`
 }

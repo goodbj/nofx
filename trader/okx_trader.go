@@ -1069,6 +1069,60 @@ func (t *OKXTrader) SetTakeProfit(symbol string, positionSide string, quantity, 
 	return nil
 }
 
+// SetTrailingStop sets trailing stop-loss order
+func (t *OKXTrader) SetTrailingStop(symbol string, positionSide string, quantity, callbackRate, activationPrice float64) error {
+	instId := t.convertSymbol(symbol)
+
+	// Get instrument info
+	inst, err := t.getInstrument(symbol)
+	if err != nil {
+		return fmt.Errorf("failed to get instrument info: %w", err)
+	}
+
+	// Calculate contract size: quantity (in base asset) / ctVal (asset per contract)
+	sz := quantity / inst.CtVal
+	szStr := t.formatSize(sz, inst)
+
+	// Determine direction
+	side := "sell"
+	posSide := "long"
+	if strings.ToUpper(positionSide) == "SHORT" {
+		side = "buy"
+		posSide = "short"
+	}
+
+	// Get current price if activation price is not provided
+	currentPrice := activationPrice
+	if currentPrice == 0 {
+		price, err := t.GetMarketPrice(symbol)
+		if err != nil {
+			return fmt.Errorf("failed to get market price: %w", err)
+		}
+		currentPrice = price
+	}
+
+	body := map[string]interface{}{
+		"instId":     instId,
+		"tdMode":     "cross",
+		"side":       side,
+		"posSide":    posSide,
+		"ordType":    "conditional",
+		"sz":         szStr,
+		"triggerPx":  fmt.Sprintf("%.8f", currentPrice),
+		"orderPx":    "-1",                              // Market price
+		"trailingPx": fmt.Sprintf("%.8f", callbackRate), // Callback rate for trailing stop
+		"tag":        okxTag,
+	}
+
+	_, err = t.doRequest("POST", okxAlgoOrderPath, body)
+	if err != nil {
+		return fmt.Errorf("failed to set trailing stop: %w", err)
+	}
+
+	logger.Infof("  Trailing stop set: callback rate: %.2f%%, activation price: %.4f", callbackRate*100, currentPrice)
+	return nil
+}
+
 // CancelStopLossOrders cancels stop loss orders
 func (t *OKXTrader) CancelStopLossOrders(symbol string) error {
 	return t.cancelAlgoOrders(symbol, "sl")
@@ -1305,19 +1359,19 @@ func (t *OKXTrader) GetClosedPnL(startTime time.Time, limit int) ([]ClosedPnLRec
 		Code string `json:"code"`
 		Msg  string `json:"msg"`
 		Data []struct {
-			InstID      string `json:"instId"`      // Instrument ID (e.g., "BTC-USDT-SWAP")
-			Direction   string `json:"direction"`   // Position direction: "long" or "short"
-			OpenAvgPx   string `json:"openAvgPx"`   // Average open price
-			CloseAvgPx  string `json:"closeAvgPx"`  // Average close price
+			InstID        string `json:"instId"`        // Instrument ID (e.g., "BTC-USDT-SWAP")
+			Direction     string `json:"direction"`     // Position direction: "long" or "short"
+			OpenAvgPx     string `json:"openAvgPx"`     // Average open price
+			CloseAvgPx    string `json:"closeAvgPx"`    // Average close price
 			CloseTotalPos string `json:"closeTotalPos"` // Closed position quantity
-			RealizedPnl string `json:"realizedPnl"` // Realized PnL
-			Fee         string `json:"fee"`         // Total fee
-			FundingFee  string `json:"fundingFee"`  // Funding fee
-			Lever       string `json:"lever"`       // Leverage
-			CTime       string `json:"cTime"`       // Position open time
-			UTime       string `json:"uTime"`       // Position close time
-			Type        string `json:"type"`        // Close type: 1=close position, 2=partial close, 3=liquidation, 4=partial liquidation
-			PosId       string `json:"posId"`       // Position ID
+			RealizedPnl   string `json:"realizedPnl"`   // Realized PnL
+			Fee           string `json:"fee"`           // Total fee
+			FundingFee    string `json:"fundingFee"`    // Funding fee
+			Lever         string `json:"lever"`         // Leverage
+			CTime         string `json:"cTime"`         // Position open time
+			UTime         string `json:"uTime"`         // Position close time
+			Type          string `json:"type"`          // Close type: 1=close position, 2=partial close, 3=liquidation, 4=partial liquidation
+			PosId         string `json:"posId"`         // Position ID
 		} `json:"data"`
 	}
 
@@ -1484,10 +1538,10 @@ func (t *OKXTrader) PartialClose(symbol string, side string, percentage float64)
 	logger.Infof("✓ OKX 部分平仓成功: %s %s %.2f%%", symbol, side, percentage)
 
 	return map[string]interface{}{
-		"orderId":  orders[0].OrdId,
-		"symbol":   symbol,
-		"status":   "FILLED",
-		"quantity": szStr,
+		"orderId":    orders[0].OrdId,
+		"symbol":     symbol,
+		"status":     "FILLED",
+		"quantity":   szStr,
 		"percentage": percentage,
 	}, nil
 }

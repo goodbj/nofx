@@ -147,7 +147,7 @@ func syncBinanceServerTime(client *futures.Client) {
 	logger.Infof("⏱ Binance server time synced, offset %dms", offset)
 }
 
-// GetBalance gets account balance (with cache)
+// GetBalance gets account balance (with cache and retry logic)
 func (t *FuturesTrader) GetBalance() (map[string]interface{}, error) {
 	// First check if cache is valid
 	t.balanceCacheMutex.RLock()
@@ -159,14 +159,40 @@ func (t *FuturesTrader) GetBalance() (map[string]interface{}, error) {
 	}
 	t.balanceCacheMutex.RUnlock()
 
-	// Cache expired or doesn't exist, call API
+	// Cache expired or doesn't exist, call API with retry
 	logger.Infof("🔄 Cache expired, calling Binance API to get account balance...")
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
-	defer cancel()
-	account, err := t.client.NewGetAccountService().Do(ctx)
-	if err != nil {
-		logger.Infof("❌ Binance API call failed: %v", err)
-		return nil, fmt.Errorf("failed to get account info: %w", err)
+
+	var account *futures.Account
+	var err error
+	maxRetries := 3
+
+	for attempt := 1; attempt <= maxRetries; attempt++ {
+		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+		account, err = t.client.NewGetAccountService().Do(ctx)
+		cancel()
+
+		if err == nil {
+			break // Success, exit retry loop
+		}
+
+		// Log error details
+		logger.Infof("❌ Binance API call failed (attempt %d/%d): %v", attempt, maxRetries, err)
+
+		// Check if error is EOF or connection-related
+		isRetryable := strings.Contains(err.Error(), "EOF") ||
+			strings.Contains(err.Error(), "connection reset") ||
+			strings.Contains(err.Error(), "timeout") ||
+			strings.Contains(err.Error(), "i/o timeout")
+
+		if !isRetryable || attempt == maxRetries {
+			// Non-retryable error or final attempt failed
+			return nil, fmt.Errorf("failed to get account info after %d attempts: %w", attempt, err)
+		}
+
+		// Wait before retry (exponential backoff)
+		waitTime := time.Duration(attempt) * time.Second
+		logger.Infof("⏳ Retrying in %v...", waitTime)
+		time.Sleep(waitTime)
 	}
 
 	result := make(map[string]interface{})
@@ -188,7 +214,7 @@ func (t *FuturesTrader) GetBalance() (map[string]interface{}, error) {
 	return result, nil
 }
 
-// GetPositions gets all positions (with cache)
+// GetPositions gets all positions (with cache and retry logic)
 func (t *FuturesTrader) GetPositions() ([]map[string]interface{}, error) {
 	// First check if cache is valid
 	t.positionsCacheMutex.RLock()
@@ -200,13 +226,40 @@ func (t *FuturesTrader) GetPositions() ([]map[string]interface{}, error) {
 	}
 	t.positionsCacheMutex.RUnlock()
 
-	// Cache expired or doesn't exist, call API
+	// Cache expired or doesn't exist, call API with retry
 	logger.Infof("🔄 Cache expired, calling Binance API to get position information...")
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
-	defer cancel()
-	positions, err := t.client.NewGetPositionRiskService().Do(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get positions: %w", err)
+
+	var positions []*futures.PositionRisk
+	var err error
+	maxRetries := 3
+
+	for attempt := 1; attempt <= maxRetries; attempt++ {
+		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+		positions, err = t.client.NewGetPositionRiskService().Do(ctx)
+		cancel()
+
+		if err == nil {
+			break // Success, exit retry loop
+		}
+
+		// Log error details
+		logger.Infof("❌ Binance API call failed (attempt %d/%d): %v", attempt, maxRetries, err)
+
+		// Check if error is EOF or connection-related
+		isRetryable := strings.Contains(err.Error(), "EOF") ||
+			strings.Contains(err.Error(), "connection reset") ||
+			strings.Contains(err.Error(), "timeout") ||
+			strings.Contains(err.Error(), "i/o timeout")
+
+		if !isRetryable || attempt == maxRetries {
+			// Non-retryable error or final attempt failed
+			return nil, fmt.Errorf("failed to get positions after %d attempts: %w", attempt, err)
+		}
+
+		// Wait before retry (exponential backoff)
+		waitTime := time.Duration(attempt) * time.Second
+		logger.Infof("⏳ Retrying in %v...", waitTime)
+		time.Sleep(waitTime)
 	}
 
 	var result []map[string]interface{}
@@ -1170,15 +1223,21 @@ func (t *FuturesTrader) SetStopLoss(symbol string, positionSide string, quantity
 		posSide = futures.PositionSideTypeShort
 	}
 
+	// Format price to correct precision
+	priceStr, err := t.FormatPrice(symbol, stopPrice)
+	if err != nil {
+		return fmt.Errorf("failed to format price: %w", err)
+	}
+
 	// Use new Algo Order API
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
-	_, err := t.client.NewCreateAlgoOrderService().
+	_, err = t.client.NewCreateAlgoOrderService().
 		Symbol(symbol).
 		Side(side).
 		PositionSide(posSide).
 		Type(futures.AlgoOrderTypeStopMarket).
-		TriggerPrice(fmt.Sprintf("%.8f", stopPrice)).
+		TriggerPrice(priceStr). // Use formatted price
 		WorkingType(futures.WorkingTypeContractPrice).
 		ClosePosition(true).
 		ClientAlgoId(getBrOrderID()).
@@ -1188,7 +1247,7 @@ func (t *FuturesTrader) SetStopLoss(symbol string, positionSide string, quantity
 		return fmt.Errorf("failed to set stop-loss: %w", err)
 	}
 
-	logger.Infof("  Stop-loss price set (Algo Order): %.4f", stopPrice)
+	logger.Infof("  Stop-loss price set (Algo Order): %s", priceStr)
 	return nil
 }
 
@@ -1206,17 +1265,30 @@ func (t *FuturesTrader) SetTakeProfit(symbol string, positionSide string, quanti
 		posSide = futures.PositionSideTypeShort
 	}
 
+	// Format quantity to correct precision
+	quantityStr, err := t.FormatQuantity(symbol, quantity)
+	if err != nil {
+		return fmt.Errorf("failed to format quantity: %w", err)
+	}
+
+	// Format price to correct precision
+	priceStr, err := t.FormatPrice(symbol, takeProfitPrice)
+	if err != nil {
+		return fmt.Errorf("failed to format price: %w", err)
+	}
+
 	// Use new Algo Order API
+	// Note: Using Quantity instead of ClosePosition for consistency and best practices
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
-	_, err := t.client.NewCreateAlgoOrderService().
+	_, err = t.client.NewCreateAlgoOrderService().
 		Symbol(symbol).
 		Side(side).
 		PositionSide(posSide).
 		Type(futures.AlgoOrderTypeTakeProfitMarket).
-		TriggerPrice(fmt.Sprintf("%.8f", takeProfitPrice)).
+		TriggerPrice(priceStr). // Use formatted price
 		WorkingType(futures.WorkingTypeContractPrice).
-		ClosePosition(true).
+		Quantity(quantityStr). // Use quantity instead of ClosePosition
 		ClientAlgoId(getBrOrderID()).
 		Do(ctx)
 
@@ -1224,7 +1296,75 @@ func (t *FuturesTrader) SetTakeProfit(symbol string, positionSide string, quanti
 		return fmt.Errorf("failed to set take-profit: %w", err)
 	}
 
-	logger.Infof("  Take-profit price set (Algo Order): %.4f", takeProfitPrice)
+	logger.Infof("  Take-profit price set (Algo Order): %s, quantity: %s", priceStr, quantityStr)
+	return nil
+}
+
+// SetTrailingStop sets trailing stop-loss order using new Algo Order API
+// Binance has migrated stop orders to Algo Order system (error -4120 STOP_ORDER_SWITCH_ALGO)
+func (t *FuturesTrader) SetTrailingStop(symbol string, positionSide string, quantity, callbackRate, activationPrice float64) error {
+	var side futures.SideType
+	var posSide futures.PositionSideType
+
+	if positionSide == "LONG" {
+		side = futures.SideTypeSell
+		posSide = futures.PositionSideTypeLong
+	} else {
+		side = futures.SideTypeBuy
+		posSide = futures.PositionSideTypeShort
+	}
+
+	// Calculate activation price based on current market price if activationPrice is 0
+	currentPrice := activationPrice
+	if currentPrice == 0 {
+		price, err := t.GetMarketPrice(symbol)
+		if err != nil {
+			return fmt.Errorf("failed to get market price for trailing stop: %w", err)
+		}
+		currentPrice = price
+	}
+
+	// Format quantity to correct precision
+	quantityStr, err := t.FormatQuantity(symbol, quantity)
+	if err != nil {
+		return fmt.Errorf("failed to format quantity: %w", err)
+	}
+
+	// Format activation price to correct precision
+	activationPriceStr, err := t.FormatPrice(symbol, currentPrice)
+	if err != nil {
+		return fmt.Errorf("failed to format activation price: %w", err)
+	}
+
+	// Binance API expects callbackRate in range [0.1, 10] where 1 = 1%
+	// Frontend sends percentage value (e.g., 2.0 for 2%), which is already in correct format
+	// No conversion needed - just validate range
+	if callbackRate < 0.1 || callbackRate > 10.0 {
+		return fmt.Errorf("callback rate must be between 0.1 and 10 (got %.2f)", callbackRate)
+	}
+
+	// Use new Algo Order API with trailing stop parameters
+	// Note: TRAILING_STOP_MARKET does not support ClosePosition parameter
+	// Must use Quantity instead
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	_, err = t.client.NewCreateAlgoOrderService().
+		Symbol(symbol).
+		Side(side).
+		PositionSide(posSide).
+		Type(futures.AlgoOrderTypeTrailingStopMarket).   // Use trailing stop market type
+		ActivationPrice(activationPriceStr).             // Use formatted price
+		CallbackRate(fmt.Sprintf("%.1f", callbackRate)). // Callback rate: 1 = 1%, range [0.1, 10]
+		Quantity(quantityStr).                           // Use quantity instead of ClosePosition
+		ClientAlgoId(getBrOrderID()).
+		Do(ctx)
+
+	if err != nil {
+		return fmt.Errorf("failed to set trailing stop: %w", err)
+	}
+
+	logger.Infof("  Trailing stop set (Algo Order): callback rate: %.1f%%, activation price: %s, quantity: %s",
+		callbackRate, activationPriceStr, quantityStr)
 	return nil
 }
 
@@ -1334,6 +1474,45 @@ func (t *FuturesTrader) FormatQuantity(symbol string, quantity float64) (string,
 
 	format := fmt.Sprintf("%%.%df", precision)
 	return fmt.Sprintf(format, quantity), nil
+}
+
+// GetPricePrecision gets the price precision for a trading pair
+func (t *FuturesTrader) GetPricePrecision(symbol string) (int, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	exchangeInfo, err := t.client.NewExchangeInfoService().Do(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("failed to get trading rules: %w", err)
+	}
+
+	for _, s := range exchangeInfo.Symbols {
+		if s.Symbol == symbol {
+			// Get precision from PRICE_FILTER
+			for _, filter := range s.Filters {
+				if filter["filterType"] == "PRICE_FILTER" {
+					tickSize := filter["tickSize"].(string)
+					precision := calculatePrecision(tickSize)
+					logger.Infof("  %s price precision: %d (tickSize: %s)", symbol, precision, tickSize)
+					return precision, nil
+				}
+			}
+		}
+	}
+
+	logger.Infof("  ⚠ %s price precision information not found, using default precision 2", symbol)
+	return 2, nil // Default precision is 2
+}
+
+// FormatPrice formats price to correct precision
+func (t *FuturesTrader) FormatPrice(symbol string, price float64) (string, error) {
+	precision, err := t.GetPricePrecision(symbol)
+	if err != nil {
+		// If retrieval fails, use default format
+		return fmt.Sprintf("%.2f", price), nil
+	}
+
+	format := fmt.Sprintf("%%.%df", precision)
+	return fmt.Sprintf(format, price), nil
 }
 
 // Helper functions
