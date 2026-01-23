@@ -16,7 +16,7 @@ cd /d "e:\AI\nofx"
 
 REM 启动后端服务器
 echo 启动命令: go run main.go
-go run main.go
+set OLLAMA_READ_TIMEOUT=270s && go run main.go
 
 if errorlevel 1 (
     echo.

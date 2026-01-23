@@ -19,6 +19,7 @@ services:
       - TZ=${TZ:-Asia/Shanghai}
       - AI_MAX_TOKENS=8000
       - API_SERVER_PORT=${NOFX_BACKEND_PORT:-8888}  # 使用环境变量端口
+      - OLLAMA_READ_TIMEOUT=270s  # 🔥 Ollama超时设置（4.5分钟，基于实测AI调用176秒）
     networks:
       - nofx-network
     healthcheck:
@@ -37,6 +38,8 @@ services:
     restart: unless-stopped
     ports:
       - "${NOFX_FRONTEND_PORT:-3300}:80"  # 映射到环境变量端口
+    environment:
+      - VITE_API_TARGET=http://nofx-dev:${NOFX_BACKEND_PORT:-8888}  # 🔥 通过Docker服务名访问后端
     networks:
       - nofx-network
     depends_on:

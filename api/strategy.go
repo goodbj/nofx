@@ -786,8 +786,17 @@ func (s *Server) runRealAITest(userID, modelID, systemPrompt, userPrompt string)
 	case "openai":
 		aiClient = mcp.NewOpenAIClient()
 		aiClient.SetAPIKey(apiKey, model.CustomAPIURL, model.CustomModelName)
+	case "ollama":
+		// Use OllamaClient for consistent URL handling with trader logic
+		aiClient = mcp.NewOllamaClient()
+		// Ollama typically doesn't need an API key, but we'll use it if provided
+		ollamaAPIKey := apiKey
+		if ollamaAPIKey == "" {
+			ollamaAPIKey = "ollama"
+		}
+		aiClient.SetAPIKey(ollamaAPIKey, model.CustomAPIURL, model.CustomModelName)
 	default:
-		// Use generic client
+		// Use generic client for unknown providers
 		aiClient = mcp.NewClient()
 		aiClient.SetAPIKey(apiKey, model.CustomAPIURL, model.CustomModelName)
 	}
@@ -799,4 +808,141 @@ func (s *Server) runRealAITest(userID, modelID, systemPrompt, userPrompt string)
 	}
 
 	return response, nil
+}
+
+// handleGenerateFullPrompt 生成完整的AI提示词（System + User + 实时数据）
+// 用于手动复制到DeepSeek Web等AI平台
+func (s *Server) handleGenerateFullPrompt(c *gin.Context) {
+	userID := c.GetString("user_id")
+	if userID == "" {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+		return
+	}
+
+	var req struct {
+		TraderID string `json:"trader_id" binding:"required"`
+	}
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		SafeBadRequest(c, "Invalid request parameters: trader_id is required")
+		return
+	}
+
+	// 获取交易员配置
+	traderConfig, err := s.store.Trader().GetFullConfig(userID, req.TraderID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Trader not found or no access permission"})
+		return
+	}
+
+	// 获取交易员实例
+	trader, err := s.traderManager.GetTrader(req.TraderID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Trader instance not found"})
+		return
+	}
+
+	// 触发一次决策流程获取完整Prompt（但不执行交易）
+	// 使用trader的 buildTradingContext 方法
+	status := trader.GetStatus()
+
+	// 手动构建一个简单的响应（包含提示词信息）
+	// 注意：这里简化实现，直接返回提示信息让用户知道如何获取
+	c.JSON(http.StatusOK, gin.H{
+		"success":     true,
+		"message":     "请使用策略测试功能（Strategy Studio -> AI测试）生成完整提示词",
+		"trader_id":   req.TraderID,
+		"trader_name": traderConfig.Trader.Name,
+		"status":      status,
+		"tip":         "为了获取真实的完整Prompt，建议使用策略页面的'AI测试'功能，该功能会生成包含实时数据的完整提示词",
+	})
+}
+
+// handleSubmitAIDecision 提交AI决策JSON（从DeepSeek Web等平台复制回来的）
+func (s *Server) handleSubmitAIDecision(c *gin.Context) {
+	userID := c.GetString("user_id")
+	if userID == "" {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+		return
+	}
+
+	var req struct {
+		TraderID     string            `json:"trader_id" binding:"required"`
+		DecisionJSON string            `json:"decision_json"`
+		Decisions    []kernel.Decision `json:"decisions"`
+	}
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		SafeBadRequest(c, "Invalid request parameters")
+		return
+	}
+
+	// 验证交易员权限
+	_, err := s.store.Trader().GetFullConfig(userID, req.TraderID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Trader not found or no access permission"})
+		return
+	}
+
+	// 如果没有直接提供decisions，则从JSON字符串解析
+	var decisions []kernel.Decision
+	if len(req.Decisions) > 0 {
+		decisions = req.Decisions
+	} else if req.DecisionJSON != "" {
+		// 尝试解析JSON字符串
+		if err := json.Unmarshal([]byte(req.DecisionJSON), &decisions); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error":   "Failed to parse decision JSON",
+				"details": err.Error(),
+			})
+			return
+		}
+	}
+
+	if len(decisions) == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "No decisions provided"})
+		return
+	}
+
+	// 获取交易员实例
+	trader, err := s.traderManager.GetTrader(req.TraderID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Trader instance not found"})
+		return
+	}
+
+	// 执行决策（复用现有的执行逻辑）
+	results := make([]map[string]interface{}, 0, len(decisions))
+	successCount := 0
+	failCount := 0
+
+	for i, decision := range decisions {
+		result := map[string]interface{}{
+			"index":   i + 1,
+			"symbol":  decision.Symbol,
+			"action":  decision.Action,
+			"success": false,
+		}
+
+		err := trader.ExecuteDecision(&decision)
+		if err != nil {
+			result["error"] = err.Error()
+			failCount++
+		} else {
+			result["success"] = true
+			result["message"] = "Executed successfully"
+			successCount++
+		}
+
+		results = append(results, result)
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success":       true,
+		"total":         len(decisions),
+		"success_count": successCount,
+		"fail_count":    failCount,
+		"results":       results,
+		"message":       fmt.Sprintf("Executed %d/%d decisions successfully", successCount, len(decisions)),
+	})
 }

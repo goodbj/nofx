@@ -23,12 +23,16 @@ type Config struct {
 	UseFullURL  bool
 
 	// Retry configuration
-	MaxRetries     int
-	RetryWaitBase  time.Duration
+	MaxRetries      int
+	RetryWaitBase   time.Duration
 	RetryableErrors []string
 
 	// Timeout configuration
 	Timeout time.Duration
+
+	// Context compression configuration (上下文压缩配置)
+	EnableContextCompression bool // 是否启用上下文压缩
+	ModelContextSize         int  // 模型上下文大小（字符数/tokens）
 
 	// Dependency injection
 	Logger     Logger
@@ -39,12 +43,16 @@ type Config struct {
 func DefaultConfig() *Config {
 	return &Config{
 		// Default values
-		MaxTokens:      getEnvInt("AI_MAX_TOKENS", 2000),
-		Temperature:    MCPClientTemperature,
-		MaxRetries:     MaxRetryTimes,
-		RetryWaitBase:  2 * time.Second,
-		Timeout:        DefaultTimeout,
+		MaxTokens:       getEnvInt("AI_MAX_TOKENS", 2000),
+		Temperature:     MCPClientTemperature,
+		MaxRetries:      MaxRetryTimes,
+		RetryWaitBase:   2 * time.Second,
+		Timeout:         DefaultTimeout,
 		RetryableErrors: retryableErrors,
+
+		// Context compression configuration
+		EnableContextCompression: getEnvBool("MCP_ENABLE_CONTEXT_COMPRESSION", true), // 默认开启压缩
+		ModelContextSize:         getEnvInt("MCP_MODEL_CONTEXT_SIZE", 0),             // 0表示自动检测
 
 		// Default dependencies (use global logger)
 		Logger:     logger.NewMCPLogger(),
@@ -66,6 +74,19 @@ func getEnvInt(key string, defaultValue int) int {
 func getEnvString(key string, defaultValue string) string {
 	if val := os.Getenv(key); val != "" {
 		return val
+	}
+	return defaultValue
+}
+
+// getEnvBool reads boolean from environment variable, returns default value if failed
+func getEnvBool(key string, defaultValue bool) bool {
+	if val := os.Getenv(key); val != "" {
+		if val == "true" || val == "1" || val == "yes" {
+			return true
+		}
+		if val == "false" || val == "0" || val == "no" {
+			return false
+		}
 	}
 	return defaultValue
 }

@@ -1,0 +1,613 @@
+========================================
+           系统提示词 (System Prompt)
+========================================
+
+# 📖 Data Dictionary & Trading Rules
+
+## 📊 Field Definitions
+
+### Account Metrics
+- **Total Equity**: Account equity (total assets)
+- **Available Balance**: Available funds for trading
+- **Unrealized PnL**: Profit/loss of current positions
+- **Total PnL**: Overall profit/loss (cumulative)
+- **Margin Used**: Margin occupied by current positions
+- **Position Count**: Number of current positions
+
+### Trade Metrics
+- **Position Size USD**: Position size in USDT
+- **Leverage**: Trading leverage
+- **Stop Loss**: Stop loss price
+- **Take Profit**: Take profit price
+- **Confidence**: Confidence level (0-100)
+- **Risk USD**: Maximum risk in USDT
+
+### Position Metrics
+- **Symbol**: Trading pair (e.g., BTCUSDT)
+- **Side**: Direction (long/short)
+- **Entry Price**: Entry price
+- **Mark Price**: Current market price
+- **Quantity**: Position quantity
+- **Unrealized PnL**: Position unrealized profit/loss
+- **Liquidation Price**: Liquidation price
+- **Margin Used**: Margin occupied
+
+### Market Data
+- **Current Price**: Current market price
+- **Price Change**: Price change percentage
+- **EMA**: Exponential Moving Average
+- **MACD**: Moving Average Convergence Divergence
+- **RSI**: Relative Strength Index
+- **Open Interest**: Open interest value
+- **Funding Rate**: Funding rate
+
+## 💹 Open Interest (OI) Change Interpretation
+
+- **OI Up + Price Up**: Bullish trend, likely continuation
+- **OI Up + Price Down**: Bear trap, potential reversal
+- **OI Down + Price Up**: Bull trap, likely reversal
+- **OI Down + Price Down**: Bearish trend, likely continuation
+
+---
+
+# You are a professional cryptocurrency trading AI
+
+Your task is to make trading decisions based on provided market data.
+
+## Mode: Balanced
+
+# Hard Constraints (Risk Control)
+
+## CODE ENFORCED (Backend validation, cannot be bypassed):
+- Max Positions: 3 coins simultaneously
+- Position Value Limit (Altcoins): max 250 USDT (= equity 1000 × 0.25x)
+- Position Value Limit (BTC/ETH): max 500 USDT (= equity 1000 × 0.50x)
+- Max Margin Usage: ≤80%
+- Min Position Size: ≥12 USDT
+
+## AI GUIDED (Recommended, you should follow):
+- Trading Leverage: Altcoins max 5x | BTC/ETH max 15x
+- Risk-Reward Ratio: ≥1:3.0 (take_profit / stop_loss)
+- Min Confidence: ≥70 to open position
+
+## Position Sizing Guidance
+Calculate `position_size_usd` based on your confidence and the Position Value Limits above:
+- High confidence (≥85): Use 80-100% of max position value limit
+- Medium confidence (70-84): Use 50-80% of max position value limit
+- Low confidence (60-69): Use 30-50% of max position value limit
+- Example: With equity 1000 and BTC/ETH ratio 0.50x, max is 500 USDT
+- **DO NOT** just use available_balance as position_size_usd. Use the Position Value Limits!
+
+# ⏱️ Trading Frequency Awareness
+
+- Excellent traders: 2-4 trades/day ≈ 0.1-0.2 trades/hour
+- >2 trades/hour = Overtrading
+- Single position hold time ≥ 30-60 minutes
+- If you find yourself trading every period → standards too low; if closing positions < 30 minutes → too impatient.
+
+# 🎯 Entry Standards (Strict)
+
+Only open positions when multiple signals resonate. You have:
+- 3m price series + 4h K-line series
+- EMA indicators (periods: [20])
+- MACD indicators
+- RSI indicators (periods: [7])
+- Open Interest (OI) data
+- Funding rate
+- AI500 / OI_Top filter tags (if available)
+- Quantitative data (institutional/retail fund flow, position changes, multi-period price changes)
+
+Feel free to use any effective analysis method, but **confidence ≥ 70** required to open positions; avoid low-quality behaviors such as single indicators, contradictory signals, sideways consolidation, reopening immediately after closing, etc.
+
+# 📋 Decision Process
+
+1. Check positions → Should we take profit/stop-loss
+2. Scan candidate coins + multi-timeframe → Are there strong signals
+3. Write chain of thought first, then output structured JSON
+
+# Output Format (Strictly Follow)
+
+**Must use XML tags <reasoning> and <decision> to separate chain of thought and decision JSON, avoiding parsing errors**
+
+## Format Requirements
+
+<reasoning>
+Your chain of thought analysis...
+- Briefly analyze your thinking process 
+</reasoning>
+
+<decision>
+Step 2: JSON decision array
+
+```json
+[
+  {"symbol": "BTCUSDT", "action": "open_short", "leverage": 15, "position_size_usd": 500, "stop_loss": 97000, "take_profit": 91000, "confidence": 85, "risk_usd": 300},
+  {"symbol": "ETHUSDT", "action": "close_long"},
+  {"symbol": "SOLUSDT", "action": "update_stop_loss", "new_stop_loss": 150.5, "confidence": 75},
+  {"symbol": "ADAUSDT", "action": "update_take_profit", "new_take_profit": 0.85, "confidence": 80},
+  {"symbol": "XRPUSDT", "action": "partial_close", "close_percentage": 50, "confidence": 70}
+]
+```
+</decision>
+
+## Field Description
+
+- `action`: open_long | open_short | close_long | close_short | hold | wait | update_stop_loss | update_take_profit | partial_close | trailing_stop | dynamic_take_profit
+- `confidence`: 0-100 (opening recommended ≥ 70)
+- Required when opening: leverage, position_size_usd, stop_loss, take_profit, confidence, risk_usd
+- Required when update_stop_loss: new_stop_loss, confidence
+- Required when update_take_profit: new_take_profit, confidence
+- Required when partial_close: close_percentage (1-100), confidence
+- Required when trailing_stop: trail_percentage, activation_price, callback_rate, confidence
+- Required when dynamic_take_profit: target_roi, max_roi, time_limit_hours, confidence
+- **IMPORTANT**: All numeric values must be calculated numbers, NOT formulas/expressions (e.g., use `27.76` not `3000 * 0.01`)
+
+========================================
+           用户提示词 (User Prompt)  
+========================================
+
+Time: 2026-01-22 19:04:50 UTC | Period: #156 | Runtime: 1420 minutes
+
+BTC: 43560.42 (1h: +1.25%, 4h: -0.32%) | MACD: 150.5000 | RSI: 62.3000
+
+Account: Equity 12540.67 | Balance 8230.45 (65.6%) | PnL +25.4% | Margin 34.4% | Positions 2
+
+## Current Positions
+
+1. BTCUSDT LONG | Entry 43250.0000 Current 43560.4200 | Qty 0.0200 | Position Value 871.21 USDT | PnL%+2.96 | PnL Amount+62.08 USDT | Peak PnL3.00% | Leverage 10x | Margin 871 | Liq Price 0.0000 | Holding Duration 3h 15m
+
+=== BTCUSDT Market Data ===
+
+current_price = 43560.4200, current_ema20 = 43340.500, current_macd = 150.500, current_rsi7 = 62.300
+
+Additional data for BTCUSDT:
+
+Open Interest: Latest: 85000000.00 Average: 82000000.00
+
+Funding Rate: 1.20e-04
+
+=== 3M Timeframe (oldest → latest) ===
+
+Time(UTC)      Open      High      Low       Close     Volume
+01-22 18:57    43520.0000 43580.0000 43510.0000 43560.4200 1250000.00  <- current
+
+EMA20: [43340.5000]
+MACD: [150.5000]
+RSI7: [62.3000]
+ATR14: 250.4500
+
+=== 4H Timeframe (oldest → latest) ===
+
+Time(UTC)      Open      High      Low       Close     Volume
+01-22 16:00    43200.0000 43600.0000 43150.0000 43560.4200 8500000.00  <- current
+
+EMA20: [43340.5000]
+EMA50: [42890.2000]
+MACD: [150.5000]
+RSI14: [58.7000]
+ATR14: 320.7500
+
+📊 BTCUSDT Quantitative Data:
+Price Change: 5m: +0.2500% | 15m: +0.7500% | 1h: +1.2500% | 4h: -0.3200% | 12h: +2.1500% | 24h: +3.4500%
+Fund Flow (Netflow):
+  Institutional Futures:
+    5m: +1.25M
+    15m: +3.67M
+    1h: +12.45M
+    4h: -8.23M
+    12h: +45.67M
+    24h: +89.34M
+  Retail Futures:
+    5m: +0.45M
+    15m: +1.23M
+    1h: +5.67M
+    4h: -2.34M
+    12h: +18.90M
+    24h: +34.56M
+Open Interest (binance):
+    5m: +0.1500% (+125000.00)
+    15m: +0.4500% (+375000.00)
+    1h: +1.2500% (+1050000.00)
+    4h: -0.8500% (-725000.00)
+    12h: +2.3500% (+1950000.00)
+    24h: +4.5500% (+3850000.00)
+
+2. ETHUSDT SHORT | Entry 2650.0000 Current 2635.8000 | Qty 0.5000 | Position Value 1317.90 USDT | PnL%+5.36 | PnL Amount+71.00 USDT | Peak PnL5.40% | Leverage 8x | Margin 1318 | Liq Price 0.0000 | Holding Duration 5h 30m
+
+=== ETHUSDT Market Data ===
+
+current_price = 2635.8000, current_ema20 = 2645.200, current_macd = -12.300, current_rsi7 = 45.200
+
+Additional data for ETHUSDT:
+
+Open Interest: Latest: 4500000.00 Average: 4300000.00
+
+Funding Rate: -8.50e-05
+
+=== 3M Timeframe (oldest → latest) ===
+
+Time(UTC)      Open      High      Low       Close     Volume
+01-22 18:57    2638.5000 2640.2000 2634.8000 2635.8000 580000.00  <- current
+
+EMA20: [2645.2000]
+MACD: [-12.3000]
+RSI7: [45.2000]
+ATR14: 15.6700
+
+=== 4H Timeframe (oldest → latest) ===
+
+Time(UTC)      Open      High      Low       Close     Volume
+01-22 16:00    2655.3000 2660.8000 2630.5000 2635.8000 2400000.00  <- current
+
+EMA20: [2645.2000]
+EMA50: [2638.7000]
+MACD: [-12.3000]
+RSI14: [48.6000]
+ATR14: 22.4500
+
+📊 ETHUSDT Quantitative Data:
+Price Change: 5m: -0.1500% | 15m: -0.4500% | 1h: -0.3200% | 4h: -0.8500% | 12h: +1.2500% | 24h: +0.6500%
+Fund Flow (Netflow):
+  Institutional Futures:
+    5m: -0.34M
+    15m: -1.23M
+    1h: -4.56M
+    4h: -12.34M
+    12h: +8.76M
+    24h: +15.23M
+  Retail Futures:
+    5m: -0.12M
+    15m: -0.45M
+    1h: -1.67M
+    4h: -4.56M
+    12h: +3.45M
+    24h: +6.78M
+Open Interest (binance):
+    5m: -0.0800% (-36000.00)
+    15m: -0.2500% (-112500.00)
+    1h: -0.7500% (-337500.00)
+    4h: -1.2500% (-562500.00)
+    12h: +0.4500% (+202500.00)
+    24h: +1.8500% (+832500.00)
+
+## Candidate Coins (5 coins)
+
+### 1. SOLUSDT (AI500+OI_Top dual signal)
+
+=== SOLUSDT Market Data ===
+
+current_price = 98.4500, current_ema20 = 96.750, current_macd = 2.350, current_rsi7 = 68.700
+
+Additional data for SOLUSDT:
+
+Open Interest: Latest: 28000000.00 Average: 26500000.00
+
+Funding Rate: 4.50e-05
+
+=== 3M Timeframe (oldest → latest) ===
+
+Time(UTC)      Open      High      Low       Close     Volume
+01-22 18:57    98.1000 98.6500 98.0500 98.4500 2450000.00  <- current
+
+EMA20: [96.7500]
+MACD: [2.3500]
+RSI7: [68.7000]
+ATR14: 1.4500
+
+=== 4H Timeframe (oldest → latest) ===
+
+Time(UTC)      Open      High      Low       Close     Volume
+01-22 16:00    95.2000 98.8000 94.9000 98.4500 12800000.00  <- current
+
+EMA20: [96.7500]
+EMA50: [94.3500]
+MACD: [2.3500]
+RSI14: [65.4000]
+ATR14: 2.1500
+
+📊 SOLUSDT Quantitative Data:
+Price Change: 5m: +0.3500% | 15m: +1.2500% | 1h: +3.6700% | 4h: +5.2500% | 12h: +8.4500% | 24h: +12.3500%
+Fund Flow (Netflow):
+  Institutional Futures:
+    5m: +0.89M
+    15m: +2.67M
+    1h: +15.45M
+    4h: +45.67M
+    12h: +125.34M
+    24h: +234.56M
+  Retail Futures:
+    5m: +0.34M
+    15m: +1.12M
+    1h: +6.78M
+    4h: +18.90M
+    12h: +56.78M
+    24h: +98.76M
+Open Interest (binance):
+    5m: +0.2500% (+70000.00)
+    15m: +0.7500% (+210000.00)
+    1h: +2.3500% (+658000.00)
+    4h: +4.2500% (+1190000.00)
+    12h: +6.7500% (+1890000.00)
+    24h: +9.4500% (+2646000.00)
+
+### 2. ADAUSDT (AI500)
+
+=== ADAUSDT Market Data ===
+
+current_price = 0.5680, current_ema20 = 0.558, current_macd = 0.012, current_rsi7 = 52.300
+
+Additional data for ADAUSDT:
+
+Open Interest: Latest: 12000000.00 Average: 11500000.00
+
+Funding Rate: 1.80e-05
+
+=== 3M Timeframe (oldest → latest) ===
+
+Time(UTC)      Open      High      Low       Close     Volume
+01-22 18:57    0.5665 0.5690 0.5660 0.5680 8900000.00  <- current
+
+EMA20: [0.5580]
+MACD: [0.0120]
+RSI7: [52.3000]
+ATR14: 0.0080
+
+=== 4H Timeframe (oldest → latest) ===
+
+Time(UTC)      Open      High      Low       Close     Volume
+01-22 16:00    0.5550 0.5700 0.5520 0.5680 32000000.00  <- current
+
+EMA20: [0.5580]
+EMA50: [0.5490]
+MACD: [0.0120]
+RSI14: [54.7000]
+ATR14: 0.0120
+
+📊 ADAUSDT Quantitative Data:
+Price Change: 5m: +0.1500% | 15m: +0.4500% | 1h: +1.8500% | 4h: +2.3500% | 12h: +3.6500% | 24h: +4.8500%
+Fund Flow (Netflow):
+  Institutional Futures:
+    5m: +0.23M
+    15m: +0.67M
+    1h: +3.45M
+    4h: +8.90M
+    12h: +18.76M
+    24h: +32.45M
+  Retail Futures:
+    5m: +0.12M
+    15m: +0.34M
+    1h: +1.67M
+    4h: +4.56M
+    12h: +9.87M
+    24h: +16.78M
+Open Interest (binance):
+    5m: +0.1200% (+14400.00)
+    15m: +0.3500% (+40250.00)
+    1h: +0.8500% (+102000.00)
+    4h: +1.4500% (+174000.00)
+    12h: +2.1500% (+258000.00)
+    24h: +3.2500% (+390000.00)
+
+### 3. AVAXUSDT (OI_Top position growth)
+
+=== AVAXUSDT Market Data ===
+
+current_price = 36.7500, current_ema20 = 36.250, current_macd = 0.450, current_rsi7 = 61.200
+
+Additional data for AVAXUSDT:
+
+Open Interest: Latest: 8500000.00 Average: 8200000.00
+
+Funding Rate: 2.80e-05
+
+=== 3M Timeframe (oldest → latest) ===
+
+Time(UTC)      Open      High      Low       Close     Volume
+01-22 18:57    36.6500 36.8500 36.6000 36.7500 3200000.00  <- current
+
+EMA20: [36.2500]
+MACD: [0.4500]
+RSI7: [61.2000]
+ATR14: 0.4500
+
+=== 4H Timeframe (oldest → latest) ===
+
+Time(UTC)      Open      High      Low       Close     Volume
+01-22 16:00    35.8000 37.0000 35.6500 36.7500 12500000.00  <- current
+
+EMA20: [36.2500]
+EMA50: [35.8500]
+MACD: [0.4500]
+RSI14: [58.9000]
+ATR14: 0.6500
+
+📊 AVAXUSDT Quantitative Data:
+Price Change: 5m: +0.2500% | 15m: +0.6500% | 1h: +2.4500% | 4h: +3.7500% | 12h: +5.2500% | 24h: +7.1500%
+Fund Flow (Netflow):
+  Institutional Futures:
+    5m: +0.45M
+    15m: +1.23M
+    1h: +6.78M
+    4h: +15.45M
+    12h: +32.67M
+    24h: +58.90M
+  Retail Futures:
+    5m: +0.18M
+    15m: +0.56M
+    1h: +2.89M
+    4h: +7.23M
+    12h: +15.45M
+    24h: +28.76M
+Open Interest (binance):
+    5m: +0.1800% (+15300.00)
+    15m: +0.5500% (+46750.00)
+    1h: +1.6500% (+139250.00)
+    4h: +2.7500% (+233750.00)
+    12h: +4.2500% (+361250.00)
+    24h: +6.4500% (+548250.00)
+
+### 4. DOGEUSDT
+
+=== DOGEUSDT Market Data ===
+
+current_price = 0.1256, current_ema20 = 0.124, current_macd = 0.002, current_rsi7 = 48.500
+
+Additional data for DOGEUSDT:
+
+Open Interest: Latest: 150000000.00 Average: 145000000.00
+
+Funding Rate: 9.50e-06
+
+=== 3M Timeframe (oldest → latest) ===
+
+Time(UTC)      Open      High      Low       Close     Volume
+01-22 18:57    0.1254 0.1258 0.1253 0.1256 45000000.00  <- current
+
+EMA20: [0.1240]
+MACD: [0.0020]
+RSI7: [48.5000]
+ATR14: 0.0012
+
+=== 4H Timeframe (oldest → latest) ===
+
+Time(UTC)      Open      High      Low       Close     Volume
+01-22 16:00    0.1245 0.1260 0.1240 0.1256 180000000.00  <- current
+
+EMA20: [0.1240]
+EMA50: [0.1235]
+MACD: [0.0020]
+RSI14: [51.2000]
+ATR14: 0.0018
+
+📊 DOGEUSDT Quantitative Data:
+Price Change: 5m: +0.0800% | 15m: +0.2500% | 1h: +0.8500% | 4h: +1.2500% | 12h: +2.3500% | 24h: +3.6500%
+Fund Flow (Netflow):
+  Institutional Futures:
+    5m: +0.67M
+    15m: +1.89M
+    1h: +5.23M
+    4h: +12.67M
+    12h: +28.45M
+    24h: +52.34M
+  Retail Futures:
+    5m: +0.25M
+    15m: +0.78M
+    1h: +2.34M
+    4h: +5.89M
+    12h: +13.67M
+    24h: +25.67M
+Open Interest (binance):
+    5m: +0.0500% (+75000.00)
+    15m: +0.1500% (+217500.00)
+    1h: +0.4500% (+652500.00)
+    4h: +0.7500% (+1125000.00)
+    12h: +1.2500% (+1812500.00)
+    24h: +2.1500% (+3075000.00)
+
+### 5. LINKUSDT
+
+=== LINKUSDT Market Data ===
+
+current_price = 14.8500, current_ema20 = 14.650, current_macd = 0.180, current_rsi7 = 56.700
+
+Additional data for LINKUSDT:
+
+Open Interest: Latest: 12000000.00 Average: 11800000.00
+
+Funding Rate: 1.50e-05
+
+=== 3M Timeframe (oldest → latest) ===
+
+Time(UTC)      Open      High      Low       Close     Volume
+01-22 18:57    14.8000 14.8800 14.7800 14.8500 6800000.00  <- current
+
+EMA20: [14.6500]
+MACD: [0.1800]
+RSI7: [56.7000]
+ATR14: 0.2500
+
+=== 4H Timeframe (oldest → latest) ===
+
+Time(UTC)      Open      High      Low       Close     Volume
+01-22 16:00    14.5000 14.9500 14.4500 14.8500 25000000.00  <- current
+
+EMA20: [14.6500]
+EMA50: [14.5500]
+MACD: [0.1800]
+RSI14: [54.3000]
+ATR14: 0.3500
+
+📊 LINKUSDT Quantitative Data:
+Price Change: 5m: +0.2500% | 15m: +0.6500% | 1h: +1.8500% | 4h: +2.7500% | 12h: +4.2500% | 24h: +5.8500%
+Fund Flow (Netflow):
+  Institutional Futures:
+    5m: +0.34M
+    15m: +0.98M
+    1h: +3.23M
+    4h: +7.89M
+    12h: +16.78M
+    24h: +29.45M
+  Retail Futures:
+    5m: +0.15M
+    15m: +0.45M
+    1h: +1.56M
+    4h: +3.67M
+    12h: +8.23M
+    24h: +14.76M
+Open Interest (binance):
+    5m: +0.1200% (+14400.00)
+    15m: +0.3500% (+41300.00)
+    1h: +0.9500% (+114000.00)
+    4h: +1.6500% (+198000.00)
+    12h: +2.4500% (+294000.00)
+    24h: +3.7500% (+450000.00)
+
+## OI Ranking Data
+
+### Open Interest Growth Top Positions:
+1. TIAUSDT: +12.5% (+1.25M USDT) | Price Change: +3.2%
+2. JUPUSDT: +10.8% (+0.98M USDT) | Price Change: +2.8%
+3. WIFUSDT: +8.9% (+0.76M USDT) | Price Change: +1.9%
+4. SEIUSDT: +7.2% (+0.65M USDT) | Price Change: +2.1%
+5. PYTHUSDT: +6.8% (+0.58M USDT) | Price Change: +1.5%
+
+### Open Interest Decline Bottom Positions:
+1. FETUSDT: -8.5% (-0.72M USDT) | Price Change: -2.1%
+2. ARBUSDT: -6.9% (-0.58M USDT) | Price Change: -1.8%
+3. STXUSDT: -5.4% (-0.46M USDT) | Price Change: -1.2%
+4. INJUSDT: -4.8% (-0.41M USDT) | Price Change: -1.5%
+5. TONUSDT: -4.2% (-0.36M USDT) | Price Change: -0.9%
+
+## NetFlow Ranking Data
+
+### Institutional Future Top Inflows:
+1. SOLUSDT: +45.67M USDT
+2. DOGEUSDT: +32.45M USDT
+3. AVAXUSDT: +28.76M USDT
+4. TIAUSDT: +25.34M USDT
+5. JUPUSDT: +22.18M USDT
+
+### Institutional Future Bottom Outflows:
+1. BNBUSDT: -18.76M USDT
+2. XRPUSDT: -15.45M USDT
+3. ADAUSDT: -12.34M USDT
+4. LTCUSDT: -9.87M USDT
+5. BCHUSDT: -7.65M USDT
+
+### Retail Future Top Inflows:
+1. DOGEUSDT: +18.76M USDT
+2. SHIBUSDT: +15.67M USDT
+3. BONKUSDT: +12.45M USDT
+4. FLOKIUSDT: +9.87M USDT
+5. PEPEUSDT: +8.23M USDT
+
+### Retail Future Bottom Outflows:
+1. LINKUSDT: -8.76M USDT
+2. UNIUSDT: -7.45M USDT
+3. MATICUSDT: -6.34M USDT
+4. AAVEUSDT: -5.23M USDT
+5. MKRUSDT: -4.12M USDT
+
+---
+
+Now please analyze and output your decision (Chain of Thought + JSON)

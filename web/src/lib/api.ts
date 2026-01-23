@@ -112,6 +112,14 @@ export const api = {
     if (!result.success) throw new Error('停止交易员失败')
   },
 
+  async getTraderStatus(traderId: string): Promise<SystemStatus> {
+    const result = await httpClient.get<SystemStatus>(
+      `${API_BASE}/traders/${traderId}/status`
+    )
+    if (!result.success) throw new Error('获取交易员状态失败')
+    return result.data!
+  },
+
   async toggleCompetition(traderId: string, showInCompetition: boolean): Promise<void> {
     const result = await httpClient.put(
       `${API_BASE}/traders/${traderId}/competition`,

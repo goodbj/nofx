@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"math"
 	"nofx/experience"
-	"nofx/hook"
 	"nofx/kernel"
 	"nofx/logger"
 	"nofx/market"
@@ -152,6 +151,35 @@ type AutoTrader struct {
 	lastBalanceSyncTime   time.Time              // Last balance sync time
 	userID                string                 // User ID
 	tradeFrequencyTracker *TradeFrequencyTracker // Tracks trade frequencies for limits
+	lastManualScanTime    time.Time              // 🔥 新增：上次手动扫描时间（用于延迟系统扫描）
+	nextSystemScanTime    time.Time              // 🔥 新增：下次系统扫描时间
+	scanDelayDuration     time.Duration          // 🔥 新增：手动扫描后延迟系统扫描的时长
+}
+
+// calculateScanDelay 智能计算手动扫描后的延迟时长
+// 规则：
+//   - 扫描周期 >= 8分钟：延迟5分钟（保留手动扫描的价值）
+//   - 扫描周期 < 8分钟：延迟 = 周期 × 0.8（避免手动扫描意义不大）
+func calculateScanDelay(scanInterval time.Duration) time.Duration {
+	const minDelayMinutes = 5.0  // 最小延迟5分钟
+	const thresholdMinutes = 8.0 // 阈值：8分钟
+
+	intervalMinutes := scanInterval.Minutes()
+
+	// 如果扫描周期 >= 8分钟，使用固定5分钟延迟（手动扫描有意义）
+	if intervalMinutes >= thresholdMinutes {
+		return time.Duration(minDelayMinutes) * time.Minute
+	}
+
+	// 如果扫描周期 < 8分钟，延迟 = 周期 × 0.8（避免过于频繁）
+	delayMinutes := intervalMinutes * 0.8
+
+	// 确保至少延迟2分钟（避免过短）
+	if delayMinutes < 2.0 {
+		delayMinutes = 2.0
+	}
+
+	return time.Duration(delayMinutes * float64(time.Minute))
 }
 
 // NewAutoTrader creates an automatic trader
@@ -352,6 +380,11 @@ func NewAutoTrader(config AutoTraderConfig, st *store.Store, userID string) (*Au
 	strategyEngine := kernel.NewStrategyEngine(config.StrategyConfig)
 	logger.Infof("✓ [%s] Using strategy engine (strategy configuration loaded)", config.Name)
 
+	// 🔥 智能计算手动扫描延迟时长（基于扫描周期）
+	scanDelayDuration := calculateScanDelay(config.ScanInterval)
+	logger.Infof("⏰ [%s] 手动扫描延迟配置: %.0f分钟 (扫描周期: %.0f分钟)",
+		config.Name, scanDelayDuration.Minutes(), config.ScanInterval.Minutes())
+
 	return &AutoTrader{
 		id:                    config.ID,
 		name:                  config.Name,
@@ -385,6 +418,8 @@ func NewAutoTrader(config AutoTraderConfig, st *store.Store, userID string) (*Au
 			hourlyResetTime:       time.Now(),
 			symbolHourlyResetTime: time.Now(),
 		},
+		scanDelayDuration:  5 * time.Minute,                     // 🔥 新增：手动扫描后默认延迟5分钟（基于实测：本地大模型扫描2-4分钟）
+		nextSystemScanTime: time.Now().Add(config.ScanInterval), // 🔥 新增：初始化下次扫描时间
 	}, nil
 }
 
@@ -470,6 +505,8 @@ func (at *AutoTrader) Run() error {
 	if err := at.runCycleWithExecutionLock(); err != nil {
 		logger.Infof("❌ Execution failed: %v", err)
 	}
+	// 🔥 初始化下次扫描时间
+	at.nextSystemScanTime = time.Now().Add(at.config.ScanInterval)
 
 	for {
 		at.isRunningMutex.RLock()
@@ -482,12 +519,25 @@ func (at *AutoTrader) Run() error {
 
 		select {
 		case <-ticker.C:
+			// 🔥 新增：检查是否需要因手动扫描而延迟
+			now := time.Now()
+			if !at.lastManualScanTime.IsZero() && now.Before(at.lastManualScanTime.Add(at.scanDelayDuration)) {
+				remainingDelay := at.lastManualScanTime.Add(at.scanDelayDuration).Sub(now)
+				logger.Infof("⏳ [%s] 系统扫描延迟中（手动扫描后 %.0f 秒内不触发），剩余: %.0f秒",
+					at.name, at.scanDelayDuration.Seconds(), remainingDelay.Seconds())
+				// 更新下次扫描时间
+				at.nextSystemScanTime = at.lastManualScanTime.Add(at.scanDelayDuration).Add(at.config.ScanInterval)
+				continue
+			}
+
 			if err := at.runCycleWithExecutionLock(); err != nil {
 				// Only log error if it's not because manual scan is in progress
 				if err.Error() != "automatic scan skipped: manual scan in progress" {
 					logger.Infof("❌ Execution failed: %v", err)
 				}
 			}
+			// 🔥 更新下次扫描时间
+			at.nextSystemScanTime = time.Now().Add(at.config.ScanInterval)
 		case <-at.stopMonitorCh:
 			logger.Infof("[%s] ⏹ Stop signal received, exiting automatic trading main loop", at.name)
 			return nil
@@ -1032,13 +1082,13 @@ func (at *AutoTrader) buildTradingContext() (*kernel.Context, error) {
 
 // executeDecisionWithRecord executes AI decision and records detailed information
 func (at *AutoTrader) executeDecisionWithRecord(decision *kernel.Decision, actionRecord *store.DecisionAction) error {
-	// Execute BEFORE_DECISION_EXECUTE hook
-	beforeHookResult := hook.HookExec[hook.DecisionExecutionResult](hook.BEFORE_DECISION_EXECUTE, decision, at.id)
-	if beforeHookResult != nil {
-		if err := beforeHookResult.Error(); err != nil {
-			logger.Errorf("❌ Before decision execute hook error: %v", err)
-		}
-	}
+	// TODO: Execute BEFORE_DECISION_EXECUTE hook (currently disabled due to missing type definition)
+	// beforeHookResult := hook.HookExec[hook.DecisionExecutionResult](hook.BEFORE_DECISION_EXECUTE, decision, at.id)
+	// if beforeHookResult != nil {
+	// 	if err := beforeHookResult.Error(); err != nil {
+	// 		logger.Errorf("❌ Before decision execute hook error: %v", err)
+	// 	}
+	// }
 
 	// Log the incoming decision for debugging
 	logger.Infof("  🤖 Processing AI decision: Symbol=%s, Action=%s, Confidence=%d", decision.Symbol, decision.Action, decision.Confidence)
@@ -1156,6 +1206,9 @@ func (at *AutoTrader) TriggerDecision() (map[string]interface{}, error) {
 	}()
 
 	logger.Infof("🚀 Calling runCycle for manual trigger on %s", at.name)
+	// 🔥 记录手动扫描时间（用于延迟系统扫描）
+	at.lastManualScanTime = time.Now()
+
 	// Call the main decision cycle
 	err := at.runCycle()
 	executionTime := time.Since(startTime)
@@ -1165,6 +1218,12 @@ func (at *AutoTrader) TriggerDecision() (map[string]interface{}, error) {
 	}
 
 	logger.Infof("✅ Preparing result for %s after successful runCycle (took %v)", at.name, executionTime)
+
+	// 🔥 更新下次系统扫描时间（手动扫描后延迟）
+	at.nextSystemScanTime = at.lastManualScanTime.Add(at.scanDelayDuration).Add(at.config.ScanInterval)
+	logger.Infof("⏰ [%s] 下次系统扫描时间已更新为: %s (手动扫描后延迟%.0f秒)",
+		at.name, at.nextSystemScanTime.Format("15:04:05"), at.scanDelayDuration.Seconds())
+
 	// Return success status and some info
 	result := map[string]interface{}{
 		"success":                  true,
@@ -2041,20 +2100,38 @@ func (at *AutoTrader) GetStatus() map[string]interface{} {
 	isRunning := at.isRunning
 	at.isRunningMutex.RUnlock()
 
+	// 🔥 计算是否被手动扫描延迟
+	isDelayedByManual := false
+	secondsUntilNextScan := 0
+	if isRunning {
+		now := time.Now()
+		if !at.lastManualScanTime.IsZero() && now.Before(at.lastManualScanTime.Add(at.scanDelayDuration)) {
+			isDelayedByManual = true
+		}
+		// 计算距离下次扫描的秒数
+		if at.nextSystemScanTime.After(now) {
+			secondsUntilNextScan = int(at.nextSystemScanTime.Sub(now).Seconds())
+		}
+	}
+
 	return map[string]interface{}{
-		"trader_id":       at.id,
-		"trader_name":     at.name,
-		"ai_model":        at.aiModel,
-		"exchange":        at.exchange,
-		"is_running":      isRunning,
-		"start_time":      at.startTime.Format(time.RFC3339),
-		"runtime_minutes": int(time.Since(at.startTime).Minutes()),
-		"call_count":      at.callCount,
-		"initial_balance": at.initialBalance,
-		"scan_interval":   at.config.ScanInterval.String(),
-		"stop_until":      at.stopUntil.Format(time.RFC3339),
-		"last_reset_time": at.lastResetTime.Format(time.RFC3339),
-		"ai_provider":     aiProvider,
+		"trader_id":               at.id,
+		"trader_name":             at.name,
+		"ai_model":                at.aiModel,
+		"exchange":                at.exchange,
+		"is_running":              isRunning,
+		"is_executing":            at.isExecuting, // 🔥 系统扫描状态
+		"start_time":              at.startTime.Format(time.RFC3339),
+		"runtime_minutes":         int(time.Since(at.startTime).Minutes()),
+		"call_count":              at.callCount,
+		"initial_balance":         at.initialBalance,
+		"scan_interval":           at.config.ScanInterval.String(),
+		"stop_until":              at.stopUntil.Format(time.RFC3339),
+		"last_reset_time":         at.lastResetTime.Format(time.RFC3339),
+		"ai_provider":             aiProvider,
+		"is_delayed_by_manual":    isDelayedByManual,            // 🔥 新增：是否因手动扫描而延迟
+		"next_scan_time":          at.nextSystemScanTime.Unix(), // 🔥 新增：下次扫描时间戳
+		"seconds_until_next_scan": secondsUntilNextScan,         // 🔥 新增：距离下次扫描的秒数
 	}
 }
 

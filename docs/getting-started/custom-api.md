@@ -72,14 +72,24 @@
 
 ### 3. 本地 Ollama
 
+**重要：Ollama 使用专用客户端，URL 格式要求不同**
+
 ```json
 {
-  "ai_model": "custom",
-  "custom_api_url": "http://localhost:11434/v1",
+  "ai_model": "ollama",
+  "custom_api_url": "http://localhost:11434",
   "custom_api_key": "ollama",
   "custom_model_name": "llama3.1:70b"
 }
 ```
+
+**⚠️ Ollama 配置注意事项：**
+- ✅ **正确格式**：`http://localhost:11434`（不带 `/v1` 或其他路径）
+- ❌ **错误格式**：`http://localhost:11434/v1`（会导致 API 调用失败）
+- 📌 **原因**：Ollama 使用 `/api/generate` 端点，系统会自动拼接正确路径
+- 🔧 **远程 Ollama**：`http://192.168.1.3:11434`（同样不带 `/v1`）
+
+**统一规则：系统中所有功能（Trader启动、Strategy测试、手动扫盘、辩论引擎）对 Ollama URL 的处理现已统一，都要求不带 `/v1` 后缀。**
 
 ### 4. Azure OpenAI
 

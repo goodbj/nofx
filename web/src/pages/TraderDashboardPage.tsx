@@ -141,6 +141,9 @@ export function TraderDashboardPage({
     const [isManualDecisionLoading, setIsManualDecisionLoading] = useState<boolean>(false)
     const [manualScanCooldown, setManualScanCooldown] = useState<boolean>(false)
     const [startButtonCooldown, setStartButtonCooldown] = useState<boolean>(false)
+    const [isSystemScanning, setIsSystemScanning] = useState<boolean>(false)
+    const [nextScanCountdown, setNextScanCountdown] = useState<number>(0) // 🔥 新增：下次扫描倒计时（秒）
+    const [isDelayedByManual, setIsDelayedByManual] = useState<boolean>(false) // 🔥 新增：是否被手动扫描延迟
 
     // Current positions pagination
     const [positionsPageSize, setPositionsPageSize] = useState<number>(20)
@@ -158,6 +161,43 @@ export function TraderDashboardPage({
     useEffect(() => {
         setPositionsCurrentPage(1)
     }, [selectedTraderId, positionsPageSize])
+
+    // 轮询AI分析状态（每500ms检查一次is_executing）
+    useEffect(() => {
+        if (!selectedTraderId || !status?.is_running) {
+            setIsSystemScanning(false)
+            setNextScanCountdown(0)
+            setIsDelayedByManual(false)
+            return
+        }
+
+        const pollInterval = setInterval(async () => {
+            try {
+                // 只在trader运行中时轮询
+                const currentStatus = await api.getTraderStatus(selectedTraderId)
+                
+                // 检查 is_executing 字段（系统正在执行决策）
+                if (currentStatus && 'is_executing' in currentStatus) {
+                    setIsSystemScanning(currentStatus.is_executing === true)
+                }
+                
+                // 🔥 新增：更新倒计时信息
+                if (currentStatus && 'seconds_until_next_scan' in currentStatus) {
+                    setNextScanCountdown(currentStatus.seconds_until_next_scan || 0)
+                }
+                
+                // 🔥 新增：更新延迟状态
+                if (currentStatus && 'is_delayed_by_manual' in currentStatus) {
+                    setIsDelayedByManual(currentStatus.is_delayed_by_manual === true)
+                }
+            } catch (error) {
+                // 静默失败，不影响用户体验
+                console.debug('Status poll failed:', error)
+            }
+        }, 500) // 每500ms轮询一次
+
+        return () => clearInterval(pollInterval)
+    }, [selectedTraderId, status?.is_running])
 
     // Get current exchange info for perp-dex wallet display
     const currentExchange = exchanges?.find(
@@ -763,10 +803,48 @@ export function TraderDashboardPage({
                                     )}
                                 </div>
                             </div>
+                            {/* AI分析状态指示器 */}
+                            {isSystemScanning && (
+                                <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-purple-500/10 border border-purple-500/30 mr-2">
+                                    <Loader2 className="w-4 h-4 animate-spin text-purple-400" />
+                                    <span className="text-sm text-purple-300">
+                                        {language === 'zh' ? 'AI分析中...' : 'AI Analyzing...'}
+                                    </span>
+                                </div>
+                            )}
+                            {/* 🔥 新增：下次扫描倒计时 */}
+                            {!isSystemScanning && status?.is_running && nextScanCountdown > 0 && (
+                                <div className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border mr-2 ${
+                                    isDelayedByManual 
+                                        ? 'bg-amber-500/10 border-amber-500/30' 
+                                        : 'bg-blue-500/10 border-blue-500/30'
+                                }`}>
+                                    <span className={`text-sm font-medium ${
+                                        isDelayedByManual ? 'text-amber-300' : 'text-blue-300'
+                                    }`}>
+                                        {language === 'zh' 
+                                            ? `AI分析将在 ${nextScanCountdown} 秒后开始` 
+                                            : `AI analysis in ${nextScanCountdown}s`}
+                                    </span>
+                                    {isDelayedByManual && (
+                                        <span className="text-xs text-amber-400/70">
+                                            {language === 'zh' ? '(手动延迟)' : '(Manual Delay)'}
+                                        </span>
+                                    )}
+                                </div>
+                            )}
                             <button
                                 onClick={async () => {
                                     if (!selectedTraderId) {
                                         notify.error(language === 'zh' ? '请选择交易员' : 'Please select a trader');
+                                        return;
+                                    }
+                                    
+                                    // 🔥 新增：AI分析中时拒绝手动扫盘
+                                    if (isSystemScanning) {
+                                        notify.warning(language === 'zh' 
+                                            ? 'AI正在分析中，请等待完成后再手动扫盘（避免给AI增加负担）' 
+                                            : 'AI is analyzing, please wait for completion before manual scan (to avoid AI burden)');
                                         return;
                                     }
                                                                                              
@@ -796,18 +874,21 @@ export function TraderDashboardPage({
                                                                         
                                         // 检查结果并提供更详细的反馈
                                         if (result && result.message) {
+                                            // 🔥 根据延迟时长动态显示提示
+                                            const delayMessage = language === 'zh' ? 'AI分析已智能延迟' : 'AI analysis intelligently delayed';
+                                            
                                             // 如果后端返回了执行时间，优先使用后端的时间
                                             if (result.execution_time_formatted) {
                                                 notify.success(
                                                     language === 'zh' 
-                                                        ? `手动扫盘已完成！耗时: ${result.execution_time_formatted}` 
-                                                        : `Manual scan completed! Duration: ${result.execution_time_formatted}`
+                                                        ? `✅ 手动扫盘已完成！耗时: ${result.execution_time_formatted}\n⏰ ${delayMessage}` 
+                                                        : `✅ Manual scan completed! Duration: ${result.execution_time_formatted}\n⏰ ${delayMessage}`
                                                 );
                                             } else {
                                                 notify.success(
                                                     language === 'zh' 
-                                                        ? `手动扫盘已成功触发！客户端耗时: ${executionTime}ms` 
-                                                        : `Manual scan triggered successfully! Client duration: ${executionTime}ms`
+                                                        ? `✅ 手动扫盘已成功触发！客户端耗时: ${executionTime}ms\n⏰ ${delayMessage}` 
+                                                        : `✅ Manual scan triggered successfully! Client duration: ${executionTime}ms\n⏰ ${delayMessage}`
                                                 );
                                             }
                                         }
@@ -906,9 +987,21 @@ export function TraderDashboardPage({
                                         setIsManualDecisionLoading(false);
                                     }
                                 }}
-                                disabled={!selectedTraderId || isManualDecisionLoading || manualScanCooldown}
-                                className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-all hover:scale-105 active:scale-95 nofx-glass border text-sm ${!selectedTraderId ? 'border-nofx-gray/30 text-nofx-gray/50' : 'border-nofx-blue/30 text-nofx-blue hover:bg-nofx-blue/10'} flex items-center gap-1 mr-2`}
-                                title={!selectedTraderId ? '请先选择交易员' : manualScanCooldown ? '冷却中，请稍后再试' : '手动触发AI扫盘决策'}
+                                disabled={!selectedTraderId || isManualDecisionLoading || manualScanCooldown || isSystemScanning}
+                                className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-all hover:scale-105 active:scale-95 nofx-glass border text-sm ${
+                                    !selectedTraderId || isSystemScanning 
+                                        ? 'border-nofx-gray/30 text-nofx-gray/50 cursor-not-allowed' 
+                                        : 'border-nofx-blue/30 text-nofx-blue hover:bg-nofx-blue/10'
+                                } flex items-center gap-1 mr-2`}
+                                title={
+                                    !selectedTraderId 
+                                        ? '请先选择交易员' 
+                                        : isSystemScanning 
+                                            ? 'AI正在分析，请稍候...' 
+                                            : manualScanCooldown 
+                                                ? '冷却中，请稍后再试' 
+                                                : '手动触发AI扫盘决策'
+                                }
                             >
                                 {isManualDecisionLoading ? (
                                     <>

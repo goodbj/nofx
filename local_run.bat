@@ -24,5 +24,8 @@ echo Starting NOFX backend server...
 echo Press Ctrl+C to stop the server
 echo.
 
+REM 设置Ollama超时（4.5分钟）
+set OLLAMA_READ_TIMEOUT=270s
+
 REM 运行后端服务
 go run main.go

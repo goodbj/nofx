@@ -41,6 +41,7 @@ services:
     environment:
       - API_HOST=nofx
       - NOFX_BACKEND_PORT=${NOFX_BACKEND_PORT:-8080}
+      - VITE_API_TARGET=http://nofx:${NOFX_BACKEND_PORT:-8080}  # 🔥 通过Docker服务名访问后端
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://127.0.0.1/health"]
       interval: 30s

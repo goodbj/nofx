@@ -83,6 +83,8 @@ export function StrategyStudioPage() {
   const [isLoadingPrompt, setIsLoadingPrompt] = useState(false)
   const [selectedVariant, setSelectedVariant] = useState('balanced')
 
+
+
   // AI Test Run states
   const [aiTestResult, setAiTestResult] = useState<{
     system_prompt?: string
@@ -320,6 +322,8 @@ export function StrategyStudioPage() {
         return `${t('estimatedCost')}: $${formattedUSD} (¥${formattedCNY})`;
     }
   };
+
+
   
   // 生成系统提示词用于成本估算
   const generateSystemPrompt = (): string => {
@@ -1056,6 +1060,8 @@ export function StrategyStudioPage() {
       noModel: { zh: '请先配置 AI 模型', en: 'Please configure AI model first' },
       testNote: { zh: '使用真实 AI 模型测试，不执行交易', en: 'Test with real AI, no trading' },
       publishSettings: { zh: '发布设置', en: 'Publish' },
+      potentialSavings: { zh: '潜在节省', en: 'Potential Savings' },
+      optimizePromptForCost: { zh: '优化Prompt以降低成本', en: 'Optimize prompt for cost' },
     }
     return translations[key]?.[language] || key
   }
@@ -1450,7 +1456,7 @@ export function StrategyStudioPage() {
                     {promptPreview ? t('refreshPrompt') : t('loadPrompt')}
                   </button>
                 </div>
-
+                  
                 {promptPreview ? (
                   <>
                     {/* Config Summary */}
@@ -1468,7 +1474,7 @@ export function StrategyStudioPage() {
                         ))}
                       </div>
                     </div>
-
+                  
                     {/* System Prompt */}
                     <div>
                       <div className="flex items-center justify-between mb-1.5">
@@ -1534,7 +1540,7 @@ export function StrategyStudioPage() {
                       {t('noModel')}
                     </div>
                   )}
-
+                  
                   <div className="flex items-center gap-2">
                     <select
                       value={selectedVariant}
@@ -1563,7 +1569,7 @@ export function StrategyStudioPage() {
                           </>
                         )}
                       </button>
-                                    
+                                                        
                       {/* 成本优化提示 */}
                       {selectedModelId && editingConfig && (
                         <div className="text-xs text-gray-500 dark:text-gray-400">
@@ -1589,7 +1595,7 @@ export function StrategyStudioPage() {
                   </div>
                   <p className="text-[10px] text-nofx-text-muted">{t('testNote')}</p>
                 </div>
-
+                  
                 {/* Test Results */}
                 {aiTestResult ? (
                   <div className="space-y-3">
@@ -1616,7 +1622,7 @@ export function StrategyStudioPage() {
                             </div>
                           </div>
                         )}
-
+                  
                         {/* User Prompt Input */}
                         {aiTestResult.user_prompt && (
                           <div>
@@ -1676,7 +1682,7 @@ export function StrategyStudioPage() {
                             </div>
                           </div>
                         )}
-
+                  
                         {/* AI Reasoning */}
                         {aiTestResult.reasoning && (
                           <div>
@@ -1728,7 +1734,7 @@ export function StrategyStudioPage() {
                             </div>
                           </div>
                         )}
-
+                  
                         {/* AI Decisions */}
                         {aiTestResult.decisions && aiTestResult.decisions.length > 0 && (
                           <div>
@@ -1780,7 +1786,7 @@ export function StrategyStudioPage() {
                             </div>
                           </div>
                         )}
-
+                  
                         {/* Raw AI Response */}
                         {aiTestResult.ai_response && (
                           <div>

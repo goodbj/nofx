@@ -13,7 +13,7 @@ echo.
 cd /d "e:\AI\nofx_Dev"
 
 echo 启动命令: go run main.go
-set API_SERVER_PORT=%SERVER_PORT% && set JWT_SECRET=dev-jwt-secret-change-in-production && set DATA_ENCRYPTION_KEY=ZGV2LWRhdGEtZW5jcnlwdGlvbi1rZXktZGV2LWRhdGE= && go run main.go
+set API_SERVER_PORT=%SERVER_PORT% && set JWT_SECRET=dev-jwt-secret-change-in-production && set DATA_ENCRYPTION_KEY=ZGV2LWRhdGEtZW5jcnlwdGlvbi1rZXktZGV2LWRhdGE= && set OLLAMA_READ_TIMEOUT=270s && go run main.go
 
 if errorlevel 1 (
     echo.

@@ -31,6 +31,8 @@ func main() {
 	}
 	logger.InitWithSimpleConfig(logLevel)
 
+	logger.Infof("🔧 Configured log level: %s", logLevel)
+
 	logger.Info("╔════════════════════════════════════════════════════════════╗")
 	logger.Info("║           🚀 NOFX - AI-Powered Trading System              ║")
 	logger.Info("╚════════════════════════════════════════════════════════════╝")

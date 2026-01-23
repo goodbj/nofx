@@ -29,6 +29,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"github.com/sirupsen/logrus"
 )
 
 // Server HTTP API server
@@ -41,6 +42,7 @@ type Server struct {
 	debateHandler   *DebateHandler
 	httpServer      *http.Server
 	port            int
+	logger          *logrus.Logger
 }
 
 // NewServer Creates API server
@@ -48,7 +50,10 @@ func NewServer(traderManager *manager.TraderManager, st *store.Store, cryptoServ
 	// Set to Release mode (reduce log output)
 	gin.SetMode(gin.ReleaseMode)
 
-	router := gin.Default()
+	// Create router with custom logger middleware (respects LOG_LEVEL)
+	router := gin.New()
+	router.Use(gin.Recovery())           // Add recovery middleware
+	router.Use(customLoggerMiddleware()) // Use custom logger that respects LOG_LEVEL
 
 	// Enable CORS
 	router.Use(corsMiddleware())
@@ -72,6 +77,7 @@ func NewServer(traderManager *manager.TraderManager, st *store.Store, cryptoServ
 		backtestManager: backtestManager,
 		debateHandler:   debateHandler,
 		port:            port,
+		logger:          logger.Log,
 	}
 
 	// Setup routes
@@ -93,6 +99,46 @@ func corsMiddleware() gin.HandlerFunc {
 		}
 
 		c.Next()
+	}
+}
+
+// customLoggerMiddleware Custom logger middleware that respects LOG_LEVEL
+// Only logs HTTP requests when LOG_LEVEL is "debug" or "info"
+func customLoggerMiddleware() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		// Start timer
+		start := time.Now()
+		path := c.Request.URL.Path
+		raw := c.Request.URL.RawQuery
+
+		// Process request
+		c.Next()
+
+		// Skip logging for health check endpoints (too frequent)
+		if path == "/api/health" || path == "/health" {
+			return
+		}
+
+		// Only log if level is debug or info
+		if logger.Log.Level >= logrus.InfoLevel {
+			latency := time.Since(start)
+			clientIP := c.ClientIP()
+			method := c.Request.Method
+			statusCode := c.Writer.Status()
+
+			if raw != "" {
+				path = path + "?" + raw
+			}
+
+			// Use Info level for HTTP requests (not Warn)
+			logger.Infof("[GIN] %3d | %13v | %15s | %-7s %s",
+				statusCode,
+				latency,
+				clientIP,
+				method,
+				path,
+			)
+		}
 	}
 }
 
@@ -156,6 +202,7 @@ func (s *Server) setupRoutes() {
 			protected.DELETE("/traders/:id", s.handleDeleteTrader)
 			protected.POST("/traders/:id/start", s.handleStartTrader)
 			protected.POST("/traders/:id/stop", s.handleStopTrader)
+			protected.GET("/traders/:id/status", s.handleGetTraderStatus) // 🔥 获取交易员状态（用于轮询）
 			protected.POST("/traders/:id/execute-decision", s.handleExecuteDecision)
 			protected.POST("/traders/:id/execute-multiple-decisions", s.handleExecuteMultipleDecisions)
 
@@ -219,6 +266,9 @@ func (s *Server) setupRoutes() {
 			protected.POST("/test/run", s.handleRunTest)
 			protected.GET("/test/list", s.handleListTests)
 			protected.GET("/test/last-prompt", s.handleGetLastPrompt)
+			protected.POST("/test/validate-template", s.HandleValidateTemplate)
+			protected.POST("/test/generate-full-prompt", s.handleGenerateFullPrompt) // 🔥 生成完整AI提示词（用于手动复制）
+			protected.POST("/test/submit-ai-decision", s.handleSubmitAIDecision)     // 🔥 提交AI决策JSON（手动粘贴）
 
 			// Backtest routes
 			backtest := protected.Group("/backtest")
@@ -1047,8 +1097,32 @@ func (s *Server) handleStopTrader(c *gin.Context) {
 		logger.Infof("??  Failed to update trader status: %v", err)
 	}
 
-	logger.Infof("?? Trader %s stopped", trader.GetName())
+	logger.Infof("⏹ Trader %s stopped", trader.GetName())
 	c.JSON(http.StatusOK, gin.H{"message": "Trader stopped"})
+}
+
+// handleGetTraderStatus 获取交易员状态（用于前端轮询）
+func (s *Server) handleGetTraderStatus(c *gin.Context) {
+	userID := c.GetString("user_id")
+	traderID := c.Param("id")
+
+	// 验证交易员属于当前用户
+	_, err := s.store.Trader().GetFullConfig(userID, traderID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Trader does not exist or no access permission"})
+		return
+	}
+
+	// 从内存获取交易员
+	trader, err := s.traderManager.GetTrader(traderID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Trader does not exist"})
+		return
+	}
+
+	// 返回状态信息
+	status := trader.GetStatus()
+	c.JSON(http.StatusOK, status)
 }
 
 // handleExecuteDecision Manually trigger trader to execute decision immediately

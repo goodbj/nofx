@@ -25,7 +25,7 @@ func NewOllamaClient() AIClient {
 			BaseURL:    DefaultOllamaBaseURL,
 			Model:      DefaultOllamaModel,
 			MaxTokens:  2000,                                     // Use same default as in DefaultConfig
-			httpClient: &http.Client{Timeout: 300 * time.Second}, // Increase timeout for Ollama (5 minutes for large models)
+			httpClient: &http.Client{Timeout: 600 * time.Second}, // 🔥 增加到10分钟（基于实测：本地大模型最长4分钟+Docker网络延迟）
 			logger:     logger.NewMCPLogger(),                    // Use logger from imported package
 			config:     DefaultConfig(),
 		},

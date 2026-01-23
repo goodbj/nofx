@@ -1054,12 +1054,14 @@ func (e *StrategyEngine) BuildSystemPrompt(accountEquity float64, variant string
 	sb.WriteString("]\n```\n")
 	sb.WriteString("</decision>\n\n")
 	sb.WriteString("## Field Description\n\n")
-	sb.WriteString("- `action`: open_long | open_short | close_long | close_short | hold | wait | update_stop_loss | update_take_profit | partial_close\n")
+	sb.WriteString("- `action`: open_long | open_short | close_long | close_short | hold | wait | update_stop_loss | update_take_profit | partial_close | trailing_stop | dynamic_take_profit\n")
 	sb.WriteString(fmt.Sprintf("- `confidence`: 0-100 (opening recommended ≥ %d)\n", riskControl.MinConfidence))
 	sb.WriteString("- Required when opening: leverage, position_size_usd, stop_loss, take_profit, confidence, risk_usd\n")
 	sb.WriteString("- Required when update_stop_loss: new_stop_loss, confidence\n")
 	sb.WriteString("- Required when update_take_profit: new_take_profit, confidence\n")
 	sb.WriteString("- Required when partial_close: close_percentage (1-100), confidence\n")
+	sb.WriteString("- Required when trailing_stop: trail_percentage, activation_price, callback_rate, confidence\n")
+	sb.WriteString("- Required when dynamic_take_profit: target_roi, max_roi, time_limit_hours, confidence\n")
 	sb.WriteString("- **IMPORTANT**: All numeric values must be calculated numbers, NOT formulas/expressions (e.g., use `27.76` not `3000 * 0.01`)\n\n")
 
 	// 8. Custom Prompt

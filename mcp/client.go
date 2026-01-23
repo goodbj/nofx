@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strings"
 	"time"
 )
@@ -202,6 +203,11 @@ func (client *Client) setAuthHeader(reqHeader http.Header) {
 }
 
 func (client *Client) buildMCPRequestBody(systemPrompt, userPrompt string) map[string]any {
+	// 应用上下文压缩（如果启用）
+	if client.config.EnableContextCompression {
+		userPrompt = client.compressContextIfNeeded(userPrompt)
+	}
+
 	// Build messages array
 	messages := []map[string]string{}
 
@@ -231,6 +237,197 @@ func (client *Client) buildMCPRequestBody(systemPrompt, userPrompt string) map[s
 		requestBody["max_tokens"] = client.MaxTokens
 	}
 	return requestBody
+}
+
+// ============================================================
+// Context Compression Functions (上下文压缩功能)
+// ============================================================
+
+// compressContextIfNeeded 根据当前prompt长度和模型上下文大小，自动压缩上下文
+func (client *Client) compressContextIfNeeded(userPrompt string) string {
+	// 检测模型上下文大小
+	modelContextSize := client.getModelContextSize()
+	if modelContextSize == 0 {
+		client.logger.Debugf("[MCP Compression] Model context size unknown, skipping compression")
+		return userPrompt
+	}
+
+	// 计算当前prompt长度（粗略估算：1个字符≈1个token）
+	currentLength := len(userPrompt)
+	usagePercent := float64(currentLength) / float64(modelContextSize) * 100
+
+	client.logger.Debugf("[MCP Compression] Current prompt length: %d, Model context: %d, Usage: %.1f%%",
+		currentLength, modelContextSize, usagePercent)
+
+	// 如果使用率<60%，不压缩
+	if usagePercent < 60 {
+		client.logger.Debugf("[MCP Compression] Usage < 60%%, no compression needed")
+		return userPrompt
+	}
+
+	// 应用压缩
+	client.logger.Infof("🗜️ [MCP Compression] Applying context compression (usage: %.1f%%)", usagePercent)
+	compressed := client.compressKlineData(userPrompt, modelContextSize, currentLength)
+
+	compressionRatio := float64(len(compressed)) / float64(currentLength) * 100
+	client.logger.Infof("✅ [MCP Compression] Compressed: %d → %d chars (%.1f%%)",
+		currentLength, len(compressed), compressionRatio)
+
+	return compressed
+}
+
+// getModelContextSize 获取当前模型的上下文大小
+func (client *Client) getModelContextSize() int {
+	// 如果配置中手动指定了大小，直接使用
+	if client.config.ModelContextSize > 0 {
+		return client.config.ModelContextSize
+	}
+
+	// 根据模型名称自动检测
+	modelLower := strings.ToLower(client.Model)
+
+	// Ollama 模型检测
+	if strings.Contains(modelLower, "64k") {
+		return 65536 // 64K
+	}
+	if strings.Contains(modelLower, "32k") {
+		return 32768 // 32K
+	}
+	if strings.Contains(modelLower, "128k") {
+		return 131072 // 128K
+	}
+
+	// 根据 Provider 和 Model 推测
+	switch client.Provider {
+	case "ollama":
+		// Ollama 默认小模型
+		if strings.Contains(modelLower, "qwen") || strings.Contains(modelLower, "coder") {
+			return 8192 // 默认8K
+		}
+		return 4096 // 默认4K
+
+	case ProviderDeepSeek:
+		return 32768 // DeepSeek 通常32K
+
+	case ProviderOpenAI:
+		if strings.Contains(modelLower, "gpt-4") {
+			return 128000 // GPT-4 128K
+		}
+		return 16384 // GPT-3.5 16K
+
+	case ProviderClaude:
+		return 200000 // Claude 200K
+
+	case ProviderQwen:
+		return 32768 // 通义千问 32K
+
+	case ProviderGemini:
+		return 1000000 // Gemini Pro 1M (1000K)
+
+	default:
+		client.logger.Warnf("[MCP Compression] Unknown provider: %s, model: %s", client.Provider, client.Model)
+		return 0 // 未知模型，不压缩
+	}
+}
+
+// compressKlineData 压缩K线数据部分（主要压缩目标）
+func (client *Client) compressKlineData(prompt string, modelContextSize, currentLength int) string {
+	// 计算压缩级别
+	usagePercent := float64(currentLength) / float64(modelContextSize) * 100
+	var compressionLevel int
+
+	if modelContextSize >= 131072 { // >128K
+		compressionLevel = 0 // 不压缩
+	} else if modelContextSize >= 32768 { // 32K-128K
+		if usagePercent > 90 {
+			compressionLevel = 1 // 轻度压缩
+		} else {
+			compressionLevel = 0
+		}
+	} else if modelContextSize >= 8192 { // 8K-32K
+		if usagePercent > 80 {
+			compressionLevel = 2 // 中度压缩
+		} else {
+			compressionLevel = 1
+		}
+	} else { // <8K
+		compressionLevel = 3 // 激进压缩
+	}
+
+	client.logger.Debugf("[MCP Compression] Compression level: %d", compressionLevel)
+
+	switch compressionLevel {
+	case 0:
+		return prompt // 无压缩
+
+	case 1: // 轻度压缩：只压缩K线数量
+		return client.compressKlineCount(prompt, 20)
+
+	case 2: // 中度压缩：压缩K线数量+移除成交量
+		compressed := client.compressKlineCount(prompt, 12)
+		return client.removeVolumeColumn(compressed)
+
+	case 3: // 激进压缩：大幅压缩K线+移除成交量+简化数值
+		compressed := client.compressKlineCount(prompt, 8)
+		compressed = client.removeVolumeColumn(compressed)
+		return client.simplifyNumbers(compressed)
+
+	default:
+		return prompt
+	}
+}
+
+// compressKlineCount 压缩K线数据的行数
+func (client *Client) compressKlineCount(prompt string, maxLines int) string {
+	// 查找所有K线数据块（``` 代码块）
+	klineBlockRegex := regexp.MustCompile("(?s)```\n(时间.*?\n)((?:.*?\n)+?)```")
+
+	return klineBlockRegex.ReplaceAllStringFunc(prompt, func(match string) string {
+		// 解析K线块
+		parts := klineBlockRegex.FindStringSubmatch(match)
+		if len(parts) != 3 {
+			return match
+		}
+
+		header := parts[1]    // 表头
+		dataLines := parts[2] // 数据行
+
+		// 分割数据行
+		lines := strings.Split(strings.TrimSpace(dataLines), "\n")
+
+		// 如果行数已经少于maxLines，不处理
+		if len(lines) <= maxLines {
+			return match
+		}
+
+		// 只保留最后maxLines行
+		startIdx := len(lines) - maxLines
+		compressedLines := lines[startIdx:]
+
+		// 重新构建
+		return fmt.Sprintf("```\n%s%s\n```", header, strings.Join(compressedLines, "\n"))
+	})
+}
+
+// removeVolumeColumn 移除K线数据中的成交量列
+func (client *Client) removeVolumeColumn(prompt string) string {
+	// 替换表头
+	prompt = strings.ReplaceAll(prompt, "时间(UTC)      开盘      最高      最低      收盘      成交量",
+		"时间(UTC)      开盘      最高      最低      收盘")
+	prompt = strings.ReplaceAll(prompt, "Time(UTC)      Open      High      Low       Close     Volume",
+		"Time(UTC)      Open      High      Low       Close")
+
+	// 移除数据行的最后一列（成交量）
+	volumeRegex := regexp.MustCompile(`(\d{2}-\d{2} \d{2}:\d{2})\s+(\S+)\s+(\S+)\s+(\S+)\s+(\S+)\s+\S+`)
+	return volumeRegex.ReplaceAllString(prompt, "$1 $2 $3 $4 $5")
+}
+
+// simplifyNumbers 简化数值精度（保留4位小数 → 2位小数）
+func (client *Client) simplifyNumbers(prompt string) string {
+	// 将价格从4位小数简化为2位小数
+	// 例如：43560.4200 → 43560.42
+	numberRegex := regexp.MustCompile(`\b(\d+)\.(\d{2})\d{2}\b`)
+	return numberRegex.ReplaceAllString(prompt, "$1.$2")
 }
 
 // can be used to marshal the request body and can be overridden

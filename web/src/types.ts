@@ -20,6 +20,7 @@ export interface SystemStatus {
   trader_name: string
   ai_model: string
   is_running: boolean
+  is_executing?: boolean  // 是否正在执行AI决策
   start_time: string
   runtime_minutes: number
   call_count: number
@@ -28,6 +29,9 @@ export interface SystemStatus {
   stop_until: string
   last_reset_time: string
   ai_provider: string
+  is_delayed_by_manual?: boolean   // 🔥 新增：是否因手动扫描而延迟系统扫描
+  next_scan_time?: number           // 🔥 新增：下次系统扫描时间戳（Unix时间）
+  seconds_until_next_scan?: number  // 🔥 新增：距离下次扫描的秒数
 }
 
 export interface AccountInfo {

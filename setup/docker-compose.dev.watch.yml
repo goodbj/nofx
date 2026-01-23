@@ -27,6 +27,7 @@ services:
       - AI_MAX_TOKENS=8000
       - NOFX_BACKEND_PORT=8888
       - API_HOST=nofx-dev-watch
+      - OLLAMA_READ_TIMEOUT=270s  # 🔥 Ollama超时设置（4.5分钟，基于实测AI调用176秒）
     networks:
       - nofx-network
     healthcheck:
@@ -53,6 +54,7 @@ services:
       - nofx-dev-watch
     environment:
       - NODE_ENV=development
+      - VITE_API_TARGET=http://nofx-dev-watch:8888  # 🔥 通过Docker服务名访问后端
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://127.0.0.1:5173"]
       interval: 30s

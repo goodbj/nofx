@@ -84,7 +84,7 @@ func (pb *PromptBuilder) buildSystemPromptZH() string {
 [
   {
     "symbol": "BTCUSDT",
-    "action": "HOLD|PARTIAL_CLOSE|FULL_CLOSE|ADD_POSITION|OPEN_NEW|WAIT",
+    "action": "open_long",
     "leverage": 3,
     "position_size_usd": 1000,
     "stop_loss": 42000,
@@ -95,23 +95,28 @@ func (pb *PromptBuilder) buildSystemPromptZH() string {
 ]
 ` + "```" + `
 
+**⚠️ 注意**: action 值必须使用小写+下划线格式（如 open_long, partial_close），不能使用大写（OPEN_LONG）。
+
 ### 字段说明
 
 - **symbol**: 交易对（必需）
-- **action**: 动作类型（必需）
-  - HOLD: 持有当前仓位
-  - PARTIAL_CLOSE: 部分平仓
-  - FULL_CLOSE: 全部平仓
-  - ADD_POSITION: 在现有仓位上加仓
-  - OPEN_NEW: 开设新仓位
-  - WAIT: 等待，不采取任何行动
-  - UPDATE_STOP_LOSS: 更新止损价格
-  - UPDATE_TAKE_PROFIT: 更新止盈价格
-  - TRAILING_STOP: 设置追踪止损（价格随利润移动，保护浮盈）
-  - DYNAMIC_TAKE_PROFIT: 设置动态止盈（根据波动性调整目标）
-  - OCO_ORDER: OCO订单（一个触发则取消另一个，自动风控）
-  - BRACKET_ORDER: 括号订单（开仓同时设置止损止盈）
-  - ADD_TO_POSITION: 加仓到现有盈利仓位
+- **action**: 动作类型（必需）- 基础操作
+  - **open_long**: 开多仓（看涨做多）
+  - **open_short**: 开空仓（看跌做空）
+  - **close_long**: 平多仓（平掉做多仓位）
+  - **close_short**: 平空仓（平掉做空仓位）
+  - **hold**: 持有当前仓位，不做任何操作
+  - **wait**: 等待观望，无交易机会时使用
+  - **partial_close**: 部分平仓（平掉一定比例的仓位）
+  - **update_stop_loss**: 更新止损价格（移动止损位）
+  - **update_take_profit**: 更新止盈价格（调整止盈目标）
+- **action**: 动作类型（必需）- 高级操作
+  - **trailing_stop**: 追踪止损（价格随利润移动，回撤触发平仓）
+  - **dynamic_stop_loss**: 动态止损（根据波动性自动调整止损位）
+  - **dynamic_take_profit**: 动态止盈（根据市场波动调整止盈目标）
+  - **oco_order**: OCO订单（一个触发则取消另一个，同时设置止损止盈）
+  - **bracket_order**: 括号订单（开仓同时设置止损止盈，完整风控）
+  - **add_to_position**: 加仓（向已盈利仓位追加头寸）
 - **leverage**: 杠杆倍数（开新仓时必需）
 - **position_size_usd**: 仓位大小（USDT，开新仓时必需）
 - **stop_loss**: 止损价格（开新仓时建议提供）
@@ -121,7 +126,7 @@ func (pb *PromptBuilder) buildSystemPromptZH() string {
 
 ### 高级指令使用场景
 
-**1. 追踪止损 (TRAILING_STOP)** - 让盈利奔跑
+**1. 追踪止损 (trailing_stop)** - 让盈利奔跑
 - **适用场景**: 趋势强劲,想让利润继续增长但又要保护已获利润
 - **必需参数**: 
   - trail_percentage（回撤百分比，如 2.0 表示 2%）
@@ -130,7 +135,7 @@ func (pb *PromptBuilder) buildSystemPromptZH() string {
 - **示例**: 当前价100 USDT，设置callback_rate=2.0（2%追踪），价格涨到110时止损自动上移到107.8
 - **⚠️ 重要**: callback_rate 格式为 1.0 = 1%，范围 [0.1, 10]，不要使用小数（0.02）
 
-**2. 动态止盈 (DYNAMIC_TAKE_PROFIT)** - 适应市场波动
+**2. 动态止盈 (dynamic_take_profit)** - 适应市场波动
 - **适用场景**: 不确定最佳止盈点，让系统根据波动性自动调整
 - **必需参数**: 
   - target_roi（目标收益率%，如 5.0 表示 5%）
@@ -139,7 +144,7 @@ func (pb *PromptBuilder) buildSystemPromptZH() string {
 - **示例**: 目标5%，最大10%，24小时，强趋势时争取10%，震荡时5%即止盈
 - **⚠️ 前提条件**: 必须已有持仓才能执行，无持仓会报错
 
-**3. OCO订单 (OCO_ORDER)** - 无需盯盘
+**3. OCO订单 (oco_order)** - 无需盯盘
 - **适用场景**: 持有仓位但无法实时监控，同时设置止损和止盈
 - **必需参数**: 
   - stop_loss（止损价）
@@ -147,7 +152,7 @@ func (pb *PromptBuilder) buildSystemPromptZH() string {
 - **示例**: 价格到止盈自动平仓获利，跌到止损自动平仓止损，任一触发取消另一个
 - **⚠️ 前提条件**: 必须已有持仓才能执行，新开仓不支持 OCO（请使用 BRACKET_ORDER）
 
-**4. 括号订单 (BRACKET_ORDER)** - 完整风控
+**4. 括号订单 (bracket_order)** - 完整风控
 - **适用场景**: 开仓时即明确风险收益比，构建完整保护
 - **必需参数**: 
   - leverage（杠杆倍数）
@@ -253,28 +258,28 @@ func (pb *PromptBuilder) getDecisionRequirementsZH() string {
 [
   {
     "symbol": "PIPPINUSDT",
-    "action": "PARTIAL_CLOSE",
+    "action": "partial_close",
     "close_percentage": 50,
     "confidence": 85,
     "reasoning": "当前PnL +2.96%，接近历史峰值+2.99%（回撤仅0.03%）。建议部分平仓锁定利润，因为：1) 持仓时间仅11分钟，已获得3%收益；2) 5分钟K线显示价格接近短期阻力位；3) 成交量开始萎缩，上涨动能减弱。建议平仓50%，剩余仓位设置跟踪止盈在峰值回撤20%处。"
   },
   {
     "symbol": "BTCUSDT",
-    "action": "UPDATE_STOP_LOSS",
+    "action": "update_stop_loss",
     "new_stop_loss": 42500,
     "confidence": 90,
     "reasoning": "BTC价格已从42000涨至43000，原止损41500过低，为保护利润需上调止损至42500，保持-5%的风险水平。"
   },
   {
     "symbol": "ETHUSDT",
-    "action": "UPDATE_TAKE_PROFIT",
+    "action": "update_take_profit",
     "new_take_profit": 2800,
     "confidence": 80,
     "reasoning": "ETH价格趋势强劲，原止盈2600已达成，为锁定更多利润，将止盈上调至2800，目标+8%收益。"
   },
   {
     "symbol": "XRPUSDT",
-    "action": "TRAILING_STOP",
+    "action": "trailing_stop",
     "trail_percentage": 3.0,
     "activation_price": 0.5500,
     "confidence": 85,
@@ -282,7 +287,7 @@ func (pb *PromptBuilder) getDecisionRequirementsZH() string {
   },
   {
     "symbol": "ADAUSDT",
-    "action": "DYNAMIC_TAKE_PROFIT",
+    "action": "dynamic_take_profit",
     "target_roi": 15.0,
     "max_roi": 25.0,
     "time_limit_hours": 24,
@@ -291,7 +296,7 @@ func (pb *PromptBuilder) getDecisionRequirementsZH() string {
   },
   {
     "symbol": "SOLUSDT",
-    "action": "OCO_ORDER",
+    "action": "oco_order",
     "stop_loss": 95.0,
     "take_profit": 110.0,
     "confidence": 80,
@@ -299,7 +304,7 @@ func (pb *PromptBuilder) getDecisionRequirementsZH() string {
   },
   {
     "symbol": "BNBUSDT",
-    "action": "BRACKET_ORDER",
+    "action": "bracket_order",
     "leverage": 5,
     "position_size_usd": 800,
     "stop_loss": 580,
@@ -309,7 +314,7 @@ func (pb *PromptBuilder) getDecisionRequirementsZH() string {
   },
   {
     "symbol": "BTCUSDT",
-    "action": "ADD_TO_POSITION",
+    "action": "add_to_position",
     "additional_position_size_usd": 300,
     "add_position_type": "long",
     "confidence": 80,
@@ -317,7 +322,7 @@ func (pb *PromptBuilder) getDecisionRequirementsZH() string {
   },
   {
     "symbol": "HUSDT",
-    "action": "OPEN_NEW",
+    "action": "open_long",
     "leverage": 3,
     "position_size_usd": 500,
     "stop_loss": 0.1560,
@@ -373,7 +378,7 @@ func (pb *PromptBuilder) buildSystemPromptEN() string {
 [
   {
     "symbol": "BTCUSDT",
-    "action": "HOLD|PARTIAL_CLOSE|FULL_CLOSE|ADD_POSITION|OPEN_NEW|WAIT",
+    "action": "open_long",
     "leverage": 3,
     "position_size_usd": 1000,
     "stop_loss": 42000,
@@ -384,23 +389,28 @@ func (pb *PromptBuilder) buildSystemPromptEN() string {
 ]
 ` + "```" + `
 
+**⚠️ Note**: Action values must use lowercase with underscores (e.g., open_long, partial_close), not uppercase (OPEN_LONG).
+
 ### Field Descriptions
 
 - **symbol**: Trading pair (required)
-- **action**: Action type (required)
-  - HOLD: Hold current position
-  - PARTIAL_CLOSE: Partially close position
-  - FULL_CLOSE: Fully close position
-  - ADD_POSITION: Add to existing position
-  - OPEN_NEW: Open new position
-  - WAIT: Wait, take no action
-  - UPDATE_STOP_LOSS: Update stop-loss price
-  - UPDATE_TAKE_PROFIT: Update take-profit price
-  - TRAILING_STOP: Set trailing stop-loss (moves with price to protect profits)
-  - DYNAMIC_TAKE_PROFIT: Set dynamic take-profit (adjusts target based on volatility)
-  - OCO_ORDER: OCO order (one cancels other, automated risk control)
-  - BRACKET_ORDER: Bracket order (set SL/TP with entry)
-  - ADD_TO_POSITION: Add to existing profitable position
+- **action**: Action type (required) - Basic Operations
+  - **open_long**: Open long position (bullish entry)
+  - **open_short**: Open short position (bearish entry)
+  - **close_long**: Close long position (exit long)
+  - **close_short**: Close short position (exit short)
+  - **hold**: Hold current position, take no action
+  - **wait**: Wait and watch, use when no trading opportunity
+  - **partial_close**: Partially close position (close a percentage)
+  - **update_stop_loss**: Update stop-loss price (move stop level)
+  - **update_take_profit**: Update take-profit price (adjust TP target)
+- **action**: Action type (required) - Advanced Operations
+  - **trailing_stop**: Trailing stop-loss (moves with price, triggers on pullback)
+  - **dynamic_stop_loss**: Dynamic stop-loss (auto-adjusts based on volatility)
+  - **dynamic_take_profit**: Dynamic take-profit (adjusts target based on market conditions)
+  - **oco_order**: OCO order (one cancels other, set SL and TP simultaneously)
+  - **bracket_order**: Bracket order (set SL/TP with entry, complete protection)
+  - **add_to_position**: Add to position (increase size of profitable positions)
 - **leverage**: Leverage multiplier (required for new positions)
 - **position_size_usd**: Position size in USDT (required for new positions)
 - **stop_loss**: Stop-loss price (recommended for new positions)

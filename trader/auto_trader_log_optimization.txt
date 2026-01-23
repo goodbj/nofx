@@ -1,0 +1,89 @@
+# AutoTrader 日志优化清单
+
+## 已注释的日志（可酌情重新启用）
+
+### 1. AI 提示词相关（Line 602-617）
+- 注释原因：日志文件过大，影响重启性能
+- 何时启用：调试 AI 提示词问题时
+```go
+// DISABLED: Removed to reduce log size and improve restart performance
+// logger.Info(aiDecision.SystemPrompt)
+// logger.Info(aiDecision.CoTTrace)
+```
+
+### 2. 策略引擎详细信息（建议注释）
+**Line 868**: Strategy candidate coins count
+- 注释原因：每次循环都输出，信息量大
+- 何时启用：调试策略选币逻辑时
+
+**Line 886**: Leverage configuration
+- 注释原因：杠杆配置很少改变，无需每次输出
+- 何时启用：验证杠杆配置是否正确时
+
+**Line 916**: Recent closed trades count
+- 注释原因：交易记录获取状态，调试时才需要
+- 何时启用：调试交易历史记录功能时
+
+**Line 960**: Trading statistics
+- 注释原因：详细统计信息，每次循环输出占用空间
+- 何时启用：分析交易表现时
+
+**Line 983-985**: Quantitative data fetching
+- 注释原因：数据获取进度，调试时才需要
+- 何时启用：调试量化数据接口时
+
+**Line 990-995**: OI Ranking data
+- 注释原因：数据获取进度，调试时才需要
+- 何时启用：调试持仓排行功能时
+
+**Line 1000-1005**: NetFlow ranking data
+- 注释原因：数据获取进度，调试时才需要
+- 何时启用：调试资金流向功能时
+
+**Line 1010-1015**: Price ranking data
+- 注释原因：数据获取进度，调试时才需要
+- 何时启用：调试涨跌排行功能时
+
+### 3. 决策执行详细参数（建议注释）
+**Line 1032-1047**: AI decision parameters
+- 注释原因：每个决策都输出详细参数，信息重复
+- 何时启用：调试具体决策执行问题时
+
+### 4. 初始化日志（保留）
+**Line 186-240**: AI model selection - **保留**
+- 原因：启动时只输出一次，有助于确认配置
+
+**Line 260**: Position mode - **保留**
+- 原因：启动时只输出一次，重要配置信息
+
+**Line 264-304**: Exchange selection - **保留**
+- 原因：启动时只输出一次，确认交易所连接
+
+**Line 311-333**: Initial balance - **保留**
+- 原因：关键财务信息，必须记录
+
+### 5. 关键执行日志（必须保留）
+- 订单执行成功/失败
+- 错误信息
+- 账户余额变化
+- 仓位开平仓
+
+## 优化建议
+
+### 分级日志方案：
+1. **ERROR**: 错误信息（必须保留）
+2. **WARN**: 警告信息（必须保留）
+3. **INFO**: 关键业务日志（保留）
+4. **DEBUG**: 详细调试日志（建议注释，需要时启用）
+
+### 可配置化：
+未来可以添加日志级别配置：
+```go
+type LogLevel int
+const (
+    LogLevelError LogLevel = iota
+    LogLevelWarn
+    LogLevelInfo
+    LogLevelDebug
+)
+```

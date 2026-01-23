@@ -20,6 +20,7 @@ services:
       - AI_MAX_TOKENS=8000
       - API_HOST=nofx
       - NOFX_BACKEND_PORT=${NOFX_BACKEND_PORT:-8888}
+      - OLLAMA_READ_TIMEOUT=270s  # 🔥 Ollama超时设置（4.5分钟，基于实测AI调用176秒）
     networks:
       - nofx-network
     healthcheck:

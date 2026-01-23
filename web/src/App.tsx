@@ -25,6 +25,7 @@ import { useSystemConfig } from './hooks/useSystemConfig'
 
 import { OFFICIAL_LINKS } from './constants/branding'
 import { BacktestPage } from './components/BacktestPage'
+import { ToolsPage } from './pages/ToolsPage';
 import type {
   SystemStatus,
   AccountInfo,
@@ -45,6 +46,7 @@ type Page =
   | 'debate'
   | 'faq'
   | 'test'
+  | 'tools'
   | 'login'
   | 'register'
 
@@ -98,6 +100,7 @@ function App() {
       'debate': '/debate',
       'faq': '/faq',
       'test': '/test',
+      'tools': '/tools',
       'login': '/login',
       'register': '/register',
     }
@@ -170,6 +173,8 @@ function App() {
         }
       } else if (path === '/test') {
         setCurrentPage('test')
+      } else if (path === '/tools') {
+        setCurrentPage('tools')
       } else if (
         path === '/competition' ||
         hash === 'competition' ||
@@ -458,6 +463,8 @@ function App() {
               <DebateArenaPage />
             ) : currentPage === 'test' ? (
               <TestPage />
+            ) : currentPage === 'tools' ? (
+              <ToolsPage />
             ) : (
               <TraderDashboardPage
                 selectedTrader={selectedTrader}
