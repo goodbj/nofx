@@ -9,6 +9,8 @@ import (
 	"nofx/market"
 	"nofx/mcp"
 	"nofx/store"
+	"regexp"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -842,20 +844,167 @@ func (s *Server) handleGenerateFullPrompt(c *gin.Context) {
 		return
 	}
 
-	// 触发一次决策流程获取完整Prompt（但不执行交易）
-	// 使用trader的 buildTradingContext 方法
-	status := trader.GetStatus()
+	// 使用交易员实例生成包含真实数据的完整Prompt
+	systemPrompt, userPrompt, err := trader.GenerateFullPrompt("balanced")
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate real-time prompt: " + err.Error()})
+		return
+	}
 
-	// 手动构建一个简单的响应（包含提示词信息）
-	// 注意：这里简化实现，直接返回提示信息让用户知道如何获取
+	// 返回真实的完整Prompt
 	c.JSON(http.StatusOK, gin.H{
-		"success":     true,
-		"message":     "请使用策略测试功能（Strategy Studio -> AI测试）生成完整提示词",
-		"trader_id":   req.TraderID,
-		"trader_name": traderConfig.Trader.Name,
-		"status":      status,
-		"tip":         "为了获取真实的完整Prompt，建议使用策略页面的'AI测试'功能，该功能会生成包含实时数据的完整提示词",
+		"success":       true,
+		"trader_id":     req.TraderID,
+		"trader_name":   traderConfig.Trader.Name,
+		"system_prompt": systemPrompt,
+		"user_prompt":   userPrompt,
+		"message":       "Real-time prompt generated successfully",
 	})
+}
+
+// filterAndFormatDecisions 对从AI返回的决策进行过滤和格式化处理
+func filterAndFormatDecisions(decisions []kernel.Decision) []kernel.Decision {
+	// 如果决策数组为空，可能是需要从AI响应文本中提取的情况
+	// 尝试从AI响应文本中提取决策
+	if len(decisions) == 0 {
+		// 这种情况会在解析JSON失败时发生，我们将在调用处处理
+		return decisions
+	}
+
+	filtered := make([]kernel.Decision, 0, len(decisions))
+
+	for _, decision := range decisions {
+		// 基础验证
+		if decision.Symbol == "" || decision.Action == "" {
+			logger.Warnf("Skipping invalid decision: symbol=%s, action=%s", decision.Symbol, decision.Action)
+			continue
+		}
+
+		// 规范化符号名称（去除空格、转换大小写等）
+		decision.Symbol = strings.TrimSpace(strings.ToUpper(decision.Symbol))
+
+		// 验证并限制数值范围
+		if decision.PositionSizeUSD < 0 {
+			decision.PositionSizeUSD = 0
+		}
+		if decision.PositionSizeUSD > 1000000 { // 设置最大仓位限制为100万美元
+			decision.PositionSizeUSD = 1000000
+		}
+		if decision.Leverage < 0 {
+			decision.Leverage = 0
+		}
+		if decision.Leverage > 100 { // 设置最大杠杆限制
+			decision.Leverage = 100
+		}
+		if decision.Confidence < 0 {
+			decision.Confidence = 0
+		}
+		if decision.Confidence > 100 {
+			decision.Confidence = 100
+		}
+
+		// 验证价格相关字段
+		if decision.StopLoss < 0 {
+			decision.StopLoss = 0
+		}
+		if decision.TakeProfit < 0 {
+			decision.TakeProfit = 0
+		}
+
+		// 验证动作类型是否合法
+		validActions := map[string]bool{
+			"open_long": true, "open_short": true,
+			"close_long": true, "close_short": true,
+			"hold": true, "wait": true,
+			"update_stop_loss": true, "update_take_profit": true,
+			"partial_close": true, "trailing_stop": true,
+			"dynamic_take_profit": true, "oco_order": true,
+			"bracket_order": true, "add_to_position": true,
+		}
+		if !validActions[decision.Action] {
+			logger.Warnf("Skipping decision with invalid action: %s", decision.Action)
+			continue
+		}
+
+		// 添加到过滤后的决策列表
+		filtered = append(filtered, decision)
+	}
+
+	return filtered
+}
+
+// extractAndFilterDecisionsFromText 从AI响应文本中提取并过滤决策
+func extractAndFilterDecisionsFromText(aiResponseText string) ([]kernel.Decision, error) {
+	// 移除不可见字符
+	s := strings.TrimSpace(aiResponseText)
+	s = regexp.MustCompile("[\u200B\u200C\u200D\uFEFF]").ReplaceAllString(s, "")
+
+	// 尝试从 <decision> 标签中提取JSON
+	var jsonPart string
+	reDecisionTag := regexp.MustCompile(`(?s)<decision>(.*?)</decision>`)
+	if match := reDecisionTag.FindStringSubmatch(s); match != nil && len(match) > 1 {
+		jsonPart = strings.TrimSpace(match[1])
+		logger.Infof("✓ Extracted JSON using <decision> tag")
+	} else {
+		jsonPart = s
+		logger.Infof("⚠️  <decision> tag not found, searching JSON in full text")
+	}
+
+	// 尝试从 ```json 代码块中提取
+	reJSONFence := regexp.MustCompile(`(?is)` + "```json\\s*(\\[\\s*\\{.*?\\}\\s*\\])\\s*```")
+	if match := reJSONFence.FindStringSubmatch(jsonPart); match != nil && len(match) > 1 {
+		jsonContent := strings.TrimSpace(match[1])
+		// 修复常见的字符问题
+		jsonContent = fixMissingQuotesInJSON(jsonContent)
+
+		var decisions []kernel.Decision
+		if err := json.Unmarshal([]byte(jsonContent), &decisions); err != nil {
+			return nil, fmt.Errorf("failed to parse JSON from fenced code block: %w", err)
+		}
+		return filterAndFormatDecisions(decisions), nil
+	}
+
+	// 尝试直接查找JSON数组
+	reJSONArray := regexp.MustCompile(`(?is)\[\s*\{.*?\}\s*\]`)
+	jsonContent := strings.TrimSpace(reJSONArray.FindString(jsonPart))
+	if jsonContent == "" {
+		return nil, fmt.Errorf("no JSON array found in response")
+	}
+
+	// 修复常见的字符问题
+	jsonContent = fixMissingQuotesInJSON(jsonContent)
+
+	var decisions []kernel.Decision
+	if err := json.Unmarshal([]byte(jsonContent), &decisions); err != nil {
+		return nil, fmt.Errorf("failed to parse extracted JSON: %w", err)
+	}
+
+	return filterAndFormatDecisions(decisions), nil
+}
+
+// fixMissingQuotesInJSON 修复JSON中的常见字符问题
+func fixMissingQuotesInJSON(jsonStr string) string {
+	jsonStr = strings.ReplaceAll(jsonStr, "\u201c", "\"")
+	jsonStr = strings.ReplaceAll(jsonStr, "\u201d", "\"")
+	jsonStr = strings.ReplaceAll(jsonStr, "\u2018", "'")
+	jsonStr = strings.ReplaceAll(jsonStr, "\u2019", "'")
+
+	jsonStr = strings.ReplaceAll(jsonStr, "［", "[")
+	jsonStr = strings.ReplaceAll(jsonStr, "］", "]")
+	jsonStr = strings.ReplaceAll(jsonStr, "｛", "{")
+	jsonStr = strings.ReplaceAll(jsonStr, "｝", "}")
+	jsonStr = strings.ReplaceAll(jsonStr, "：", ":")
+	jsonStr = strings.ReplaceAll(jsonStr, "，", ",")
+
+	jsonStr = strings.ReplaceAll(jsonStr, "【", "[")
+	jsonStr = strings.ReplaceAll(jsonStr, "】", "]")
+	jsonStr = strings.ReplaceAll(jsonStr, "〔", "[")
+	jsonStr = strings.ReplaceAll(jsonStr, "〕", "]")
+	jsonStr = strings.ReplaceAll(jsonStr, "、", ",")
+
+	jsonStr = strings.ReplaceAll(jsonStr, "　", " ")
+
+	return jsonStr
 }
 
 // handleSubmitAIDecision 提交AI决策JSON（从DeepSeek Web等平台复制回来的）
@@ -886,21 +1035,33 @@ func (s *Server) handleSubmitAIDecision(c *gin.Context) {
 
 	// 如果没有直接提供decisions，则从JSON字符串解析
 	var decisions []kernel.Decision
+
 	if len(req.Decisions) > 0 {
 		decisions = req.Decisions
+		// 对直接提供的决策进行过滤
+		decisions = filterAndFormatDecisions(decisions)
 	} else if req.DecisionJSON != "" {
-		// 尝试解析JSON字符串
+		// 首先尝试直接解析JSON数组
 		if err := json.Unmarshal([]byte(req.DecisionJSON), &decisions); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{
-				"error":   "Failed to parse decision JSON",
-				"details": err.Error(),
-			})
-			return
+			// 如果直接解析失败，尝试从AI响应文本中提取决策
+			extractedDecisions, extractErr := extractAndFilterDecisionsFromText(req.DecisionJSON)
+			if extractErr != nil {
+				logger.Warnf("Failed to parse decision JSON directly: %v, attempting to extract from AI response text: %v", err, extractErr)
+				c.JSON(http.StatusBadRequest, gin.H{
+					"error":   "Failed to parse decision JSON or extract from AI response",
+					"details": extractErr.Error(),
+				})
+				return
+			}
+			decisions = extractedDecisions
+		} else {
+			// 如果直接解析成功，应用过滤
+			decisions = filterAndFormatDecisions(decisions)
 		}
 	}
 
 	if len(decisions) == 0 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "No decisions provided"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "No decisions provided or extracted"})
 		return
 	}
 
@@ -911,12 +1072,15 @@ func (s *Server) handleSubmitAIDecision(c *gin.Context) {
 		return
 	}
 
+	// 使用已过滤的决策
+	filteredDecisions := decisions
+
 	// 执行决策（复用现有的执行逻辑）
-	results := make([]map[string]interface{}, 0, len(decisions))
+	results := make([]map[string]interface{}, 0, len(filteredDecisions))
 	successCount := 0
 	failCount := 0
 
-	for i, decision := range decisions {
+	for i, decision := range filteredDecisions {
 		result := map[string]interface{}{
 			"index":   i + 1,
 			"symbol":  decision.Symbol,
@@ -944,5 +1108,80 @@ func (s *Server) handleSubmitAIDecision(c *gin.Context) {
 		"fail_count":    failCount,
 		"results":       results,
 		"message":       fmt.Sprintf("Executed %d/%d decisions successfully", successCount, len(decisions)),
+	})
+}
+
+// handleGetScanData 获取手动扫描过程中的数据（在AI调用前截断）
+func (s *Server) handleGetScanData(c *gin.Context) {
+	userID := c.GetString("user_id")
+	if userID == "" {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+		return
+	}
+
+	var req struct {
+		TraderID string `json:"trader_id" binding:"required"`
+	}
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		SafeBadRequest(c, "Invalid request parameters: trader_id is required")
+		return
+	}
+
+	// 获取交易员配置
+	traderConfig, err := s.store.Trader().GetFullConfig(userID, req.TraderID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Trader not found or no access permission"})
+		return
+	}
+
+	// 获取交易员实例
+	autoTrader, err := s.traderManager.GetTrader(req.TraderID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Trader instance not found"})
+		return
+	}
+
+	// 使用交易员的内部方法获取扫描数据（但不执行AI决策）
+	// 这里我们需要调用AutoTrader内部的buildTradingContext方法
+	// 由于我们无法直接访问私有方法，我们将通过现有API获取相关信息
+
+	// 获取当前状态信息
+	status := autoTrader.GetStatus()
+
+	// 获取账户信息（使用AutoTrader的GetAccountInfo方法）
+	accountInfo, err := autoTrader.GetAccountInfo()
+	if err != nil {
+		accountInfo = nil
+	}
+
+	// 获取持仓信息（使用AutoTrader的GetPositions方法）
+	positions, err := autoTrader.GetPositions()
+	if err != nil {
+		positions = nil
+	}
+
+	// 获取策略配置
+	var strategyConfig *store.StrategyConfig
+	if traderConfig.Trader.StrategyID != "" {
+		strategy, err := s.store.Strategy().Get(userID, traderConfig.Trader.StrategyID)
+		if err == nil && strategy != nil {
+			var config store.StrategyConfig
+			json.Unmarshal([]byte(strategy.Config), &config)
+			strategyConfig = &config
+		}
+	}
+
+	// 返回获取到的数据
+	c.JSON(http.StatusOK, gin.H{
+		"success":         true,
+		"trader_id":       req.TraderID,
+		"trader_name":     traderConfig.Trader.Name,
+		"status":          status,
+		"account_info":    accountInfo,
+		"positions":       positions,
+		"strategy_config": strategyConfig,
+		"message":         "Scan data collected successfully (before AI decision)",
+		"timestamp":       time.Now().Unix(),
 	})
 }

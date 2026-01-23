@@ -203,43 +203,26 @@ export function TraderDashboardPage({
 
     setIsLoadingPrompt(true)
     try {
-      const response = await fetch(
-        `${import.meta.env.VITE_API_BASE || ''}/api/test/generate-full-prompt`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${token}`,
-          },
-          body: JSON.stringify({
-            trader_id: selectedTraderId,
-          }),
-        }
-      )
-      console.log('API response received, status:', response.status)
+      const response = await api.generateFullPrompt(selectedTraderId)
+      
+      console.log('API response received, status:', response.success ? 200 : 400)
 
-      if (response.ok) {
-        const data = await response.json()
-        console.log('API response data:', data)
-        if (data.success) {
-          setPromptPreview({
-            system_prompt: data.system_prompt || '',
-            user_prompt: data.user_prompt || '',
-            prompt_variant: 'balanced',
-            config_summary: { trader: selectedTrader?.trader_name },
-          })
-          notify.success(
-            language === 'zh'
-              ? 'Prompt 生成成功（含实时数据）'
-              : 'Real-time prompt generated successfully'
-          )
-        } else {
-          notify.error(data.error || 'Failed to generate prompt')
-        }
+      if (response.success) {
+        const data = response.data!;
+        console.log('API response data:', data);
+        setPromptPreview({
+          system_prompt: data.system_prompt || '',
+          user_prompt: data.user_prompt || '',
+          prompt_variant: 'balanced',
+          config_summary: { trader: selectedTrader?.trader_name },
+        });
+        notify.success(
+          language === 'zh'
+            ? 'Prompt 生成成功（含实时数据）'
+            : 'Real-time prompt generated successfully'
+        );
       } else {
-        const errorData = await response.json()
-        console.error('API error response:', errorData)
-        notify.error(`Error: ${errorData.error || 'Failed to generate prompt'}`)
+        notify.error(response.message || 'Failed to generate prompt');
       }
     } catch (err) {
       console.error('Error fetching prompt preview:', err)
@@ -259,12 +242,6 @@ export function TraderDashboardPage({
       )
       return
     }
-    if (!manualAIDecision.trim()) {
-      notify.warning(
-        language === 'zh' ? '请粘贴AI决策JSON' : 'Please paste AI decision JSON'
-      )
-      return
-    }
 
     if (!token) {
       notify.error(
@@ -279,31 +256,16 @@ export function TraderDashboardPage({
     setSubmitAIResult('')
 
     try {
-      const response = await fetch(
-        `${import.meta.env.VITE_API_BASE || ''}/api/test/submit-ai-decision`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${token}`,
-          },
-          body: JSON.stringify({
-            trader_id: selectedTraderId,
-            decision_json: manualAIDecision,
-          }),
-        }
-      )
+      const response = await api.submitAIDecision(selectedTraderId, manualAIDecision)
 
-      const data = await response.json()
-
-      if (!response.ok) {
+      if (!response.success) {
         setSubmitAIResult(
-          `❌ Error (${response.status}): ${data.error || JSON.stringify(data, null, 2)}`
+          `❌ Error: ${response.message || JSON.stringify(response.data, null, 2)}`
         )
         notify.error(language === 'zh' ? '提交失败' : 'Submission failed')
       } else {
         setSubmitAIResult(
-          `✅ ${language === 'zh' ? '执行完成！' : 'Execution completed!'}\n\n${JSON.stringify(data, null, 2)}`
+          `✅ ${language === 'zh' ? '执行完成！' : 'Execution completed!'}\n\n${JSON.stringify(response.data, null, 2)}`
         )
         notify.success(
           language === 'zh' ? '执行完成！' : 'Execution completed!'
@@ -317,11 +279,18 @@ export function TraderDashboardPage({
           mutate(`position-history-${selectedTraderId}`),
         ])
       }
-    } catch (error) {
+    } catch (error: unknown) {
+      const errorMessage = 
+        error instanceof Error 
+          ? error.message 
+          : language === 'zh' 
+            ? '网络错误或未知错误' 
+            : 'Network error or unknown error';
+            
       setSubmitAIResult(
-        `❌ ${language === 'zh' ? '错误：' : 'Error: '}${error}`
+        `❌ ${language === 'zh' ? '错误：' : 'Error: '}${errorMessage}`
       )
-      notify.error('Network Error')
+      notify.error(errorMessage)
     } finally {
       setSubmitAILoading(false)
     }
@@ -1250,17 +1219,6 @@ ${promptPreview.user_prompt}`
                         </>
                       )}
                     </button>
-                    {/* Test Button - No restrictions */}
-                    <button
-                      onClick={() => {
-                        console.log('Test button clicked!');
-                        alert('测试按钮正常工作！');
-                      }}
-                      className="px-4 py-2.5 rounded-lg bg-gradient-to-r from-green-600 to-teal-600 text-white font-medium transition-all flex items-center justify-center gap-2 min-w-[120px]"
-                    >
-                      <Zap className="w-4 h-4" />
-                      测试按钮
-                    </button>
                   </div>
                 </div>
 
@@ -1328,19 +1286,14 @@ ${promptPreview.user_prompt}`
                     onClick={handleSubmitAIDecision}
                     disabled={
                       submitAILoading ||
-                      !selectedTraderId ||
-                      !manualAIDecision.trim()
+                      !selectedTraderId
                     }
                     title={
                       !selectedTraderId
                         ? language === 'zh'
                           ? '请先选择一个交易员'
                           : 'Please select a trader first'
-                        : !manualAIDecision.trim()
-                          ? language === 'zh'
-                            ? '请粘贴AI决策JSON'
-                            : 'Please paste AI decision JSON'
-                          : ''
+                        : ''
                     }
                     className="mt-4 w-full px-4 py-3 rounded-lg bg-gradient-to-r from-emerald-600 to-green-600 text-white font-bold hover:from-emerald-700 hover:to-green-700 disabled:from-gray-700 disabled:to-gray-700 disabled:cursor-not-allowed transition-all flex items-center justify-center gap-2"
                   >

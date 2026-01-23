@@ -30,6 +30,7 @@ type Config struct {
 	// Service configuration
 	APIServerPort       int
 	JWTSecret           string
+	JWTExpirationDays   int // JWT token expiration in days
 	RegistrationEnabled bool
 	MaxUsers            int // Maximum number of users allowed (0 = unlimited, default = 10)
 
@@ -73,6 +74,7 @@ type Config struct {
 func Init() {
 	cfg := &Config{
 		APIServerPort:         8080,
+		JWTExpirationDays:     7, // Default: 7 days for JWT token expiration
 		RegistrationEnabled:   true,
 		MaxUsers:              10,   // Default: 10 users allowed
 		ExperienceImprovement: true, // Default: enabled to help improve the product
@@ -92,6 +94,12 @@ func Init() {
 	}
 	if cfg.JWTSecret == "" {
 		cfg.JWTSecret = "default-jwt-secret-change-in-production"
+	}
+
+	if v := os.Getenv("JWT_EXPIRATION_DAYS"); v != "" {
+		if days, err := strconv.Atoi(v); err == nil && days > 0 {
+			cfg.JWTExpirationDays = days
+		}
 	}
 
 	if v := os.Getenv("REGISTRATION_ENABLED"); v != "" {

@@ -7,6 +7,8 @@ import (
 	"sync"
 	"time"
 
+	"nofx/config"
+
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 	"github.com/pquerna/otp/totp"
@@ -113,13 +115,14 @@ func VerifyOTP(secret, code string) bool {
 
 // GenerateJWT generates JWT token
 func GenerateJWT(userID, email string) (string, error) {
+	cfg := config.Get()
+	expirationHours := time.Duration(cfg.JWTExpirationDays) * 24 * time.Hour
+
 	claims := Claims{
 		UserID: userID,
 		Email:  email,
 		RegisteredClaims: jwt.RegisteredClaims{
-			//登录会话时常 默认 1天
-			//ExpiresAt: jwt.NewNumericDate(time.Now().Add(24 * time.Hour)), // Expires in 24 hours
-			ExpiresAt: jwt.NewNumericDate(time.Now().Add(7 * 24 * time.Hour)), // Expires in 7 days
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(expirationHours)), // Uses configured expiration
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
 			NotBefore: jwt.NewNumericDate(time.Now()),
 			Issuer:    "nofxAI",

@@ -1169,6 +1169,81 @@ func (at *AutoTrader) ExecuteDecision(d *kernel.Decision) error {
 }
 
 // TriggerDecision triggers a new decision cycle immediately
+// GenerateFullPrompt generates the complete prompt (System + User) with real-time data
+// but does NOT call the AI. Used for manual copy-paste workflow.
+func (at *AutoTrader) GenerateFullPrompt(variant string) (string, string, error) {
+	// 1. Collect trading context (K-lines, indicators, account, positions)
+	ctx, err := at.buildTradingContext()
+	if err != nil {
+		return "", "", fmt.Errorf("failed to build trading context: %w", err)
+	}
+
+	if at.strategyEngine == nil {
+		return "", "", fmt.Errorf("strategy engine not initialized")
+	}
+
+	// 1.5. Enhance context with additional market data for positions and candidate coins
+	// This ensures AI has complete information about both held positions and potential trades
+	if err := at.enhanceMarketData(ctx); err != nil {
+		logger.Warnf("[%s] Warning: failed to enhance market data: %v", at.name, err)
+		// Continue with existing data even if enhancement fails
+	}
+
+	// 2. Build System Prompt
+	systemPrompt := at.strategyEngine.BuildSystemPrompt(ctx.Account.TotalEquity, variant)
+
+	// 3. Build User Prompt (contains real-time market data)
+	userPrompt := at.strategyEngine.BuildUserPrompt(ctx)
+
+	return systemPrompt, userPrompt, nil
+}
+
+// enhanceMarketData enhances the context with additional market data for positions and candidate coins
+// This ensures AI has complete information about both held positions and potential trades
+func (at *AutoTrader) enhanceMarketData(ctx *kernel.Context) error {
+	// Ensure MarketDataMap is initialized
+	if ctx.MarketDataMap == nil {
+		ctx.MarketDataMap = make(map[string]*market.Data)
+	}
+
+	// Get strategy configuration for timeframe settings
+	strategyConfig := at.strategyEngine.GetConfig()
+	timeframes := strategyConfig.Indicators.Klines.SelectedTimeframes
+	primaryTimeframe := strategyConfig.Indicators.Klines.PrimaryTimeframe
+	klineCount := strategyConfig.Indicators.Klines.PrimaryCount
+	if klineCount <= 0 {
+		klineCount = 50
+	}
+
+	// Collect all symbols that need market data
+	symbolsToQuery := make(map[string]bool)
+
+	// Add symbols from positions
+	for _, pos := range ctx.Positions {
+		symbolsToQuery[pos.Symbol] = true
+	}
+
+	// Add symbols from candidate coins
+	for _, coin := range ctx.CandidateCoins {
+		symbolsToQuery[coin.Symbol] = true
+	}
+
+	// Fetch market data for all required symbols
+	for symbol := range symbolsToQuery {
+		data, err := market.GetWithTimeframes(symbol, timeframes, primaryTimeframe, klineCount)
+		if err != nil {
+			logger.Warnf("[%s] Failed to get market data for %s: %v", at.name, symbol, err)
+			// Continue with other symbols even if one fails
+			continue
+		}
+		ctx.MarketDataMap[symbol] = data
+	}
+
+	logger.Infof("[%s] Enhanced market data for %d symbols (positions + candidates)", at.name, len(ctx.MarketDataMap))
+
+	return nil
+}
+
 func (at *AutoTrader) TriggerDecision() (map[string]interface{}, error) {
 	startTime := time.Now()
 	logger.Infof("🔄 Manual trigger: Starting new decision cycle for %s", at.name)

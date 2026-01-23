@@ -491,79 +491,54 @@ export const api = {
     if (params?.search) query.set('search', params.search)
     if (params?.limit) query.set('limit', String(params.limit))
     if (params?.offset) query.set('offset', String(params.offset))
-    const res = await fetch(
-      `${API_BASE}/backtest/runs${query.toString() ? `?${query}` : ''}`,
-      {
-        headers: getAuthHeaders(),
-      }
-    )
-    return handleJSONResponse<BacktestRunsResponse>(res)
+    const url = `${API_BASE}/backtest/runs${query.toString() ? `?${query}` : ''}`
+    const result = await httpClient.get<BacktestRunsResponse>(url)
+    if (!result.success) throw new Error(result.message || '获取回测运行失败')
+    return result.data!
   },
 
   async startBacktest(config: BacktestStartConfig): Promise<BacktestRunMetadata> {
-    const res = await fetch(`${API_BASE}/backtest/start`, {
-      method: 'POST',
-      headers: getAuthHeaders(),
-      body: JSON.stringify({ config }),
-    })
-    return handleJSONResponse<BacktestRunMetadata>(res)
+    const result = await httpClient.post<BacktestRunMetadata>(`${API_BASE}/backtest/start`, { config })
+    if (!result.success) throw new Error(result.message || '启动回测失败')
+    return result.data!
   },
 
   async pauseBacktest(runId: string): Promise<BacktestRunMetadata> {
-    const res = await fetch(`${API_BASE}/backtest/pause`, {
-      method: 'POST',
-      headers: getAuthHeaders(),
-      body: JSON.stringify({ run_id: runId }),
-    })
-    return handleJSONResponse<BacktestRunMetadata>(res)
+    const result = await httpClient.post<BacktestRunMetadata>(`${API_BASE}/backtest/pause`, { run_id: runId })
+    if (!result.success) throw new Error(result.message || '暂停回测失败')
+    return result.data!
   },
 
   async resumeBacktest(runId: string): Promise<BacktestRunMetadata> {
-    const res = await fetch(`${API_BASE}/backtest/resume`, {
-      method: 'POST',
-      headers: getAuthHeaders(),
-      body: JSON.stringify({ run_id: runId }),
-    })
-    return handleJSONResponse<BacktestRunMetadata>(res)
+    const result = await httpClient.post<BacktestRunMetadata>(`${API_BASE}/backtest/resume`, { run_id: runId })
+    if (!result.success) throw new Error(result.message || '恢复回测失败')
+    return result.data!
   },
 
   async stopBacktest(runId: string): Promise<BacktestRunMetadata> {
-    const res = await fetch(`${API_BASE}/backtest/stop`, {
-      method: 'POST',
-      headers: getAuthHeaders(),
-      body: JSON.stringify({ run_id: runId }),
-    })
-    return handleJSONResponse<BacktestRunMetadata>(res)
+    const result = await httpClient.post<BacktestRunMetadata>(`${API_BASE}/backtest/stop`, { run_id: runId })
+    if (!result.success) throw new Error(result.message || '停止回测失败')
+    return result.data!
   },
 
   async updateBacktestLabel(
     runId: string,
     label: string
   ): Promise<BacktestRunMetadata> {
-    const res = await fetch(`${API_BASE}/backtest/label`, {
-      method: 'POST',
-      headers: getAuthHeaders(),
-      body: JSON.stringify({ run_id: runId, label }),
-    })
-    return handleJSONResponse<BacktestRunMetadata>(res)
+    const result = await httpClient.post<BacktestRunMetadata>(`${API_BASE}/backtest/label`, { run_id: runId, label })
+    if (!result.success) throw new Error(result.message || '更新回测标签失败')
+    return result.data!
   },
 
   async deleteBacktestRun(runId: string): Promise<void> {
-    const res = await fetch(`${API_BASE}/backtest/delete`, {
-      method: 'POST',
-      headers: getAuthHeaders(),
-      body: JSON.stringify({ run_id: runId }),
-    })
-    if (!res.ok) {
-      throw new Error(await res.text())
-    }
+    const result = await httpClient.post(`${API_BASE}/backtest/delete`, { run_id: runId })
+    if (!result.success) throw new Error(result.message || '删除回测运行失败')
   },
 
   async getBacktestStatus(runId: string): Promise<BacktestStatusPayload> {
-    const res = await fetch(`${API_BASE}/backtest/status?run_id=${runId}`, {
-      headers: getAuthHeaders(),
-    })
-    return handleJSONResponse<BacktestStatusPayload>(res)
+    const result = await httpClient.get<BacktestStatusPayload>(`${API_BASE}/backtest/status`, { run_id: runId })
+    if (!result.success) throw new Error(result.message || '获取回测状态失败')
+    return result.data!
   },
 
   async getBacktestEquity(
@@ -574,10 +549,10 @@ export const api = {
     const query = new URLSearchParams({ run_id: runId })
     if (timeframe) query.set('tf', timeframe)
     if (limit) query.set('limit', String(limit))
-    const res = await fetch(`${API_BASE}/backtest/equity?${query}`, {
-      headers: getAuthHeaders(),
-    })
-    return handleJSONResponse<BacktestEquityPoint[]>(res)
+    const url = `${API_BASE}/backtest/equity?${query}`
+    const result = await httpClient.get<BacktestEquityPoint[]>(url)
+    if (!result.success) throw new Error(result.message || '获取回测权益数据失败')
+    return result.data!
   },
 
   async getBacktestTrades(
@@ -588,17 +563,17 @@ export const api = {
       run_id: runId,
       limit: String(limit),
     })
-    const res = await fetch(`${API_BASE}/backtest/trades?${query}`, {
-      headers: getAuthHeaders(),
-    })
-    return handleJSONResponse<BacktestTradeEvent[]>(res)
+    const url = `${API_BASE}/backtest/trades?${query}`
+    const result = await httpClient.get<BacktestTradeEvent[]>(url)
+    if (!result.success) throw new Error(result.message || '获取回测交易数据失败')
+    return result.data!
   },
 
   async getBacktestMetrics(runId: string): Promise<BacktestMetrics> {
-    const res = await fetch(`${API_BASE}/backtest/metrics?run_id=${runId}`, {
-      headers: getAuthHeaders(),
-    })
-    return handleJSONResponse<BacktestMetrics>(res)
+    const url = `${API_BASE}/backtest/metrics?run_id=${runId}`
+    const result = await httpClient.get<BacktestMetrics>(url)
+    if (!result.success) throw new Error(result.message || '获取回测指标失败')
+    return result.data!
   },
 
   async getBacktestKlines(
@@ -608,10 +583,10 @@ export const api = {
   ): Promise<BacktestKlinesResponse> {
     const query = new URLSearchParams({ run_id: runId, symbol })
     if (timeframe) query.set('timeframe', timeframe)
-    const res = await fetch(`${API_BASE}/backtest/klines?${query}`, {
-      headers: getAuthHeaders(),
-    })
-    return handleJSONResponse<BacktestKlinesResponse>(res)
+    const url = `${API_BASE}/backtest/klines?${query}`
+    const result = await httpClient.get<BacktestKlinesResponse>(url)
+    if (!result.success) throw new Error(result.message || '获取回测K线数据失败')
+    return result.data!
   },
 
   async getBacktestTrace(
@@ -620,10 +595,10 @@ export const api = {
   ): Promise<DecisionRecord> {
     const query = new URLSearchParams({ run_id: runId })
     if (cycle) query.set('cycle', String(cycle))
-    const res = await fetch(`${API_BASE}/backtest/trace?${query}`, {
-      headers: getAuthHeaders(),
-    })
-    return handleJSONResponse<DecisionRecord>(res)
+    const url = `${API_BASE}/backtest/trace?${query}`
+    const result = await httpClient.get<DecisionRecord>(url)
+    if (!result.success) throw new Error(result.message || '获取回测跟踪数据失败')
+    return result.data!
   },
 
   async getBacktestDecisions(
@@ -636,31 +611,17 @@ export const api = {
       limit: String(limit),
       offset: String(offset),
     })
-    const res = await fetch(`${API_BASE}/backtest/decisions?${query}`, {
-      headers: getAuthHeaders(),
-    })
-    return handleJSONResponse<DecisionRecord[]>(res)
+    const url = `${API_BASE}/backtest/decisions?${query}`
+    const result = await httpClient.get<DecisionRecord[]>(url)
+    if (!result.success) throw new Error(result.message || '获取回测决策数据失败')
+    return result.data!
   },
 
   async exportBacktest(runId: string): Promise<Blob> {
-    const res = await fetch(`${API_BASE}/backtest/export?run_id=${runId}`, {
-      headers: getAuthHeaders(),
-    })
-    if (!res.ok) {
-      const text = await res.text()
-      try {
-        const data = text ? JSON.parse(text) : null
-        throw new Error(
-          data?.error || data?.message || text || '导出失败，请稍后再试'
-        )
-      } catch (err) {
-        if (err instanceof Error && err.message) {
-          throw err
-        }
-        throw new Error(text || '导出失败，请稍后再试')
-      }
-    }
-    return res.blob()
+    const url = `${API_BASE}/backtest/export?run_id=${runId}`
+    const result = await httpClient.get<Blob>(url)
+    if (!result.success) throw new Error(result.message || '导出回测失败')
+    return result.data!
   },
 
   // Strategy APIs
@@ -792,7 +753,12 @@ export const api = {
 
   // SSE stream for live debate updates
   createDebateStream(debateId: string): EventSource {
+    // For SSE streams, we still need to pass the token as a query parameter
+    // since headers cannot be sent with EventSource
     const token = localStorage.getItem('auth_token')
+    if (!token) {
+      throw new Error('Authentication token not found')
+    }
     return new EventSource(`${API_BASE}/debates/${debateId}/stream?token=${token}`)
   },
 
@@ -819,5 +785,38 @@ export const api = {
     const result = await httpClient.get<SystemConfig>(`${API_BASE}/system-config`)
     if (!result.success) throw new Error('获取系统配置失败')
     return result.data!
+  },
+
+  // 生成完整的AI提示词（包含实时数据）
+  async generateFullPrompt(traderId: string): Promise<{ 
+    success: boolean, 
+    data?: {
+      system_prompt: string
+      user_prompt?: string
+      success: boolean
+    },
+    message?: string 
+  }> {
+    const result = await httpClient.post<any>(
+      `${API_BASE}/test/generate-full-prompt`,
+      { trader_id: traderId }
+    )
+    return result
+  },
+
+  // 提交AI决策
+  async submitAIDecision(traderId: string, decisionJson: string): Promise<{ 
+    success: boolean, 
+    data?: any,
+    message?: string 
+  }> {
+    const result = await httpClient.post<any>(
+      `${API_BASE}/test/submit-ai-decision`,
+      { 
+        trader_id: traderId,
+        decision_json: decisionJson
+      }
+    )
+    return result
   },
 }

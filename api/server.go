@@ -269,6 +269,7 @@ func (s *Server) setupRoutes() {
 			protected.POST("/test/validate-template", s.HandleValidateTemplate)
 			protected.POST("/test/generate-full-prompt", s.handleGenerateFullPrompt) // 🔥 生成完整AI提示词（用于手动复制）
 			protected.POST("/test/submit-ai-decision", s.handleSubmitAIDecision)     // 🔥 提交AI决策JSON（手动粘贴）
+			protected.POST("/test/get-scan-data", s.handleGetScanData)               // 🔥 获取手动扫描数据（在AI调用前截断）
 
 			// Backtest routes
 			backtest := protected.Group("/backtest")
