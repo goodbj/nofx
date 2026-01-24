@@ -205,6 +205,7 @@ func (s *Server) setupRoutes() {
 			protected.GET("/traders/:id/status", s.handleGetTraderStatus) // 🔥 获取交易员状态（用于轮询）
 			protected.POST("/traders/:id/execute-decision", s.handleExecuteDecision)
 			protected.POST("/traders/:id/execute-multiple-decisions", s.handleExecuteMultipleDecisions)
+			protected.POST("/guardian/execute", s.handleGuardianExecuteDecision)
 
 			protected.PUT("/traders/:id/prompt", s.handleUpdateTraderPrompt)
 			protected.POST("/traders/:id/sync-balance", s.handleSyncBalance)
@@ -1245,6 +1246,96 @@ func (s *Server) handleExecuteMultipleDecisions(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{
 		"message":         "Batch decisions executed",
+		"total_decisions": len(decisions),
+		"successful":      countSuccessfulResults(results),
+		"results":         results,
+	})
+}
+
+// handleGuardianExecuteDecision Handle decision execution request from guardian
+func (s *Server) handleGuardianExecuteDecision(c *gin.Context) {
+	logger.Info("🔄 Received decision from guardian")
+
+	var req struct {
+		Decision  string `json:"decision"`
+		TraderID  string `json:"trader_id"`
+		Timestamp int64  `json:"timestamp"`
+		Source    string `json:"source"`
+	}
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		logger.Errorf("❌ Failed to parse guardian decision request: %v", err)
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request format"})
+		return
+	}
+
+	if req.Decision == "" {
+		logger.Error("❌ Empty decision received from guardian")
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Decision is required"})
+		return
+	}
+
+	if req.TraderID == "" {
+		logger.Error("❌ No trader ID specified in guardian request")
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Trader ID is required"})
+		return
+	}
+
+	// Get the trader executor
+	trader, err := s.traderManager.GetTraderExecutor(req.TraderID)
+	if err != nil {
+		logger.Errorf("❌ Failed to get trader executor %s: %v", req.TraderID, err)
+		c.JSON(http.StatusNotFound, gin.H{"error": "Trader does not exist"})
+		return
+	}
+
+	// Parse the decision JSON
+	var decisions []kernel.Decision
+	err = json.Unmarshal([]byte(req.Decision), &decisions)
+	if err != nil {
+		logger.Errorf("❌ Failed to parse decision JSON: %v", err)
+		// If it's not an array, try parsing as a single decision
+		var singleDecision kernel.Decision
+		err2 := json.Unmarshal([]byte(req.Decision), &singleDecision)
+		if err2 != nil {
+			logger.Errorf("❌ Failed to parse decision as both array and single item: %v, %v", err, err2)
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid decision format"})
+			return
+		}
+		// Convert single decision to array
+		decisions = []kernel.Decision{singleDecision}
+	}
+
+	logger.Infof("✅ Received %d decisions from guardian for trader %s", len(decisions), req.TraderID)
+
+	// Execute each decision
+	results := make([]map[string]interface{}, 0, len(decisions))
+	for i, decision := range decisions {
+		logger.Infof("Executing decision %d from guardian: %s %s", i+1, decision.Action, decision.Symbol)
+
+		result := map[string]interface{}{
+			"index":   i,
+			"symbol":  decision.Symbol,
+			"action":  decision.Action,
+			"success": false,
+			"error":   "",
+		}
+
+		if err := trader.ExecuteDecision(&decision); err != nil {
+			logger.Errorf("❌ Failed to execute decision %d for %s %s: %v", i+1, decision.Symbol, decision.Action, err)
+			result["error"] = err.Error()
+		} else {
+			logger.Infof("✅ Decision %d executed successfully: %s %s", i+1, decision.Action, decision.Symbol)
+			result["success"] = true
+		}
+
+		results = append(results, result)
+	}
+
+	logger.Infof("✅ Guardian decision execution completed for trader %s, %d/%d decisions successful", req.TraderID, countSuccessfulResults(results), len(results))
+
+	c.JSON(http.StatusOK, gin.H{
+		"message":         "Guardian decisions executed",
 		"total_decisions": len(decisions),
 		"successful":      countSuccessfulResults(results),
 		"results":         results,
