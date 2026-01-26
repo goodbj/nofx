@@ -1,0 +1,73 @@
+services:
+  # Backend service (API and core logic) - Development Version with Hot Reload
+  nofx-dev:
+    build:
+      context: .
+      dockerfile: ./docker/Dockerfile.backend.dev
+    container_name: nofx-trading-dev
+    restart: unless-stopped
+    stop_grace_period: 30s  # 允许应用有 30 秒时间优雅关闭
+    ports:
+      - "${NOFX_BACKEND_PORT:-8888}:${NOFX_BACKEND_PORT:-8888}"  # 使用环境变量端口
+      - "6060:6060"  # pprof profiling
+    volumes:
+      - ./:/app  # 挂载整个项目目录以支持热更新
+      - ./data:/app/data
+      - /etc/localtime:/etc/localtime:ro
+      # 排除不需要同步的目录
+      - /app/.git
+      - /app/web/node_modules
+      - /app/node_modules
+    env_file:
+      - .env
+    environment:
+      - TZ=${TZ:-Asia/Shanghai}
+      - AI_MAX_TOKENS=8000
+      - API_SERVER_PORT=${NOFX_BACKEND_PORT:-8888}  # 使用环境变量端口
+      - OLLAMA_READ_TIMEOUT=270s  # 🔥 Ollama超时设置（4.5分钟，基于实测AI调用176秒）
+    networks:
+      - nofx-network
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:${NOFX_BACKEND_PORT:-8888}/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  # Guardian service - AI automation monitoring (Development Version) with Hot Reload
+  nofx-guardian-dev:
+    build:
+      context: .
+      dockerfile: ./docker/Dockerfile.guardian
+    container_name: nofx-guardian-dev
+    restart: unless-stopped
+    volumes:
+      - ./guardian:/app  # 挂载guardian目录以支持热更新
+      - ./data:/app/data
+      - /etc/localtime:/etc/localtime:ro
+    env_file:
+      - .env
+    environment:
+      - TZ=${TZ:-Asia/Shanghai}
+      - NOFX_API_ENDPOINT=${NOFX_API_ENDPOINT:-http://nofx-dev:8888/api}
+      - GUARDIAN_API_KEY=${GUARDIAN_API_KEY:-}
+      - GUARDIAN_AUTH_TOKEN=${GUARDIAN_AUTH_TOKEN:-}
+      - GUARDIAN_AI_PROVIDER=${GUARDIAN_AI_PROVIDER:-deepseek}
+      - GUARDIAN_AI_ENDPOINT=${GUARDIAN_AI_ENDPOINT:-https://chat.deepseek.com}
+      - GUARDIAN_LISTEN_INTERVAL=${GUARDIAN_LISTEN_INTERVAL:-5000}
+      - GUARDIAN_USER_DATA_DIR=/app/chrome_profile
+      - GUARDIAN_CHROME_PATH=/usr/bin/chromium-browser
+    networks:
+      - nofx-network
+    depends_on:
+      - nofx-dev
+    healthcheck:
+      test: ["CMD-SHELL", "timeout 10s sh -c 'echo > /dev/tcp/localhost/8080' || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 90s
+
+networks:
+  nofx-network:
+    driver: bridge

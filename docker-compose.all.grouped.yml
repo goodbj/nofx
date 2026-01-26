@@ -1,0 +1,151 @@
+version: '3.8'
+
+services:
+  # 稳定版后端
+  stable-backend:
+    image: setup-nofx-dev-backend:latest
+    container_name: nofx-stable-backend
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./data:/app/data
+    environment:
+      - NOFX_BACKEND_PORT=8080
+    networks:
+      - stable-net
+    command: ["air", "-c", ".air.toml"]
+
+  # 稳定版前端
+  stable-frontend:
+    image: setup-nofx-dev-frontend:latest
+    container_name: nofx-stable-frontend
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - VITE_API_TARGET=http://host.docker.internal:8080
+    networks:
+      - stable-net
+    restart: unless-stopped
+
+  # 普通开发版后端 (无浏览器弹窗)
+  dev-backend:
+    image: nofx_dev-backend
+    container_name: nofx-dev-backend
+    ports:
+      - "8888:8888"
+    volumes:
+      - ./api:/app/api
+      - ./auth:/app/auth
+      - ./backtest:/app/backtest
+      - ./config:/app/config
+      - ./crypto:/app/crypto
+      - ./debate:/app/debate
+      - ./decision:/app/decision
+      - ./hook:/app/hook
+      - ./kernel:/app/kernel
+      - ./launcher:/app/launcher
+      - ./llm:/app/llm
+      - ./logger:/app/logger
+      - ./manager:/app/manager
+      - ./market:/app/market
+      - ./mcp:/app/mcp
+      - ./provider:/app/provider
+      - ./scripts:/app/scripts
+      - ./security:/app/security
+      - ./setup:/app/setup
+      - ./store:/app/store
+      - ./trader:/app/trader
+      - ./web:/app/web
+      - ./go.mod:/app/go.mod
+      - ./go.sum:/app/go.sum
+      - ./main.go:/app/main.go
+    environment:
+      - CHROME_HEADLESS=true
+      - CHROME_BIN=/usr/bin/chromium-browser
+      - PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
+    networks:
+      - dev-net
+    working_dir: /app
+
+  # 普通开发版前端 (无浏览器弹窗)
+  dev-frontend:
+    image: setup-nofx-dev-frontend
+    container_name: nofx-dev-frontend
+    ports:
+      - "3300:5173"
+    volumes:
+      - ./web:/app
+      - /app/node_modules
+    environment:
+      - NODE_ENV=development
+      - VITE_API_TARGET=http://host.docker.internal:8888
+    networks:
+      - dev-net
+    restart: unless-stopped
+
+  # 浏览器显示版后端 (有浏览器弹窗)
+  display-backend:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.backend.dev.chrome.fixed
+    container_name: nofx-dev-backend-display
+    ports:
+      - "8890:8888"
+    environment:
+      - CHROME_HEADLESS=false  # 启用浏览器显示
+      - CHROME_BIN=/usr/bin/chromium-browser
+      - PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
+    volumes:
+      - ./api:/app/api
+      - ./auth:/app/auth
+      - ./backtest:/app/backtest
+      - ./config:/app/config
+      - ./crypto:/app/crypto
+      - ./debate:/app/debate
+      - ./decision:/app/decision
+      - ./hook:/app/hook
+      - ./kernel:/app/kernel
+      - ./launcher:/app/launcher
+      - ./llm:/app/llm
+      - ./logger:/app/logger
+      - ./manager:/app/manager
+      - ./market:/app/market
+      - ./mcp:/app/mcp
+      - ./provider:/app/provider
+      - ./scripts:/app/scripts
+      - ./security:/app/security
+      - ./setup:/app/setup
+      - ./store:/app/store
+      - ./trader:/app/trader
+      - ./web:/app/web
+      - ./go.mod:/app/go.mod
+      - ./go.sum:/app/go.sum
+      - ./main.go:/app/main.go
+    networks:
+      - display-net
+    working_dir: /app
+
+  # 浏览器显示版前端 (有浏览器弹窗)
+  display-frontend:
+    image: setup-nofx-dev-frontend
+    container_name: nofx-dev-frontend-display
+    ports:
+      - "3301:5173"
+    volumes:
+      - ./web:/app
+      - /app/node_modules
+    environment:
+      - NODE_ENV=development
+      - VITE_API_TARGET=http://host.docker.internal:8890  # 指向带显示功能的后端
+    networks:
+      - display-net
+    restart: unless-stopped
+
+networks:
+  stable-net:
+    driver: bridge
+  dev-net:
+    driver: bridge
+  display-net:
+    driver: bridge

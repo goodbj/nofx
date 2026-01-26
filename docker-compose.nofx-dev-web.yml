@@ -1,0 +1,61 @@
+﻿version: '3.8'
+
+services:
+  backend:
+    image: nofx_dev-backend-display
+    container_name: nofx-dev-backend-display
+    ports:
+      - "8890:8890"
+    volumes:
+      - ./api:/app/api
+      - ./auth:/app/auth
+      - ./backtest:/app/backtest
+      - ./config:/app/config
+      - ./crypto:/app/crypto
+      - ./debate:/app/debate
+      - ./decision:/app/decision
+      - ./hook:/app/hook
+      - ./kernel:/app/kernel
+      - ./launcher:/app/launcher
+      - ./llm:/app/llm
+      - ./logger:/app/logger
+      - ./manager:/app/manager
+      - ./market:/app/market
+      - ./mcp:/app/mcp
+      - ./provider:/app/provider
+      - ./scripts:/app/scripts
+      - ./security:/app/security
+      - ./setup:/app/setup
+      - ./store:/app/store
+      - ./trader:/app/trader
+      - ./web:/app/web
+      - ./go.mod:/app/go.mod
+      - ./go.sum:/app/go.sum
+      - ./main.go:/app/main.go
+    environment:
+      - CHROME_HEADLESS=false
+      - CHROME_BIN=/usr/bin/chromium-browser
+      - PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
+      - DISPLAY=:99
+    networks:
+      - display-net
+    working_dir: /app
+
+  frontend:
+    image: setup-nofx-dev-frontend
+    container_name: nofx-dev-frontend-display
+    ports:
+      - "3301:5173"
+    volumes:
+      - ./web:/app
+      - /app/node_modules
+    environment:
+      - NODE_ENV=development
+      - VITE_API_TARGET=http://host.docker.internal:8890
+    networks:
+      - display-net
+    restart: unless-stopped
+
+networks:
+  display-net:
+    driver: bridge

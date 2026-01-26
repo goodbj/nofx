@@ -1,0 +1,40 @@
+version: '3.8'
+
+services:
+  guardian_dev_chrome:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.backend.dev.chrome
+    container_name: guardian_dev_chrome
+    ports:
+      - "8888:8888"
+    volumes:
+      # 只挂载源代码目录，而不覆盖整个/app目录
+      - ./api:/app/api
+      - ./auth:/app/auth
+      - ./backtest:/app/backtest
+      - ./config:/app/config
+      - ./crypto:/app/crypto
+      - ./debate:/app/debate
+      - ./decision:/app/decision
+      - ./hook:/app/hook
+      - ./kernel:/app/kernel
+      - ./launcher:/app/launcher
+      - ./llm:/app/llm
+      - ./logger:/app/logger
+      - ./manager:/app/manager
+      - ./market:/app/market
+      - ./mcp:/app/mcp
+      - ./provider:/app/provider
+      - ./scripts:/app/scripts
+      - ./security:/app/security
+      - ./setup:/app/setup
+      - ./store:/app/store
+      - ./trader:/app/trader
+      - ./web:/app/web
+      - ./go.mod:/app/go.mod
+      - ./go.sum:/app/go.sum
+      - ./main.go:/app/main.go
+    environment:
+      - CHROME_HEADLESS=true
+    working_dir: /app

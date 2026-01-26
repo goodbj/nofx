@@ -1,0 +1,31 @@
+version: '3.8'
+
+services:
+  nofx-backend-guardian:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.backend
+    container_name: nofx-backend-guardian
+    ports:
+      - "8888:8080"
+    environment:
+      - GUARDIAN_AI_SERVICE=deepseek
+      - GUARDIAN_DISPLAY_ENABLED=false  # 在生产环境中通常设为false
+      - LOG_LEVEL=info
+      - DB_PATH=./data/nofx.db
+    volumes:
+      - ./data:/app/data
+      - /dev/shm:/dev/shm  # 共享内存，用于Chrome
+    networks:
+      - nofx-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8080/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+networks:
+  nofx-network:
+    driver: bridge

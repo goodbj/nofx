@@ -1,0 +1,62 @@
+version: '3.8'
+
+services:
+  backend:
+    # 使用我们修复后的带Chrome功能的后端镜像
+    image: nofx_dev-backend
+    container_name: nofx-dev-backend
+    ports:
+      - "8888:8888"
+    volumes:
+      - ./api:/app/api
+      - ./auth:/app/auth
+      - ./backtest:/app/backtest
+      - ./config:/app/config
+      - ./crypto:/app/crypto
+      - ./debate:/app/debate
+      - ./decision:/app/decision
+      - ./hook:/app/hook
+      - ./kernel:/app/kernel
+      - ./launcher:/app/launcher
+      - ./llm:/app/llm
+      - ./logger:/app/logger
+      - ./manager:/app/manager
+      - ./market:/app/market
+      - ./mcp:/app/mcp
+      - ./provider:/app/provider
+      - ./scripts:/app/scripts
+      - ./security:/app/security
+      - ./setup:/app/setup
+      - ./store:/app/store
+      - ./trader:/app/trader
+      - ./web:/app/web
+      - ./go.mod:/app/go.mod
+      - ./go.sum:/app/go.sum
+      - ./main.go:/app/main.go
+    environment:
+      - CHROME_HEADLESS=true
+      - CHROME_BIN=/usr/bin/chromium-browser
+      - PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
+    networks:
+      - dev-net
+    working_dir: /app
+
+  frontend:
+    # 使用现有的前端镜像
+    image: setup-nofx-dev-frontend
+    container_name: nofx-dev-frontend
+    ports:
+      - "3300:5173"
+    volumes:
+      - ./web:/app
+      - /app/node_modules
+    environment:
+      - NODE_ENV=development
+      - VITE_API_TARGET=http://host.docker.internal:8888  # 指向宿主机上的后端服务
+    networks:
+      - dev-net
+    restart: unless-stopped
+
+networks:
+  dev-net:
+    driver: bridge

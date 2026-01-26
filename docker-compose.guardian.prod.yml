@@ -1,0 +1,35 @@
+version: '3.8'
+
+services:
+  # Guardian service - AI automation monitoring (Production Version)
+  nofx-guardian-prod:
+    build:
+      context: .
+      dockerfile: ./docker/Dockerfile.guardian
+    container_name: nofx-guardian-prod
+    restart: unless-stopped
+    stop_grace_period: 30s  # 允许应用有 30 秒时间优雅关闭
+    env_file:
+      - .env
+    environment:
+      - TZ=${TZ:-Asia/Shanghai}
+      - NOFX_API_ENDPOINT=${NOFX_API_ENDPOINT:-http://host.docker.internal:8888/api}
+      - GUARDIAN_API_KEY=${GUARDIAN_API_KEY:-}
+      - GUARDIAN_AUTH_TOKEN=${GUARDIAN_AUTH_TOKEN:-}
+      - GUARDIAN_AI_PROVIDER=${GUARDIAN_AI_PROVIDER:-deepseek}
+      - GUARDIAN_AI_ENDPOINT=${GUARDIAN_AI_ENDPOINT:-https://chat.deepseek.com}
+      - GUARDIAN_LISTEN_INTERVAL=${GUARDIAN_LISTEN_INTERVAL:-5000}
+      - GUARDIAN_USER_DATA_DIR=/app/chrome_profile
+      - GUARDIAN_CHROME_PATH=/usr/bin/chromium-browser
+    networks:
+      - nofx-network
+    healthcheck:
+      test: ["CMD-SHELL", "timeout 10s sh -c 'echo > /dev/tcp/localhost/8080' || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 90s
+
+networks:
+  nofx-network:
+    external: true  # 使用外部网络，与主compose文件共享

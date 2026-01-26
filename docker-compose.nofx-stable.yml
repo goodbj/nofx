@@ -1,0 +1,31 @@
+version: '3.8'
+
+services:
+  backend:
+    image: setup-nofx-dev-backend:latest
+    container_name: nofx-stable-backend
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./data:/app/data
+    environment:
+      - NOFX_BACKEND_PORT=8080
+    networks:
+      - stable-net
+    command: ["air", "-c", ".air.toml"]
+
+  frontend:
+    image: setup-nofx-dev-frontend:latest
+    container_name: nofx-stable-frontend
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - VITE_API_TARGET=http://host.docker.internal:8080
+    networks:
+      - stable-net
+    restart: unless-stopped
+
+networks:
+  stable-net:
+    driver: bridge

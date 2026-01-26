@@ -1,0 +1,50 @@
+version: '3.8'
+
+services:
+  guardian-display:
+    image: nofx_dev-nofx-backend-guardian:dev-chrome
+    container_name: guardian-display
+    ports:
+      - "8889:8888"
+    volumes:
+      - ./api:/app/api
+      - ./auth:/app/auth
+      - ./backtest:/app/backtest
+      - ./config:/app/config
+      - ./crypto:/app/crypto
+      - ./debate:/app/debate
+      - ./decision:/app/decision
+      - ./hook:/app/hook
+      - ./kernel:/app/kernel
+      - ./launcher:/app/launcher
+      - ./llm:/app/llm
+      - ./logger:/app/logger
+      - ./manager:/app/manager
+      - ./market:/app/market
+      - ./mcp:/app/mcp
+      - ./provider:/app/provider
+      - ./scripts:/app/scripts
+      - ./security:/app/security
+      - ./setup:/app/setup
+      - ./store:/app/store
+      - ./trader:/app/trader
+      - ./web:/app/web
+      - ./go.mod:/app/go.mod
+      - ./go.sum:/app/go.sum
+      - ./main.go:/app/main.go
+    environment:
+      - CHROME_HEADLESS=false  # 关闭无头模式，允许显示浏览器窗口
+      - DISPLAY=${DISPLAY}     # 如果在Linux上运行，传递显示设置
+      - CHROME_BIN=/usr/bin/chromium-browser
+      - PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
+    networks:
+      - nofx-dev-net
+    working_dir: /app
+    command: ["/init-dev.sh"]
+    # 如果需要X11转发（仅适用于Linux环境），取消下面的注释
+    # volumes:
+    #   - /tmp/.X11-unix:/tmp/.X11-unix:rw
+
+networks:
+  nofx-dev-net:
+    driver: bridge

@@ -1,0 +1,22 @@
+version: '3.8'
+
+services:
+  frontend:
+    # 使用现有的前端镜像
+    image: setup-nofx-dev-frontend
+    container_name: nofx-dev-frontend-display
+    ports:
+      - "3301:5173"
+    volumes:
+      - ./web:/app
+      - /app/node_modules
+    environment:
+      - NODE_ENV=development
+      - VITE_API_TARGET=http://host.docker.internal:8890  # 指向带显示功能的后端
+    networks:
+      - default
+    restart: unless-stopped
+
+networks:
+  default:
+    driver: bridge

@@ -1,0 +1,91 @@
+services:
+  # Backend service (API and core logic)
+  nofx:
+    build:
+      context: .
+      dockerfile: ./docker/Dockerfile.backend
+    container_name: nofx-trading
+    restart: unless-stopped
+    stop_grace_period: 30s  # 允许应用有 30 秒时间优雅关闭
+    ports:
+      - "${NOFX_BACKEND_PORT:-8888}:8088"
+      - "6060:6060"  # pprof profiling
+    volumes:
+      - ./data:/app/data
+      - /etc/localtime:/etc/localtime:ro
+    env_file:
+      - .env
+    environment:
+      - TZ=${TZ:-Asia/Shanghai}
+      - AI_MAX_TOKENS=8000
+      - API_HOST=nofx
+      - NOFX_BACKEND_PORT=${NOFX_BACKEND_PORT:-8888}
+      - OLLAMA_READ_TIMEOUT=270s  # 🔥 Ollama超时设置（4.5分钟，基于实测AI调用176秒）
+    networks:
+      - nofx-network
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:${NOFX_BACKEND_PORT:-8888}/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  # Frontend service (static serving and proxy)
+  nofx-frontend:
+    build:
+      context: .
+      dockerfile: ./docker/Dockerfile.frontend
+    container_name: nofx-frontend
+    restart: unless-stopped
+    ports:
+      - "${NOFX_FRONTEND_PORT:-3300}:80"
+    networks:
+      - nofx-network
+    depends_on:
+      - nofx
+    environment:
+      - API_HOST=nofx
+      - NOFX_BACKEND_PORT=${NOFX_BACKEND_PORT:-8888}
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://127.0.0.1/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 5s
+
+  # Guardian service - AI automation monitoring
+  nofx-guardian:
+    build:
+      context: .
+      dockerfile: ./docker/Dockerfile.guardian
+    container_name: nofx-guardian
+    restart: unless-stopped
+    volumes:
+      - ./data:/app/data
+      - /etc/localtime:/etc/localtime:ro
+    env_file:
+      - .env
+    environment:
+      - TZ=${TZ:-Asia/Shanghai}
+      - NOFX_API_ENDPOINT=${NOFX_API_ENDPOINT:-http://nofx:8088/api}
+      - GUARDIAN_API_KEY=${GUARDIAN_API_KEY:-}
+      - GUARDIAN_AUTH_TOKEN=${GUARDIAN_AUTH_TOKEN:-}
+      - GUARDIAN_AI_PROVIDER=${GUARDIAN_AI_PROVIDER:-deepseek}
+      - GUARDIAN_AI_ENDPOINT=${GUARDIAN_AI_ENDPOINT:-https://chat.deepseek.com}
+      - GUARDIAN_LISTEN_INTERVAL=${GUARDIAN_LISTEN_INTERVAL:-5000}
+      - GUARDIAN_USER_DATA_DIR=/app/chrome_profile
+      - GUARDIAN_CHROME_PATH=/usr/bin/chromium-browser
+    networks:
+      - nofx-network
+    depends_on:
+      - nofx
+    healthcheck:
+      test: ["CMD-SHELL", "timeout 10s sh -c 'echo > /dev/tcp/localhost/8080' || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 90s
+
+networks:
+  nofx-network:
+    driver: bridge
