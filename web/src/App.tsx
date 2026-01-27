@@ -26,6 +26,7 @@ import { useSystemConfig } from './hooks/useSystemConfig'
 import { OFFICIAL_LINKS } from './constants/branding'
 import { BacktestPage } from './components/BacktestPage'
 import { ToolsPage } from './pages/ToolsPage';
+import GuardianTestPage from './pages/GuardianTestPage';
 import type {
   SystemStatus,
   AccountInfo,
@@ -47,6 +48,7 @@ type Page =
   | 'faq'
   | 'test'
   | 'tools'
+  | 'guardian-test'
   | 'login'
   | 'register'
 
@@ -101,6 +103,7 @@ function App() {
       'faq': '/faq',
       'test': '/test',
       'tools': '/tools',
+      'guardian-test': '/guardian-test',
       'login': '/login',
       'register': '/register',
     }
@@ -175,6 +178,8 @@ function App() {
         setCurrentPage('test')
       } else if (path === '/tools') {
         setCurrentPage('tools')
+      } else if (path === '/guardian-test') {
+        setCurrentPage('guardian-test')
       } else if (
         path === '/competition' ||
         hash === 'competition' ||
@@ -403,6 +408,31 @@ function App() {
       </div>
     )
   }
+  if (route === '/guardian-test') {
+    return (
+      <div
+        className="min-h-screen"
+        style={{ background: '#0B0E11', color: '#EAECEF' }}
+      >
+        <HeaderBar
+          isLoggedIn={!!user}
+          currentPage="guardian-test"
+          language={language}
+          onLanguageChange={setLanguage}
+          user={user}
+          onLogout={logout}
+          onLoginRequired={handleLoginRequired}
+          onPageChange={navigateToPage}
+        />
+        <GuardianTestPage />
+        <LoginRequiredOverlay
+          isOpen={loginOverlayOpen}
+          onClose={() => setLoginOverlayOpen(false)}
+          featureName={loginOverlayFeature}
+        />
+      </div>
+    )
+  }
   if (route === '/reset-password') {
     return <ResetPasswordPage />
   }
@@ -465,6 +495,8 @@ function App() {
               <TestPage />
             ) : currentPage === 'tools' ? (
               <ToolsPage />
+            ) : currentPage === 'guardian-test' ? (
+              <GuardianTestPage />
             ) : (
               <TraderDashboardPage
                 selectedTrader={selectedTrader}

@@ -62,6 +62,15 @@ func SetLastActualRequestJSON(jsonData string) {
 	lastPromptMutex.Unlock()
 }
 
+// SetLastPrompt 设置最近一次的 AI Prompt
+func SetLastPrompt(systemPrompt, userPrompt string) {
+	lastPromptMutex.Lock()
+	lastSystemPrompt = systemPrompt
+	lastUserPrompt = userPrompt
+	lastPromptTime = time.Now()
+	lastPromptMutex.Unlock()
+}
+
 // ============================================================================
 // Type Definitions
 // ============================================================================

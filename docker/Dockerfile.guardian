@@ -1,0 +1,69 @@
+# Multi-stage build for Guardian
+FROM golang:1.25-alpine AS builder
+
+# 使用国内镜像源替换默认仓库
+RUN echo "https://mirrors.aliyun.com/alpine/v3.18/main" > /etc/apk/repositories && \
+    echo "https://mirrors.aliyun.com/alpine/v3.18/community" >> /etc/apk/repositories
+
+# Install Chrome dependencies
+RUN apk add --no-cache \
+    chromium \
+    nss \
+    freetype \
+    freetype-dev \
+    harfbuzz \
+    ca-certificates \
+    ttf-freefont \
+    bash
+
+# Set environment variables for Go
+ENV CGO_ENABLED=0
+ENV GOOS=linux
+ENV CHROMIUM_BIN=/usr/bin/chromium-browser
+
+# Set working directory
+WORKDIR /app
+
+# Copy go mod files
+COPY go.mod go.sum ./
+RUN go mod download
+
+# Copy source code
+COPY . .
+
+# Build the Guardian binary
+WORKDIR /app/guardian
+RUN go build -o guardian .
+
+# Final stage
+FROM alpine:latest
+
+# 使用国内镜像源替换默认仓库
+RUN echo "https://mirrors.aliyun.com/alpine/v3.18/main" > /etc/apk/repositories && \
+    echo "https://mirrors.aliyun.com/alpine/v3.18/community" >> /etc/apk/repositories
+
+# Install ca-certificates for HTTPS requests
+RUN apk --no-cache add ca-certificates chromium nss freetype harfbuzz ttf-freefont
+
+# Create a non-root user
+RUN addgroup -g 65532 guardian && \
+    adduser -u 65532 -G guardian -s /bin/sh -D guardian
+
+# Set working directory
+WORKDIR /app
+
+# Copy the binary from builder stage
+COPY --from=builder /app/guardian/guardian .
+
+# Create chrome profile directory
+RUN mkdir -p /app/chrome_profile
+RUN chown -R guardian:guardian /app
+
+# Switch to non-root user
+USER guardian
+
+# Expose port if needed (though Guardian is primarily a monitoring service)
+EXPOSE 8080
+
+# Command to run the binary
+ENTRYPOINT ["./guardian"]

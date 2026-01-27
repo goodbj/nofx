@@ -17,6 +17,7 @@ type Page =
   | 'faq'
   | 'test'
   | 'tools'
+  | 'guardian-test'
   | 'login'
   | 'register'
 

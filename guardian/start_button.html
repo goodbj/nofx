@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Guardian 控制面板</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        
+        .container {
+            background-color: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        
+        h1 {
+            color: #333;
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        
+        .button-group {
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+            margin-bottom: 30px;
+        }
+        
+        .btn {
+            padding: 15px 20px;
+            font-size: 16px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: background-color 0.3s;
+            text-align: center;
+        }
+        
+        .btn-primary {
+            background-color: #007bff;
+            color: white;
+        }
+        
+        .btn-primary:hover {
+            background-color: #0056b3;
+        }
+        
+        .btn-success {
+            background-color: #28a745;
+            color: white;
+        }
+        
+        .btn-success:hover {
+            background-color: #218838;
+        }
+        
+        .btn-warning {
+            background-color: #ffc107;
+            color: #212529;
+        }
+        
+        .btn-warning:hover {
+            background-color: #e0a800;
+        }
+        
+        .btn-danger {
+            background-color: #dc3545;
+            color: white;
+        }
+        
+        .btn-danger:hover {
+            background-color: #c82333;
+        }
+        
+        .status {
+            margin-top: 20px;
+            padding: 15px;
+            border-radius: 5px;
+            background-color: #f8f9fa;
+            border-left: 4px solid #007bff;
+        }
+        
+        .log-output {
+            background-color: #f8f9fa;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            padding: 15px;
+            height: 300px;
+            overflow-y: auto;
+            font-family: monospace;
+            white-space: pre-wrap;
+            margin-top: 20px;
+        }
+        
+        .environment-selector {
+            margin-bottom: 20px;
+            text-align: center;
+        }
+        
+        select {
+            padding: 8px 12px;
+            font-size: 16px;
+            border-radius: 5px;
+            border: 1px solid #ccc;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🤖 Guardian 监测程序控制面板</h1>
+        
+        <div class="environment-selector">
+            <label for="env-select">选择运行环境：</label>
+            <select id="env-select">
+                <option value="production">生产环境 (with-guardian)</option>
+                <option value="development">开发环境 (dev.with-guardian)</option>
+            </select>
+        </div>
+        
+        <div class="button-group">
+            <button class="btn btn-success" onclick="startServices()">🟢 启动所有服务（含Guardian）</button>
+            <button class="btn btn-danger" onclick="stopServices()">🔴 停止所有服务（含Guardian）</button>
+            <button class="btn btn-primary" onclick="checkStatus()">🔍 检查服务状态</button>
+            <button class="btn btn-warning" onclick="viewLogs()">📋 查看Guardian日志</button>
+        </div>
+        
+        <div class="status" id="status-message">
+            <strong>状态信息：</strong> 点击上方按钮来控制Guardian服务
+        </div>
+        
+        <div class="log-output" id="log-output">
+            <!-- 日志输出区域 -->
+        </div>
+    </div>
+
+    <script>
+        let currentEnv = 'production';
+        
+        document.getElementById('env-select').addEventListener('change', function() {
+            currentEnv = this.value;
+            updateLog(`已选择环境: ${this.options[this.selectedIndex].text}`);
+        });
+        
+        function updateLog(message) {
+            const logOutput = document.getElementById('log-output');
+            const timestamp = new Date().toLocaleTimeString();
+            logOutput.innerHTML += `[${timestamp}] ${message}\n`;
+            logOutput.scrollTop = logOutput.scrollHeight;
+        }
+        
+        function updateStatus(message) {
+            document.getElementById('status-message').innerHTML = `<strong>状态信息：</strong> ${message}`;
+        }
+        
+        async function executeCommand(command, description) {
+            updateStatus(`执行: ${description}...`);
+            updateLog(`执行命令: ${command}`);
+            
+            try {
+                const response = await fetch('/api/command', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        command: command,
+                        env: currentEnv
+                    })
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    updateLog('✅ 命令执行成功');
+                    updateLog(data.output);
+                    updateStatus('✅ 命令执行成功');
+                } else {
+                    updateLog(`❌ 命令执行失败: ${data.error}`);
+                    updateStatus(`❌ 命令执行失败: ${data.error}`);
+                }
+                
+                return data;
+            } catch (error) {
+                updateLog(`❌ 网络错误: ${error.message}`);
+                updateStatus(`❌ 网络错误: ${error.message}`);
+                return { success: false, error: error.message };
+            }
+        }
+        
+        async function startServices() {
+            await executeCommand('start', '启动所有服务');
+        }
+        
+        async function stopServices() {
+            await executeCommand('stop', '停止所有服务');
+        }
+        
+        async function checkStatus() {
+            await executeCommand('status', '检查服务状态');
+        }
+        
+        async function viewLogs() {
+            await executeCommand('logs', '查看Guardian日志');
+        }
+        
+        // 初始化
+        updateLog('欢迎使用Guardian控制面板！\n请选择环境并点击相应按钮来控制服务。');
+        updateLog('注意：请确保后端服务器正在运行 (go run web_controller.go)');
+    </script>
+</body>
+</html>

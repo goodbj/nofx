@@ -14,6 +14,7 @@ import (
 	"nofx/logger"
 	"nofx/manager"
 	"nofx/market"
+	"nofx/mcp"
 	"nofx/provider/alpaca"
 	"nofx/provider/coinank/coinank_api"
 	"nofx/provider/coinank/coinank_enum"
@@ -271,6 +272,11 @@ func (s *Server) setupRoutes() {
 			protected.POST("/test/generate-full-prompt", s.handleGenerateFullPrompt) // 🔥 生成完整AI提示词（用于手动复制）
 			protected.POST("/test/submit-ai-decision", s.handleSubmitAIDecision)     // 🔥 提交AI决策JSON（手动粘贴）
 			protected.POST("/test/get-scan-data", s.handleGetScanData)               // 🔥 获取手动扫描数据（在AI调用前截断）
+
+			// Guardian test endpoints
+			api.POST("/test-guardian", s.handleTestGuardian)
+			api.POST("/test-guardian-analysis", s.handleTestGuardianAnalysis)
+			api.POST("/open-guardian-browser", s.handleOpenGuardianBrowser)
 
 			// Backtest routes
 			backtest := protected.Group("/backtest")
@@ -4161,6 +4167,149 @@ func (s *Server) handleGetLastPrompt(c *gin.Context) {
 		"total_chars":         totalChars,
 		"estimated_tokens":    estimatedTokens,
 		"actual_request_json": actualRequestJSON, // 实际发送的 JSON 请求体
+	})
+}
+
+// handleTestGuardian Handle Guardian browser automation test
+func (s *Server) handleTestGuardian(c *gin.Context) {
+	logger.Info("🧪 Received Guardian browser automation test request")
+
+	var req struct {
+		Prompt string `json:"prompt"`
+		Mode   string `json:"mode,omitempty"`
+	}
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		logger.Errorf("❌ Failed to parse Guardian test request: %v", err)
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request format"})
+		return
+	}
+
+	if req.Prompt == "" {
+		req.Prompt = "默认测试提示词：请分析当前市场趋势"
+	}
+
+	// 确保在测试模式下使用Guardian
+	if req.Mode == "guardian-test" {
+		logger.Info("🚀 Guardian test mode activated")
+
+		// 创建Guardian客户端
+		guardianClient := mcp.NewGuardianClient()
+		if guardianClient == nil {
+			logger.Error("❌ Failed to create Guardian client")
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create Guardian client"})
+			return
+		}
+
+		// 使用Guardian执行浏览器自动化
+		result, err := guardianClient.CallWithMessages("", req.Prompt)
+		if err != nil {
+			logger.Errorf("❌ Guardian browser automation failed: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Guardian automation failed: %v", err)})
+			return
+		}
+
+		logger.Infof("✅ Guardian browser automation completed successfully")
+		c.JSON(http.StatusOK, gin.H{
+			"message": "Guardian浏览器自动化测试已启动",
+			"result":  result,
+			"status":  "success",
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"message": "Guardian测试已启动，请查看浏览器弹窗",
+		"prompt":  req.Prompt,
+		"status":  "started",
+	})
+}
+
+// handleTestGuardianAnalysis Handle Guardian AI analysis test
+func (s *Server) handleTestGuardianAnalysis(c *gin.Context) {
+	logger.Info("🧪 Received Guardian AI analysis test request")
+
+	var req struct {
+		Prompt   string `json:"prompt"`
+		TestMode bool   `json:"testMode,omitempty"`
+	}
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		logger.Errorf("❌ Failed to parse Guardian analysis test request: %v", err)
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request format"})
+		return
+	}
+
+	if req.Prompt == "" {
+		req.Prompt = "默认测试提示词：请分析当前市场趋势"
+	}
+
+	// 创建Guardian客户端
+	guardianClient := mcp.NewGuardianClient()
+	if guardianClient == nil {
+		logger.Error("❌ Failed to create Guardian client")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create Guardian client"})
+		return
+	}
+
+	// 使用Guardian执行浏览器自动化
+	result, err := guardianClient.CallWithMessages("", req.Prompt)
+	if err != nil {
+		logger.Errorf("❌ Guardian AI analysis failed: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Guardian AI analysis failed: %v", err)})
+		return
+	}
+
+	logger.Infof("✅ Guardian AI analysis completed successfully")
+	c.JSON(http.StatusOK, gin.H{
+		"message":  "Guardian AI分析测试完成",
+		"prompt":   req.Prompt,
+		"analysis": result,
+		"status":   "completed",
+	})
+}
+
+// handleOpenGuardianBrowser Handle opening a long-lived browser window for user interaction
+func (s *Server) handleOpenGuardianBrowser(c *gin.Context) {
+	logger.Info("🌐 Received request to open long-lived Guardian browser window")
+
+	var req struct {
+		URL string `json:"url"`
+	}
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		logger.Errorf("❌ Failed to parse open browser request: %v", err)
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request format"})
+		return
+	}
+
+	// 使用默认URL如果未提供
+	if req.URL == "" {
+		req.URL = "https://chat.deepseek.com/"
+	}
+
+	// 创建一个特殊的Guardian客户端，专门用于打开长时间保持的浏览器窗口
+	guardianClient := mcp.NewGuardianClientForBrowser()
+	if guardianClient == nil {
+		logger.Error("❌ Failed to create Guardian client")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create Guardian client"})
+		return
+	}
+
+	// 调用Guardian客户端的长时间保持浏览器功能
+	go func() {
+		// 使用一个简单的提示词来触发浏览器打开
+		err := guardianClient.OpenLongLivedBrowser(req.URL)
+		if err != nil {
+			logger.Errorf("❌ Failed to open long-lived browser window: %v", err)
+		}
+	}()
+
+	logger.Infof("✅ Long-lived Guardian browser window request sent successfully")
+	c.JSON(http.StatusOK, gin.H{
+		"message": "Long-lived browser window opened successfully",
+		"url":     req.URL,
+		"status":  "opened",
 	})
 }
 

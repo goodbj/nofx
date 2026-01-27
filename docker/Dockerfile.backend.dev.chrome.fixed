@@ -1,0 +1,94 @@
+# 使用支持Chrome的镜像作为基础镜像
+FROM zenika/alpine-chrome:latest
+
+# 清除原有的ENTRYPOINT和CMD
+ENTRYPOINT []
+CMD []
+
+# 切换到root用户以安装包
+USER root
+
+# 安装必要的依赖
+RUN apk update && apk add --no-cache \
+    ca-certificates \
+    tzdata \
+    sqlite \
+    git \
+    openssh \
+    curl \
+    nodejs \
+    npm \
+    gcc \
+    g++ \
+    make \
+    musl-dev \
+    linux-headers
+
+# 安装 Go 1.25.3
+RUN curl -L https://go.dev/dl/go1.25.3.linux-amd64.tar.gz -o go1.25.3.linux-amd64.tar.gz && \
+    tar -C /usr/local -xzf go1.25.3.linux-amd64.tar.gz && \
+    rm go1.25.3.linux-amd64.tar.gz
+
+# 设置环境变量
+ENV GOROOT=/usr/local/go
+ENV GOPATH=/home/chrome/go
+ENV PATH=$PATH:/usr/local/go/bin:$GOPATH/bin
+
+# 安装Air for hot reloading
+RUN go install github.com/cosmtrek/air@v1.27.0
+
+# 设置工作目录
+WORKDIR /app
+
+# 复制go.mod和go.sum
+COPY go.mod go.sum ./
+
+# 下载Go依赖
+RUN go mod download
+
+# 创建air配置文件
+RUN echo '[build]' > .air.conf && \
+    echo '  bin = "./tmp/main"' >> .air.conf && \
+    echo '  cmd = "go build -o ./tmp/main ."' >> .air.conf && \
+    echo '  delay = 1000' >> .air.conf && \
+    echo '  exclude_dir = ["assets", "tmp", "vendor", "node_modules", "web", "data", "dist", "binance-connector-python", "guardian", "launcher/build", "launcher/dist", "data_bk", "sqlite-tools", "screenshots", "AI", "guardian/chrome_profile", "test", "temp_*", "data_new*"]' >> .air.conf && \
+    echo '  exclude_file = []' >> .air.conf && \
+    echo '  exclude_regex = ["_test.go"]' >> .air.conf && \
+    echo '  exclude_unchanged = false' >> .air.conf && \
+    echo '  follow_symlink = false' >> .air.conf && \
+    echo '  full_bin = ""' >> .air.conf && \
+    echo '  include_dir = []' >> .air.conf && \
+    echo '  include_ext = ["go", "tpl", "tmpl", "html", "env", "mod", "sum"]' >> .air.conf && \
+    echo '  kill_delay = "0s"' >> .air.conf && \
+    echo '  log = "build-errors.log"' >> .air.conf && \
+    echo '  send_interrupt = false' >> .air.conf && \
+    echo '  stop_on_error = false' >> .air.conf && \
+    echo '[color]' >> .air.conf && \
+    echo '  app = ""' >> .air.conf && \
+    echo '  build = "yellow"' >> .air.conf && \
+    echo '  main = "magenta"' >> .air.conf && \
+    echo '  runner = "green"' >> .air.conf && \
+    echo '  watcher = "cyan"' >> .air.conf && \
+    echo '[log]' >> .air.conf && \
+    echo '  time = false' >> .air.conf && \
+    echo '[misc]' >> .air.conf && \
+    echo '  clean_on_exit = false' >> .air.conf
+
+# 复制源代码
+COPY . .
+
+# 设置环境变量
+ENV CHROME_BIN=/usr/bin/chromium-browser
+ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
+
+# 创建tmp目录并设置权限
+RUN mkdir -p /app/tmp && chown chrome:chrome /app/tmp
+
+# 切换回chrome用户
+USER chrome
+
+# 暴露端口
+EXPOSE 8888
+
+# 使用air进行热重载
+CMD ["air", "-c", ".air.conf"]

@@ -1,0 +1,44 @@
+# 使用我们已成功构建的Guardian镜像作为基础镜像
+FROM nofx_dev-nofx-backend-guardian:latest
+
+# 清除原有的ENTRYPOINT和CMD
+ENTRYPOINT []
+CMD []
+
+# 从构建上下文复制air配置文件和初始化脚本
+COPY scripts/.air.conf /tmp/.air.conf
+COPY init-dev.sh /init-dev.sh
+
+# 切换到root用户以安装额外的开发工具
+USER root
+
+# 安装git和curl，以及用于热重载的工具
+RUN apk add --no-cache git curl
+
+# 安装Go（用于热重载）
+RUN apk add --no-cache go
+
+# 设置GOPATH和更新PATH
+ENV GOPATH=/home/chrome/go
+ENV PATH=$PATH:$GOPATH/bin
+
+# 安装Air for hot reloading
+RUN go install github.com/cosmtrek/air@v1.27.0
+
+# 确保初始化脚本有执行权限
+RUN chmod +x /init-dev.sh
+
+# 创建必要的目录
+RUN mkdir -p /app/tmp
+
+# 切换回chrome用户
+USER chrome
+
+# 设置工作目录
+WORKDIR /app
+
+# 暴露端口
+EXPOSE 8888
+
+# 使用初始化脚本来启动
+CMD ["/init-dev.sh"]
