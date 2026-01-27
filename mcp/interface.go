@@ -11,6 +11,13 @@ type AIClient interface {
 	SetTimeout(timeout time.Duration)
 	CallWithMessages(systemPrompt, userPrompt string) (string, error)
 	CallWithRequest(req *Request) (string, error) // Builder pattern API (supports advanced features)
+	OpenLongLivedBrowser(targetURL string) error  // For browser automation clients
+}
+
+// BrowserAutomationClient interface for clients that support browser automation
+type BrowserAutomationClient interface {
+	AIClient
+	OpenLongLivedBrowser(targetURL string) error
 }
 
 // clientHooks internal hook interface (for subclass to override specific steps)

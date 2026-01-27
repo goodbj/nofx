@@ -770,3 +770,8 @@ func (client *Client) buildRequestBodyFromRequest(req *Request) map[string]any {
 
 	return requestBody
 }
+
+// OpenLongLivedBrowser opens a long-lived browser window (default implementation returns error)
+func (client *Client) OpenLongLivedBrowser(targetURL string) error {
+	return fmt.Errorf("OpenLongLivedBrowser is not supported by this client type: %s", client.Provider)
+}
