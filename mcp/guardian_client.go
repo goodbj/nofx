@@ -220,6 +220,9 @@ func (gc *GuardianClient) performBrowserAutomation(prompt string) (string, error
 
 	switch {
 	case strings.Contains(serviceType, "deepseek"):
+	case strings.Contains(serviceType, "chat"):
+	case targetURL == "https://chat.deepseek.com" || strings.Contains(targetURL, "deepseek"):
+		// 如果是DeepSeek或包含chat的服务，或目标URL包含deepseek
 		inputSelectors = []string{
 			"textarea[placeholder='给 DeepSeek 发送消息 ']",
 			"textarea._27c9245.ds-scroll-area.d96f2d2a",
@@ -252,6 +255,27 @@ func (gc *GuardianClient) performBrowserAutomation(prompt string) (string, error
 			"pre",
 			"code",
 		}
+	default:
+		// 默认使用通用选择器
+		inputSelectors = []string{
+			"textarea[placeholder*='message'], textarea[placeholder*='Message']",
+			"textarea[placeholder*='input'], textarea[placeholder*='Input']",
+			"textarea[aria-label*='input'], textarea[aria-label*='text']",
+			"textarea[role='textbox']",
+			"input[type='text']",
+			"div[contenteditable='true']",
+		}
+		submitSelectors = []string{
+			"button[type='submit']",
+			"button[aria-label*='send'], button[title*='send']",
+			"button[data-testid*='send']",
+			".send-button, #send-button",
+		}
+		responseSelectors = []string{
+			"[data-testid*='response'], [data-testid*='answer']",
+			".response, .answer, .result",
+			"div[class*='message']",
+		}
 	case strings.Contains(serviceType, "chatgpt"):
 		inputSelectors = []string{
 			"textarea[placeholder='Send a message']",
@@ -273,8 +297,8 @@ func (gc *GuardianClient) performBrowserAutomation(prompt string) (string, error
 			".chat-message-content",
 			"div.markdown-body",
 		}
-	default:
-		// 默认使用通用选择器
+	case strings.Contains(serviceType, "other"):
+		// 预留其他服务类型
 		inputSelectors = []string{
 			"textarea[placeholder*='message'], textarea[placeholder*='Message']",
 			"textarea[placeholder*='input'], textarea[placeholder*='Input']",
@@ -317,58 +341,47 @@ func (gc *GuardianClient) performBrowserAutomation(prompt string) (string, error
 						gc.logger.Printf("⚠️ Could not clear input field %s, proceeding anyway: %v", selector, err)
 					}
 
-					// 设置输入框的内容，一次性填充整个文本而不是逐字发送
-					gc.logger.Printf("⌨️ Setting input field value (%d characters): %s...", len(prompt), prompt[:func(a, b int) int {
-						if a < b {
-							return a
-						} else {
-							return b
+					// 先快速输入大部分内容，然后逐字输入最后几个字符来激活提交按钮
+					totalLen := len(prompt)
+					var fastInput, slowInput string
+
+					if totalLen > 5 { // 如果内容超过5个字符
+						fastInput = prompt[:totalLen-5] // 前面的内容快速输入
+						slowInput = prompt[totalLen-5:] // 最后5个字符逐字输入
+					} else {
+						fastInput = ""
+						slowInput = prompt // 如果少于等于5个字符，全部逐字输入
+					}
+
+					if fastInput != "" {
+						gc.logger.Printf("⌨️ Fast typing bulk content (%d characters)...", len(fastInput))
+						// 快速输入大部分内容
+						err = chromedp.SetValue(selector, fastInput).Do(ctx)
+						if err != nil {
+							gc.logger.Printf("❌ Failed to set bulk content to selector %s: %v", selector, err)
+							continue // 尝试下一个选择器
 						}
-					}(len(prompt), 50)])
-					err = chromedp.SetValue(selector, prompt).Do(ctx)
-					if err != nil {
-						gc.logger.Printf("❌ Failed to send keys to selector %s: %v", selector, err)
-						continue // 尝试下一个选择器
+						// 短暂延迟，让页面处理
+						time.Sleep(100 * time.Millisecond)
 					}
 
-					// 触发输入事件，确保页面JS检测到内容变化并激活提交按钮
-					err = chromedp.EvaluateAsDevTools(
-						fmt.Sprintf(
-							`(() => {
-								const element = document.querySelector('%s');
-								if (element) {
-									// 触发各种事件以确保页面JS检测到内容变化
-									const events = ['input', 'change', 'keyup', 'keydown', 'paste', 'textInput', 'compositionstart', 'compositionupdate', 'compositionend'];
-									events.forEach(eventType => {
-										try {
-											const event = new Event(eventType, { bubbles: true, cancelable: true });
-											element.dispatchEvent(event);
-										} catch(e) {
-											// 忽略不支持的事件类型
-										}
-									});
-									// 特别处理React等框架的值变更
-									if (element._valueTracker) {
-										element._valueTracker.setValue(element.value);
-									}
-									// 强制触发propertychange事件
-									try {
-										const inputEvent = document.createEvent('HTMLEvents');
-										inputEvent.initEvent('input', true, false);
-										element.dispatchEvent(inputEvent);
-									} catch(e) {
-										// 如果不支持旧式事件，则忽略
-
-									}
-									return true;
-								}
-								return false;
-							})()`, selector), nil).Do(ctx)
-					if err != nil {
-						gc.logger.Printf("⚠️ Failed to trigger input events for selector %s: %v", selector, err)
+					if slowInput != "" {
+						gc.logger.Printf("⌨️ Slow typing last %d characters to activate button: %s", len(slowInput), slowInput)
+						// 逐字输入最后几个字符来激活按钮
+						err = chromedp.SendKeys(selector, slowInput).Do(ctx)
+						if err != nil {
+							gc.logger.Printf("❌ Failed to send slow keys to selector %s: %v", selector, err)
+							continue // 尝试下一个选择器
+						}
+						// 短暂延迟，确保页面响应
+						time.Sleep(100 * time.Millisecond)
 					}
 
-					gc.logger.Printf("✅ Successfully set value to selector %s (%d characters) and triggered input events", selector, len(prompt))
+					gc.logger.Printf("✅ Successfully filled input field with %d characters total", len(prompt))
+
+					// 添加较长的延迟，确保页面有充分时间处理输入并激活提交按钮
+					time.Sleep(500 * time.Millisecond)
+
 					return nil
 				} else {
 					gc.logger.Printf("❌ Input selector %s not found or not visible: %v", selector, err)
@@ -420,7 +433,7 @@ func (gc *GuardianClient) performBrowserAutomation(prompt string) (string, error
 						// 再次检查
 						err = chromedp.Evaluate(fmt.Sprintf(
 							`(function() {
-								const element = document.querySelector('%s');
+								var element = document.querySelector('%s');
 								if (element && (element.tagName.toLowerCase() === 'button' || element.type === 'submit' || element.type === 'button')) {
 									// 普通按钮检查disabled属性
 									return !element.disabled;
@@ -503,7 +516,6 @@ Loop:
 				submitButtonCtx, sbCancel := context.WithTimeout(ctx, 30*time.Second)
 				defer sbCancel()
 
-			buttonCheckLoop:
 				for {
 					select {
 					case <-submitButtonCtx.Done():
@@ -516,17 +528,17 @@ Loop:
 							err = chromedp.EvaluateAsDevTools(
 								fmt.Sprintf(
 									`(function() {
-										const element = document.querySelector('%s');
+										var element = document.querySelector('%s');
 										if (element) {
 											// 对于div按钮，检查aria-disabled属性
 											if (element.hasAttribute('aria-disabled')) {
-												return element.getAttribute('aria-disabled') === 'false';
+												return element.getAttribute('aria-disabled') !== 'true';
 											}
 											// 对于普通按钮，检查disabled属性
 											return !element.disabled;
 										}
 										return false; // 元素不存在认为按钮不可用
-									})()`, submitSel), &buttonActive).Do(ctx)
+									})();`, submitSel), &buttonActive).Do(ctx)
 
 							if err == nil && buttonActive {
 								gc.logger.Println("✅ Submit button is active, indicating AI processing is complete")
@@ -556,6 +568,45 @@ Loop:
 	}
 
 	gc.logger.Printf("✅ Successfully retrieved AI response, length: %d", len(response))
+
+	// 尝试点击复制按钮
+	gc.logger.Println("📋 Attempting to click copy button...")
+	copyErr := chromedp.Run(ctx,
+		chromedp.ActionFunc(func(ctx context.Context) error {
+			copySelectors := []string{
+				"div.db183363.ds-icon-button[role='button']",        // DeepSeek复制按钮
+				"button[aria-label*='Copy'], button[title*='Copy']", // 通用复制按钮
+				".copy-button, #copy-button",
+			}
+
+			for _, selector := range copySelectors {
+				gc.logger.Printf("🔍 Attempting to find copy button with selector: %s", selector)
+				// 等待复制按钮可见
+				err := chromedp.WaitVisible(selector).Do(ctx)
+				if err == nil {
+					gc.logger.Printf("✅ Found copy button with selector: %s", selector)
+
+					// 点击复制按钮
+					err = chromedp.Click(selector).Do(ctx)
+					if err != nil {
+						gc.logger.Printf("❌ Failed to click copy button %s: %v", selector, err)
+						continue
+					}
+					gc.logger.Printf("✅ Successfully clicked copy button: %s", selector)
+					return nil
+				} else {
+					gc.logger.Printf("❌ Copy button selector %s not found or not visible: %v", selector, err)
+				}
+			}
+			return fmt.Errorf("no copy button found with any of the attempted selectors: %v", copySelectors)
+		}),
+	)
+	if copyErr != nil {
+		gc.logger.Printf("⚠️ Copy button not found or failed to click: %v", copyErr)
+		// 复制失败不是严重错误，继续执行
+	} else {
+		gc.logger.Println("✅ Successfully copied response")
+	}
 
 	// 计算总耗时
 	duration := time.Since(startTime)
