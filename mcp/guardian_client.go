@@ -161,22 +161,22 @@ func (gc *GuardianClient) performBrowserAutomation(prompt string) (string, error
 		chromedp.Flag("max_old_space_size", "4096"),
 		chromedp.Flag("no-first-run", "true"),
 		chromedp.Flag("no-default-browser-check", "true"),
-		chromedp.Flag("window-size", "550,850"),                   // 设置浏览器窗口尺寸为550x850
+		chromedp.Flag("window-size", "1000,850"),                  // 设置浏览器窗口尺寸为1000x850
 		chromedp.Flag("user-data-dir", "./guardian_browser_data"), // 设置用户数据目录以保存登录状态
 		chromedp.Flag("profile-directory", "Default"),             // 使用默认配置文件
 	)
 
-	allocCtx, cancel := chromedp.NewExecAllocator(context.Background(), opts...)
-	defer cancel()
+	allocCtx, _ := chromedp.NewExecAllocator(context.Background(), opts...)
+	// defer cancel() // 临时注释掉，保持浏览器窗口打开
 
 	// 创建chrome实例上下文
-	ctx, cancel := chromedp.NewContext(allocCtx)
-	defer cancel()
+	ctx, _ := chromedp.NewContext(allocCtx)
+	// defer cancel() // 临时注释掉，保持浏览器窗口打开
 
 	// 设置超时
 	timeout := time.Duration(GUARDIAN_BROWSER_TIMEOUT_SECONDS) * time.Second
-	ctx, cancel = context.WithTimeout(ctx, timeout)
-	defer cancel()
+	ctx, _ = context.WithTimeout(ctx, timeout)
+	// defer cancel() // 临时注释掉，保持浏览器窗口打开
 
 	// 记录开始时间
 	startTime := time.Now()
@@ -234,8 +234,9 @@ func (gc *GuardianClient) performBrowserAutomation(prompt string) (string, error
 			"[data-testid='chat-input']",
 		}
 		submitSelectors = []string{
-			"div._7436101.bcc55ca1.ds-icon-button[role='button']",           // DeepSeek特有按钮样式
-			"div.ds-icon-button[role='button']:not([aria-disabled='true'])", // 启用状态的按钮
+			"div._7436101.ds-icon-button.ds-icon-button--l.ds-icon-button--sizing-container[role='button'][aria-disabled='false']", // DeepSeek特有按钮样式 - 启用状态
+			"div._7436101.ds-icon-button[role='button']:not([aria-disabled='true'])",                                               // DeepSeek特有按钮样式 - 启用状态
+			"div.ds-icon-button[role='button']:not([aria-disabled='true'])",                                                        // 启用状态的按钮
 			"button._3quh._30yy._2t_",
 			"button[type='submit']",
 			"button[data-testid='send-button']",
@@ -327,6 +328,9 @@ func (gc *GuardianClient) performBrowserAutomation(prompt string) (string, error
 		chromedp.ActionFunc(func(ctx context.Context) error {
 			gc.logger.Println("📝 Starting to find and fill input field...")
 			gc.logger.Printf("🔍 Trying input selectors: %v", inputSelectors)
+
+			inputFound := false // 标志变量，跟踪是否成功找到并输入
+
 			for _, selector := range inputSelectors {
 				gc.logger.Printf("🔍 Attempting to find input with selector: %s", selector)
 				// 首先等待元素可见
@@ -341,54 +345,41 @@ func (gc *GuardianClient) performBrowserAutomation(prompt string) (string, error
 						gc.logger.Printf("⚠️ Could not clear input field %s, proceeding anyway: %v", selector, err)
 					}
 
-					// 先快速输入大部分内容，然后逐字输入最后几个字符来激活提交按钮
-					totalLen := len(prompt)
-					var fastInput, slowInput string
-
-					if totalLen > 5 { // 如果内容超过5个字符
-						fastInput = prompt[:totalLen-5] // 前面的内容快速输入
-						slowInput = prompt[totalLen-5:] // 最后5个字符逐字输入
-					} else {
-						fastInput = ""
-						slowInput = prompt // 如果少于等于5个字符，全部逐字输入
+					// 使用SendKeys逐字输入全部内容，禁用SetValue
+					// 替换换行符为普通空格，避免触发回车提交
+					safePrompt := strings.ReplaceAll(prompt, "\n", " ")
+					gc.logger.Printf("⌨️ Typing all %d characters using SendKeys to activate button...", len(safePrompt))
+					err = chromedp.SendKeys(selector, safePrompt).Do(ctx)
+					if err != nil {
+						gc.logger.Printf("❌ Failed to send keys to selector %s: %v", selector, err)
+						continue // 尝试下一个选择器
 					}
-
-					if fastInput != "" {
-						gc.logger.Printf("⌨️ Fast typing bulk content (%d characters)...", len(fastInput))
-						// 快速输入大部分内容
-						err = chromedp.SetValue(selector, fastInput).Do(ctx)
-						if err != nil {
-							gc.logger.Printf("❌ Failed to set bulk content to selector %s: %v", selector, err)
-							continue // 尝试下一个选择器
-						}
-						// 短暂延迟，让页面处理
-						time.Sleep(100 * time.Millisecond)
-					}
-
-					if slowInput != "" {
-						gc.logger.Printf("⌨️ Slow typing last %d characters to activate button: %s", len(slowInput), slowInput)
-						// 逐字输入最后几个字符来激活按钮
-						err = chromedp.SendKeys(selector, slowInput).Do(ctx)
-						if err != nil {
-							gc.logger.Printf("❌ Failed to send slow keys to selector %s: %v", selector, err)
-							continue // 尝试下一个选择器
-						}
-						// 短暂延迟，确保页面响应
-						time.Sleep(100 * time.Millisecond)
-					}
+					// 短暂延迟，确保页面响应
+					time.Sleep(100 * time.Millisecond)
 
 					gc.logger.Printf("✅ Successfully filled input field with %d characters total", len(prompt))
 
-					// 添加较长的延迟，确保页面有充分时间处理输入并激活提交按钮
-					time.Sleep(500 * time.Millisecond)
+					// 添加延迟，确保页面有充分时间处理输入并激活提交按钮
+					time.Sleep(800 * time.Millisecond)
 
-					return nil
+					// 标记输入成功
+					inputFound = true
+
+					// 输入完成，跳出选择器循环，继续执行提交按钮逻辑
+					break // 跳出选择器循环，继续执行提交按钮逻辑
 				} else {
 					gc.logger.Printf("❌ Input selector %s not found or not visible: %v", selector, err)
 				}
 			}
-			gc.logger.Printf("❌ No input element found with any of the attempted selectors: %v", inputSelectors)
-			return fmt.Errorf("no input element found with any of the attempted selectors: %v", inputSelectors)
+
+			// 只有在所有选择器都失败的情况下才返回错误
+			if !inputFound {
+				gc.logger.Printf("❌ No input element found with any of the attempted selectors: %v", inputSelectors)
+				return fmt.Errorf("no input element found with any of the attempted selectors: %v", inputSelectors)
+			}
+
+			// 如果找到了输入元素并成功输入，则不返回错误
+			return nil
 		}),
 	)
 	if err != nil {
@@ -400,79 +391,87 @@ func (gc *GuardianClient) performBrowserAutomation(prompt string) (string, error
 	// 点击提交按钮
 	gc.logger.Printf("👆 Attempting to click submit button with selectors: %v", submitSelectors)
 
-	err = chromedp.Run(ctx,
+	// 处理换行符，确保长度比较使用的是实际输入到文本框的内容长度
+	safePrompt := strings.ReplaceAll(prompt, "\n", " ")
+
+	// 等待输入框内容长度与处理后提示词长度一致后点击提交按钮
+	gc.logger.Printf("⏳ Waiting for input content to match processed prompt length (%d characters)", len(safePrompt))
+
+	// 使用新的chromedp操作来等待输入完成并点击提交按钮
+	waitErr := chromedp.Run(ctx,
 		chromedp.ActionFunc(func(ctx context.Context) error {
-			for _, selector := range submitSelectors {
-				gc.logger.Printf("🔍 Attempting to find submit button with selector: %s", selector)
-				err := chromedp.WaitVisible(selector).Do(ctx)
-				if err == nil {
-					gc.logger.Printf("✅ Found submit button with selector: %s", selector)
+			maxWait := time.Now().Add(10 * time.Second) // 最大等待10秒
+			for time.Now().Before(maxWait) {
+				// 尝试找到输入框并检查其内容长度
+				var inputLength int
+				foundInput := false
 
-					// 检查按钮是否启用（支持普通按钮和div按钮）
-					var isEnabled bool
-					err = chromedp.Evaluate(fmt.Sprintf(
-						`(function() {
-							const element = document.querySelector('%s');
-							if (element && (element.tagName.toLowerCase() === 'button' || element.type === 'submit' || element.type === 'button')) {
-								// 普通按钮检查disabled属性
-								return !element.disabled;
-							} else {
-								// div按钮检查aria-disabled属性
-								return element.getAttribute('aria-disabled') !== 'true';
-							}
-						})()`, selector), &isEnabled).Do(ctx)
-					if err != nil {
-						gc.logger.Printf("⚠️ Could not check button state: %v, assuming enabled", err)
-						isEnabled = true
-					}
+				for _, inputSelector := range inputSelectors {
+					var inputValue string
+					err := chromedp.Value(inputSelector, &inputValue).Do(ctx)
+					if err == nil && len(inputValue) > 0 {
+						inputLength = len(inputValue)
+						foundInput = true
+						gc.logger.Printf("📊 Input box length check: %d/%d characters", inputLength, len(safePrompt))
 
-					if !isEnabled {
-						gc.logger.Println("⏳ Submit button is disabled, waiting for it to become active...")
-						// 等待一段时间再检查
-						time.Sleep(2 * time.Second)
-						// 再次检查
-						err = chromedp.Evaluate(fmt.Sprintf(
-							`(function() {
-								var element = document.querySelector('%s');
-								if (element && (element.tagName.toLowerCase() === 'button' || element.type === 'submit' || element.type === 'button')) {
-									// 普通按钮检查disabled属性
-									return !element.disabled;
+						// 如果输入框内容长度与处理后的提示词长度一致，可以点击提交按钮
+						if inputLength == len(safePrompt) {
+							gc.logger.Printf("✅ Input length matches processed prompt length (%d), attempting to click submit button", len(safePrompt))
+
+							// 尝试点击提交按钮
+							for _, submitSelector := range submitSelectors {
+								gc.logger.Printf("👆 Clicking submit button with selector: %s", submitSelector)
+								err := chromedp.Click(submitSelector).Do(ctx)
+								if err == nil {
+									gc.logger.Printf("✅ Successfully clicked submit button: %s", submitSelector)
+									return nil // 成功点击，退出ActionFunc
 								} else {
-									// div按钮检查aria-disabled属性
-									return element.getAttribute('aria-disabled') !== 'true';
+									gc.logger.Printf("⚠️ Failed to click submit button %s: %v, trying next selector", submitSelector, err)
 								}
-							})()`, selector), &isEnabled).Do(ctx)
-						if err != nil {
-							isEnabled = true // 如果检查失败，假设按钮可用
+							}
+							// 如果所有提交按钮都点击失败，继续等待
 						}
+						break
 					}
-
-					if isEnabled {
-						gc.logger.Println("✅ Submit button is active, clicking now...")
-						err = chromedp.Click(selector).Do(ctx)
-						if err != nil {
-							gc.logger.Printf("❌ Failed to click submit button %s: %v", selector, err)
-							continue
-						}
-						gc.logger.Printf("✅ Successfully clicked submit button: %s", selector)
-						return nil
-					} else {
-						gc.logger.Println("❌ Submit button is still disabled after waiting")
-						continue
-					}
-				} else {
-					gc.logger.Printf("❌ Submit selector %s not found or not visible: %v", selector, err)
 				}
+
+				if !foundInput {
+					gc.logger.Println("⚠️ Could not find input box, continuing to wait...")
+				}
+
+				time.Sleep(1 * time.Second) // 等待1秒后再次检查
 			}
-			return fmt.Errorf("no submit button found with any of the attempted selectors: %v", submitSelectors)
+			return fmt.Errorf("timeout waiting for input length to match processed prompt length")
 		}),
 	)
-	if err != nil {
-		gc.logger.Printf("❌ Failed to click submit button: %v", err)
-		// 不将此视为致命错误，因为某些界面可能通过按下Enter键提交
-	} else {
-		gc.logger.Println("✅ Successfully clicked submit button")
+
+	if waitErr != nil {
+		gc.logger.Printf("⚠️ Wait for input completion failed or timeout: %v", waitErr)
+		// 即使等待失败，我们也尝试点击提交按钮，以防万一
+		gc.logger.Println("🔄 Proceeding to try clicking submit button anyway...")
+		// 尝试点击提交按钮
+		clickErr := chromedp.Run(ctx,
+			chromedp.ActionFunc(func(ctx context.Context) error {
+				for _, submitSelector := range submitSelectors {
+					gc.logger.Printf("👆 Clicking submit button with selector: %s", submitSelector)
+					err := chromedp.Click(submitSelector).Do(ctx)
+					if err == nil {
+						gc.logger.Printf("✅ Successfully clicked submit button: %s", submitSelector)
+						return nil
+					} else {
+						gc.logger.Printf("⚠️ Failed to click submit button %s: %v, trying next selector", submitSelector, err)
+					}
+				}
+				return fmt.Errorf("failed to click any submit button")
+			}),
+		)
+		if clickErr != nil {
+			gc.logger.Printf("⚠️ All submit button attempts failed: %v", clickErr)
+		}
 	}
+
+	// 提交按钮点击已在上面的逻辑中处理
+	gc.logger.Println("✅ Submit button processing completed")
 
 	// 等待AI处理并获取响应
 	gc.logger.Printf("⏳ Waiting for AI response with selectors: %v", responseSelectors)
@@ -511,40 +510,195 @@ Loop:
 			)
 
 			if err == nil {
-				// 成功获取到响应，现在等待提交按钮变为可用状态，确认AI完成处理
-				gc.logger.Println("✅ Response received, waiting for submit button to become active (indicating AI processing complete)")
-				submitButtonCtx, sbCancel := context.WithTimeout(ctx, 30*time.Second)
-				defer sbCancel()
+				// 成功获取到响应，现在等待AI处理完成的标志：提交按钮变为可用状态 或 复制按钮出现
+				gc.logger.Println("✅ Response received, waiting for AI processing to complete (checking submit button or copy button)...")
 
+				// 暂时注释掉所有AI完成检测条件，以便重新寻找有效的检测条件
+				/*
+					for {
+						select {
+						case <-completionCtx.Done():
+							gc.logger.Println("⏰ Timeout waiting for AI processing to complete")
+							break Loop // 即使没有明确完成标志，我们也已有响应，所以退出主循环
+						default:
+							// 检查提交按钮是否变为向上箭头且禁用状态（AI完成的标志之一）
+							// 根据您提供的信息，AI正在输出时按钮是方形图标+可点击（aria-disabled="false"）
+							// AI输出完毕后按钮变成向上箭头+禁用（aria-disabled="true"）
+							buttonChanged := false
+							for _, submitSel := range submitSelectors {
+								err = chromedp.EvaluateAsDevTools(
+									fmt.Sprintf(
+										`(function() {
+											var element = document.querySelector('%s');
+											if (element) {
+												// 检查按钮是否变为禁用状态（aria-disabled="true"），这表明AI已完成
+												var isAriaDisabled = element.hasAttribute('aria-disabled') && element.getAttribute('aria-disabled') === 'true';
+												return isAriaDisabled;
+											}
+											return false; // 元素不存在认为按钮不可用
+										})();`, submitSel), &buttonChanged).Do(ctx)
+
+								if err == nil && buttonChanged {
+									gc.logger.Println("⚠️⚠️ WARNING: 已经检测到输出完成，准备复制 ⚠️⚠️")
+									break Loop
+								}
+							}
+
+							// 同时检查复制按钮是否出现（AI完成的另一个标志）
+							copyButtonExists := false
+							copySelectors := []string{
+								"div.ds-flex._0a3d93b div.db183363.ds-icon-button.ds-icon-button--m.ds-icon-button--sizing-container[role='button'][aria-disabled='false']:first-child", // 第一个按钮 - 复制
+								"div.db183363.ds-icon-button.ds-icon-button--m.ds-icon-button--sizing-container[role='button'][aria-disabled='false']",                                  // DeepSeek复制按钮 - 启用状态
+								"div.db183363.ds-icon-button[role='button'][aria-disabled='false']",                                                                                     // DeepSeek复制按钮 - 启用状态（备选）
+							}
+
+							for _, copySelector := range copySelectors {
+								err = chromedp.EvaluateAsDevTools(
+									fmt.Sprintf(
+										`(function() {
+											var element = document.querySelector('%s');
+											if (element !== null && element.hasAttribute('aria-disabled') && element.getAttribute('aria-disabled') === 'false') {
+												// 检查按钮是否可见且在视口中
+												var rect = element.getBoundingClientRect();
+												var isVisible = rect.top >= 0 && rect.left >= 0 &&
+																rect.bottom <= (window.innerHeight || document.documentElement.clientHeight) &&
+																rect.right <= (window.innerWidth || document.documentElement.clientWidth);
+
+												// 检查按钮是否有尺寸（不为0）
+												var hasDimensions = rect.width > 0 && rect.height > 0;
+
+												return isVisible && hasDimensions;
+											}
+											return false;
+										})();`, copySelector), &copyButtonExists).Do(ctx)
+
+								if err == nil && copyButtonExists {
+									gc.logger.Println("✅ Copy button detected as enabled and visible, indicating AI processing is complete")
+
+									// 立即尝试点击复制按钮 - 优先点击第一个（复制按钮）
+									gc.logger.Println("📋 Immediately attempting to click copy button...")
+
+									// 使用更精确的选择器来点击第一个复制按钮
+									firstCopySelector := "div.ds-flex._0a3d93b div.db183363.ds-icon-button.ds-icon-button--m.ds-icon-button--sizing-container[role='button'][aria-disabled='false']:first-child"
+									clickErr := chromedp.Click(firstCopySelector).Do(ctx)
+									if clickErr == nil {
+										gc.logger.Printf("✅ Successfully clicked first copy button: %s", firstCopySelector)
+									} else {
+										gc.logger.Printf("⚠️ Failed to click first copy button %s: %v, trying original selector", firstCopySelector, clickErr)
+										// 如果第一个选择器失败，尝试原来的选择器
+										clickErr2 := chromedp.Click(copySelector).Do(ctx)
+										if clickErr2 == nil {
+											gc.logger.Printf("✅ Successfully clicked copy button with original selector: %s", copySelector)
+										} else {
+											gc.logger.Printf("⚠️ Failed to click copy button %s: %v", copySelector, clickErr2)
+										}
+									}
+
+									break Loop
+								}
+							}
+
+							// 检查特定完成文本是否出现（最高优先级）
+							completionTextExists := false
+							completionTextSelectors := []string{
+								"div.dbe8cf4a", // AI生成完成标记文本
+							}
+
+							for _, textSelector := range completionTextSelectors {
+								err = chromedp.EvaluateAsDevTools(
+									fmt.Sprintf(
+										`(function() {
+											var element = document.querySelector('%s');
+											if (element) {
+												var text = element.textContent || element.innerText;
+												return text && text.includes('本回答由 AI 生成');
+											}
+											return false;
+										})();`, textSelector), &completionTextExists).Do(ctx)
+
+								if err == nil && completionTextExists {
+									gc.logger.Println("✅ AI completion text detected: '本回答由 AI 生成'")
+
+									// 随机等待1-2秒
+									randomWait := time.Duration(1000+rand.Intn(1000)) * time.Millisecond
+									gc.logger.Printf("⏳ Waiting %.1f seconds before copying...", randomWait.Seconds())
+									time.Sleep(randomWait)
+
+									// 立即尝试点击复制按钮
+									gc.logger.Println("📋 Immediately attempting to click copy button after detecting completion text...")
+
+									// 查找并点击可用的复制按钮 - 使用您提供的实际按钮定位点，优先点击第一个（复制按钮）
+									copySelectors := []string{
+										"div.ds-flex._0a3d93b div.db183363.ds-icon-button.ds-icon-button--m.ds-icon-button--sizing-container[role='button'][aria-disabled='false']:first-child",  // 第一个按钮 - 复制
+										"div.ds-flex._0a3d93b div.db183363.ds-icon-button.ds-icon-button--m.ds-icon-button--sizing-container[role='button'][aria-disabled='false']:nth-child(1)", // 第一个按钮 - 复制
+										"div.ds-icon-button__hover-bg:first-child", // 第一个按钮的实际位置
+										"div.ds-icon-button__hover-bg",             // 复制按钮的实际位置
+										"div.db183363.ds-icon-button.ds-icon-button--m.ds-icon-button--sizing-container[role='button'][aria-disabled='false']",
+										"div.db183363.ds-icon-button[role='button'][aria-disabled='false']",
+									}
+
+									clicked := false
+									for _, copySelector := range copySelectors {
+										// 首先等待按钮可见
+										err := chromedp.WaitVisible(copySelector).Do(ctx)
+										if err == nil {
+											clickErr := chromedp.Click(copySelector).Do(ctx)
+											if clickErr == nil {
+												gc.logger.Printf("✅ Successfully clicked copy button after detecting completion text: %s", copySelector)
+												clicked = true
+												break
+											} else {
+												gc.logger.Printf("⚠️ Failed to click copy button %s: %v", copySelector, clickErr)
+											}
+										} else {
+											gc.logger.Printf("⚠️ Copy button %s not visible: %v", copySelector, err)
+										}
+									}
+
+									if !clicked {
+										gc.logger.Println("⚠️ Failed to click any copy button after detecting completion text")
+									}
+
+									break Loop
+								}
+							}
+
+							time.Sleep(1 * time.Second) // 等待一秒后再次检查
+						}
+					}
+				*/
+
+				// 检测包含特定复制按钮的HTML元素
+				gc.logger.Println("🔍 Waiting for AI completion by checking for specific button HTML...")
+			ButtonDetectionLoop:
 				for {
 					select {
-					case <-submitButtonCtx.Done():
-						gc.logger.Println("⏰ Timeout waiting for submit button to become active")
-						break Loop // 即使按钮未激活，我们也已有响应，所以退出主循环
+					case <-ctx.Done():
+						gc.logger.Println("⏰ Context cancelled, stopping browser automation")
+						break ButtonDetectionLoop
 					default:
-						// 检查提交按钮是否变为可用状态
-						buttonActive := false
-						for _, submitSel := range submitSelectors {
+						// 检测包含特定按钮的HTML元素
+						buttonExists := false
+						buttonSelectors := []string{
+							"div.db183363.ds-icon-button.ds-icon-button--m.ds-icon-button--sizing-container[tabindex='0'][role='button']",
+							"div.db183363.ds-icon-button.ds-icon-button--m.ds-icon-button--sizing-container[role='button']",
+							"div.db183363.ds-icon-button[role='button']",
+						}
+
+						for _, buttonSelector := range buttonSelectors {
 							err = chromedp.EvaluateAsDevTools(
 								fmt.Sprintf(
 									`(function() {
 										var element = document.querySelector('%s');
-										if (element) {
-											// 对于div按钮，检查aria-disabled属性
-											if (element.hasAttribute('aria-disabled')) {
-												return element.getAttribute('aria-disabled') !== 'true';
-											}
-											// 对于普通按钮，检查disabled属性
-											return !element.disabled;
-										}
-										return false; // 元素不存在认为按钮不可用
-									})();`, submitSel), &buttonActive).Do(ctx)
+										return element !== null;
+									})();`, buttonSelector), &buttonExists).Do(ctx)
 
-							if err == nil && buttonActive {
-								gc.logger.Println("✅ Submit button is active, indicating AI processing is complete")
-								break Loop
+							if err == nil && buttonExists {
+								gc.logger.Println("⚠️⚠️ WARNING: 已经检测到输出完成，准备复制 ⚠️⚠️")
+								break ButtonDetectionLoop
 							}
 						}
+
 						time.Sleep(1 * time.Second) // 等待一秒后再次检查
 					}
 				}
@@ -574,6 +728,7 @@ Loop:
 	copyErr := chromedp.Run(ctx,
 		chromedp.ActionFunc(func(ctx context.Context) error {
 			copySelectors := []string{
+				"div.db183363.ds-icon-button.ds-icon-button--m.ds-icon-button--sizing-container[role='button'][aria-disabled='false']", // DeepSeek复制按钮 - 启用状态
 				"div.db183363.ds-icon-button[role='button']",        // DeepSeek复制按钮
 				"button[aria-label*='Copy'], button[title*='Copy']", // 通用复制按钮
 				".copy-button, #copy-button",
@@ -614,9 +769,10 @@ Loop:
 
 	// 根据配置决定是否保持浏览器打开
 	// 由于Config结构体中没有KeepAlive字段，暂时移除该条件
-	gc.logger.Printf("😴 Keeping browser alive for %d seconds as configured", GUARDIAN_AUTO_KEEP_OPEN_SECONDS)
-	time.Sleep(time.Duration(GUARDIAN_AUTO_KEEP_OPEN_SECONDS) * time.Second)
+	// gc.logger.Printf("😴 Keeping browser alive for %d seconds as configured", GUARDIAN_AUTO_KEEP_OPEN_SECONDS)
+	// time.Sleep(time.Duration(GUARDIAN_AUTO_KEEP_OPEN_SECONDS) * time.Second)
 
+	// 临时注释掉浏览器窗口关闭延迟，保持浏览器窗口打开
 	return response, nil
 }
 
@@ -693,22 +849,22 @@ func (gc *GuardianClient) performBrowserAutomationWithKeepAlive(targetURL string
 		chromedp.Flag("max_old_space_size", "4096"),
 		chromedp.Flag("no-first-run", "true"),
 		chromedp.Flag("no-default-browser-check", "true"),
-		chromedp.Flag("window-size", "550,850"),                   // 设置浏览器窗口尺寸为550x850
+		chromedp.Flag("window-size", "1000,850"),                  // 设置浏览器窗口尺寸为1000x850
 		chromedp.Flag("user-data-dir", "./guardian_browser_data"), // 设置用户数据目录以保存登录状态
 		chromedp.Flag("profile-directory", "Default"),             // 使用默认配置文件
 	)
 
-	allocCtx, cancel := chromedp.NewExecAllocator(context.Background(), opts...)
-	defer cancel()
+	allocCtx, _ := chromedp.NewExecAllocator(context.Background(), opts...)
+	// defer cancel() // 临时注释掉，保持浏览器窗口打开
 
 	// 创建chrome实例上下文
-	ctx, cancel := chromedp.NewContext(allocCtx)
-	defer cancel()
+	ctx, _ := chromedp.NewContext(allocCtx)
+	// defer cancel() // 临时注释掉，保持浏览器窗口打开
 
 	// 设置较长时间的超时
 	timeout := time.Duration(GUARDIAN_LONG_BROWSER_TIMEOUT_SECONDS) * time.Second
-	ctx, cancel = context.WithTimeout(ctx, timeout)
-	defer cancel()
+	ctx, _ = context.WithTimeout(ctx, timeout)
+	// defer cancel() // 临时注释掉，保持浏览器窗口打开
 
 	gc.logger.Printf("⏰ Long-lived browser automation started, timeout: %v", timeout)
 

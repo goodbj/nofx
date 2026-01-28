@@ -111,6 +111,7 @@ export default function HeaderBar({
                 { page: 'backtest', path: '/backtest', label: 'Backtest', requiresAuth: true },
                 { page: 'faq', path: '/faq', label: t('faqNav', language), requiresAuth: false },
                 { page: 'test', path: '/test', label: t('testCodeNav', language), requiresAuth: true },
+                { page: 'guardian-test', path: '/guardian-test', label: 'Guardian测试', requiresAuth: true },
               ]
 
               const handleNavClick = (tab: typeof navTabs[0]) => {
@@ -342,6 +343,7 @@ export default function HeaderBar({
                     { page: 'backtest', path: '/backtest', label: 'Backtest', requiresAuth: true },
                     { page: 'faq', path: '/faq', label: t('faqNav', language), requiresAuth: false },
                     { page: 'test', path: '/test', label: t('testCodeNav', language), requiresAuth: true },
+                    { page: 'guardian-test', path: '/guardian-test', label: 'Guardian测试', requiresAuth: true },
                   ]
 
                   const handleMobileNavClick = (tab: typeof navTabs[0]) => {
