@@ -909,8 +909,7 @@ Loop:
 							}
 						}
 				*/
-				// 检查特定关键词是否出现（AI完成的标志）
-				// 检测是否出现<div class="ds-flex _任意字符" style="align-items: center; gap: 10px;">
+				// 使用多种策略检测AI是否完成输出
 				completionCtx, cancel := context.WithTimeout(ctx, time.Duration(GUARDIAN_BROWSER_TIMEOUT_SECONDS)*time.Second)
 				defer cancel()
 
@@ -920,17 +919,9 @@ Loop:
 						gc.logger.Println("⏰ Timeout waiting for AI processing to complete")
 						break Loop // 即使没有明确完成标志，我们也已有响应，所以退出主循环
 					default:
-						// 检查特定关键词是否出现在页面中
-						keywordFound := false
-						err = chromedp.EvaluateAsDevTools(
-							`(function() {
-								var html = document.documentElement.outerHTML;
-								var regex = /<div\\s+class="ds-flex\\s+_[^"]*"[^>]*style="align-items:\\s*center;\\s*gap:\\s*10px;"/;
-								return regex.test(html);
-							})();`, &keywordFound).Do(ctx)
-
-						if err == nil && keywordFound {
-							gc.logger.Println("✅ Pattern matched: <div class=\"ds-flex _...\" style=\"align-items: center; gap: 10px;\"> found, indicating AI processing completed")
+						// 检测AI是否完成输出的多种方法
+						if gc.isAIProcessingCompleted(ctx) {
+							gc.logger.Println("✅ AI processing completed detected by multiple indicators")
 							break Loop
 						}
 
@@ -1548,6 +1539,198 @@ func (gc *GuardianClient) isRetryableError(err error) bool {
 func (gc *GuardianClient) SetDynamicConfig(baseURL string) {
 	gc.BaseURL = baseURL
 	gc.ProviderConfig.BaseURL = baseURL
+}
+
+// 检测AI是否完成处理的多种指标
+func (gc *GuardianClient) isAIProcessingCompleted(ctx context.Context) bool {
+	// 检查是否包含完成标记
+	keywordFound := gc.checkAICompletionPattern(ctx)
+	if keywordFound {
+		gc.logger.Println("✅ Pattern matched: ds-flex _0a3d93b found, AI processing completed")
+		return true
+	}
+
+	// 次要检测指标: 提交按钮变为禁用状态
+	submitButtonDisabled := gc.checkSubmitButtonDisabled(ctx)
+	if submitButtonDisabled {
+		gc.logger.Println("✅ Submit button disabled: AI processing likely completed")
+		return true
+	}
+
+	// 次要检测指标: 复制按钮出现
+	copyButtonAppeared := gc.checkCopyButtonAppeared(ctx)
+	if copyButtonAppeared {
+		gc.logger.Println("✅ Copy button appeared: AI processing likely completed")
+		return true
+	}
+
+	// 次要检测指标: 特定完成文本出现
+	completionTextFound := gc.checkCompletionText(ctx)
+	if completionTextFound {
+		gc.logger.Println("✅ Completion text found: '本回答由 AI 生成'")
+		return true
+	}
+
+	return false
+}
+
+// 在提交后等待3分钟并保存网页内容到临时文件进行验证
+func (gc *GuardianClient) waitForAndValidateOutput(ctx context.Context) error {
+	// 等待3分钟让AI完成输出
+	gc.logger.Println("⏳ Waiting 3 minutes for AI to complete output...")
+	time.Sleep(3 * time.Minute)
+
+	// 获取当前页面的完整HTML内容并保存到临时文件
+	var pageHTML string
+	err := chromedp.Run(ctx,
+		chromedp.ActionFunc(func(ctx context.Context) error {
+			// 获取完整的页面HTML内容
+			err := chromedp.OuterHTML("html", &pageHTML).Do(ctx)
+			if err != nil {
+				return err
+			}
+
+			// 将完整的HTML内容保存到临时文件
+			filename := fmt.Sprintf("temp/page_source_%d.html", time.Now().Unix())
+			err = os.MkdirAll("temp", 0755) // 确保temp目录存在
+			if err != nil {
+				gc.logger.Printf("Warning: Could not create temp directory: %v", err)
+				filename = fmt.Sprintf("page_source_%d.html", time.Now().Unix()) // 回退到当前目录
+			}
+			err = os.WriteFile(filename, []byte(pageHTML), 0644)
+			if err == nil {
+				gc.logger.Printf("Full page HTML saved to %s, size: %d bytes", filename, len(pageHTML))
+
+				// 检查文件是否包含 ds-flex _0a3d93b 字符串
+				if strings.Contains(pageHTML, "ds-flex _0a3d93b") {
+					gc.logger.Println("✅ Verification: File contains 'ds-flex _0a3d93b', HTML extraction method works correctly")
+				} else {
+					gc.logger.Println("❌ Verification: File does NOT contain 'ds-flex _0a3d93b', HTML extraction may have issues")
+				}
+			} else {
+				gc.logger.Printf("Error saving page HTML to file: %v", err)
+				// 如果保存文件失败，至少输出部分HTML内容到日志
+				maxLength := 2000
+				if len(pageHTML) < maxLength {
+					maxLength = len(pageHTML)
+				}
+				gc.logger.Printf("Page HTML (first %d chars):\n%s", maxLength, pageHTML[:maxLength])
+			}
+			return nil
+		}),
+	)
+	return err
+}
+
+// 检测AI完成的特定HTML模式
+func (gc *GuardianClient) checkAICompletionPattern(ctx context.Context) bool {
+	var keywordFound bool
+	err := chromedp.EvaluateAsDevTools(
+		`(function() {
+			var html = document.documentElement.outerHTML;
+			// 精确匹配 ds-flex _0a3d93b 字符串
+			return html.indexOf('ds-flex _0a3d93b') !== -1;
+		})();`, &keywordFound).Do(ctx)
+
+	return err == nil && keywordFound
+}
+
+// 检测提交按钮是否变为禁用状态
+func (gc *GuardianClient) checkSubmitButtonDisabled(ctx context.Context) bool {
+	submitSelectors := []string{
+		"button[data-testid='chat-send-button'][disabled]",
+		"button[aria-disabled='true']",
+		"div.ds-icon-button[aria-disabled='true']",
+		"button:disabled",
+	}
+
+	for _, submitSel := range submitSelectors {
+		var buttonDisabled bool
+		err := chromedp.EvaluateAsDevTools(
+			fmt.Sprintf(
+				`(function() {
+					var element = document.querySelector('%s');
+					if (element) {
+						// 检查按钮是否被禁用
+						var isDisabled = element.disabled === true || 
+							(element.hasAttribute('disabled') && element.getAttribute('disabled') !== 'false') ||
+							(element.hasAttribute('aria-disabled') && element.getAttribute('aria-disabled') === 'true');
+						return isDisabled;
+					}
+					return false; // 元素不存在认为按钮不可用
+				})();`, submitSel), &buttonDisabled).Do(ctx)
+
+		if err == nil && buttonDisabled {
+			return true
+		}
+	}
+	return false
+}
+
+// 检测复制按钮是否出现
+func (gc *GuardianClient) checkCopyButtonAppeared(ctx context.Context) bool {
+	copySelectors := []string{
+		"div.db183363.ds-icon-button[role='button']", // DeepSeek复制按钮
+		"div.ds-icon-button__hover-bg",               // 可能的复制按钮
+		"button[aria-label*='copy']",                 // 带有copy标签的按钮
+		"[data-testid*='copy']",                      // 带有copy标识的元素
+	}
+
+	for _, copySelector := range copySelectors {
+		var copyButtonExists bool
+		err := chromedp.EvaluateAsDevTools(
+			fmt.Sprintf(
+				`(function() {
+					var element = document.querySelector('%s');
+					if (element !== null) {
+						// 检查按钮是否可见且在视口中
+						var rect = element.getBoundingClientRect();
+						var isVisible = rect.top >= 0 && rect.left >= 0 &&
+								rect.bottom <= (window.innerHeight || document.documentElement.clientHeight) &&
+								rect.right <= (window.innerWidth || document.documentElement.clientWidth);
+
+						// 检查按钮是否有尺寸（不为0）
+						var hasDimensions = rect.width > 0 && rect.height > 0;
+
+						return isVisible && hasDimensions;
+					}
+					return false;
+				})();`, copySelector), &copyButtonExists).Do(ctx)
+
+		if err == nil && copyButtonExists {
+			return true
+		}
+	}
+	return false
+}
+
+// 检测特定完成文本
+func (gc *GuardianClient) checkCompletionText(ctx context.Context) bool {
+	completionTextSelectors := []string{
+		"div.dbe8cf4a", // AI生成完成标记文本
+		"div",          // 搜索所有div中包含完成文本的
+	}
+
+	for _, textSelector := range completionTextSelectors {
+		var textFound bool
+		err := chromedp.EvaluateAsDevTools(
+			fmt.Sprintf(
+				`(function() {
+					var elements = document.querySelectorAll('%s');
+					for (var i = 0; i < elements.length; i++) {
+						var text = elements[i].textContent || elements[i].innerText;
+						if (text && (text.includes('本回答由 AI 生成') || text.includes('AI生成') || text.includes('generated by AI'))) {
+							return true;
+					}
+					}
+					return false;
+				})();`, textSelector), &textFound).Do(ctx)
+
+		if err == nil && textFound {
+			return true
+		}
+	}
+	return false
 }
 
 const (
