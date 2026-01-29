@@ -4,11 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io/ioutil"
 	"log"
-	"math/rand"
 	"net/http"
 	"os"
-	"regexp"
 	"strings"
 	"time"
 
@@ -145,9 +144,6 @@ func (gc *GuardianClient) call(systemPrompt, userPrompt string) (string, error) 
 
 // performBrowserAutomation handles the browser automation process
 func (gc *GuardianClient) performBrowserAutomation(prompt string) (string, error) {
-	// 初始化响应变量
-	var response string
-
 	// 设置Chrome选项
 	opts := append(chromedp.DefaultExecAllocatorOptions[:],
 		chromedp.Flag("headless", false),             // 非无头模式以便观察
@@ -173,17 +169,17 @@ func (gc *GuardianClient) performBrowserAutomation(prompt string) (string, error
 		chromedp.Flag("profile-directory", "Default"),             // 使用默认配置文件
 	)
 
-	allocCtx, cancel := chromedp.NewExecAllocator(context.Background(), opts...)
-	defer cancel() // 恢复取消函数，确保浏览器在完成任务后关闭
+	allocCtx, _ := chromedp.NewExecAllocator(context.Background(), opts...)
+	// defer cancel() // 临时注释掉，保持浏览器窗口打开
 
 	// 创建chrome实例上下文
-	ctx, cancel := chromedp.NewContext(allocCtx)
-	defer cancel() // 恢复取消函数，确保浏览器在完成任务后关闭
+	ctx, _ := chromedp.NewContext(allocCtx)
+	// defer cancel() // 临时注释掉，保持浏览器窗口打开
 
 	// 设置超时
 	timeout := time.Duration(GUARDIAN_BROWSER_TIMEOUT_SECONDS) * time.Second
-	ctx, cancel = context.WithTimeout(ctx, timeout)
-	defer cancel() // 恢复取消函数，确保浏览器在完成任务后关闭
+	ctx, _ = context.WithTimeout(ctx, timeout)
+	// defer cancel() // 临时注释掉，保持浏览器窗口打开
 
 	// 记录开始时间
 	startTime := time.Now()
@@ -485,24 +481,7 @@ func (gc *GuardianClient) performBrowserAutomation(prompt string) (string, error
 	// 等待1秒让页面更新后再输出DOM
 	time.Sleep(1 * time.Second)
 
-	// 使用新的等待和验证机制检测AI输出完成
-	gc.logger.Println("⏳ Waiting for AI to complete output using optimized detection mechanism...")
-	validationCtx, validationCancel := context.WithTimeout(ctx, time.Duration(GUARDIAN_BROWSER_TIMEOUT_SECONDS)*time.Second)
-	extractedContent, err := gc.waitForAndValidateOutput(validationCtx)
-	validationCancel() // 确保取消上下文以释放资源
-	if err != nil {
-		gc.logger.Printf("⚠️ Error waiting for AI completion: %v", err)
-		// 继续执行，即使等待出现问题
-	} else {
-		gc.logger.Println("✅ AI output completed successfully detected")
-		// 如果成功提取了内容，使用提取的内容作为响应
-		if extractedContent != "" {
-			response = extractedContent
-			gc.logger.Printf("✅ Using extracted content as response, length: %d", len(response))
-		}
-	}
-
-	// 重新启用：保存网页到文件功能
+	// 使用新的chromedp动作来获取完整的页面HTML内容并保存到文件
 	var pageHTML string
 	err = chromedp.Run(ctx,
 		chromedp.ActionFunc(func(ctx context.Context) error {
@@ -513,8 +492,7 @@ func (gc *GuardianClient) performBrowserAutomation(prompt string) (string, error
 			}
 
 			// 将完整的HTML内容保存到文件
-			os.MkdirAll("temp", 0755) // 确保temp目录存在
-			filename := fmt.Sprintf("temp/dom_snapshot_%d.html", time.Now().Unix())
+			filename := fmt.Sprintf("dom_snapshot_%d.html", time.Now().Unix())
 			err = os.WriteFile(filename, []byte(pageHTML), 0644)
 			if err == nil {
 				gc.logger.Printf("📄 Full DOM snapshot saved to %s, size: %d bytes", filename, len(pageHTML))
@@ -534,8 +512,7 @@ func (gc *GuardianClient) performBrowserAutomation(prompt string) (string, error
 		gc.logger.Printf("⚠️ Error getting page HTML: %v", err)
 	}
 
-	// 启用：增强的DOM抓取和调试功能
-	// 获取页面上所有ds-theme元素的详细信息
+	// 同时也获取页面上所有ds-theme元素的详细信息
 	var themeElements []map[string]interface{}
 	err = chromedp.Run(ctx,
 		chromedp.ActionFunc(func(ctx context.Context) error {
@@ -545,11 +522,11 @@ func (gc *GuardianClient) performBrowserAutomation(prompt string) (string, error
 					tagName: el.tagName,
 					className: el.className,
 					style: el.style.cssText,
-					innerHTML: el.innerHTML ? el.innerHTML.substring(0, 500) : '',
+					innerHTML: el.innerHTML ? el.innerHTML.substring(0, 500) : '', // 增加到前500个字符
 					attributes: Array.prototype.reduce.call(el.attributes, function(acc, attr) {
-						acc[attr.name] = attr.value;
-						return acc;
-					}, {})
+														acc[attr.name] = attr.value;
+														return acc;
+													}, {})
 				}));
 			})()`, &themeElements).Do(ctx)
 			if err != nil {
@@ -557,8 +534,7 @@ func (gc *GuardianClient) performBrowserAutomation(prompt string) (string, error
 			}
 
 			// 将ds-theme元素详情也保存到文件
-			os.MkdirAll("temp", 0755) // 确保temp目录存在
-			themeFilename := fmt.Sprintf("temp/ds_theme_elements_%d.json", time.Now().Unix())
+			themeFilename := fmt.Sprintf("ds_theme_elements_%d.json", time.Now().Unix())
 			themeJSON, jsonErr := json.MarshalIndent(themeElements, "", "  ")
 			if jsonErr == nil {
 				err = os.WriteFile(themeFilename, themeJSON, 0644)
@@ -597,14 +573,11 @@ func (gc *GuardianClient) performBrowserAutomation(prompt string) (string, error
 								style: el.style.cssText,
 								innerHTML: el.innerHTML ? el.innerHTML.substring(0, 500) : '',
 								attributes: Array.prototype.reduce.call(el.attributes, function(acc, attr) {
-									acc[attr.name] = attr.value;
-									return acc;
-								}, {})
+																	acc[attr.name] = attr.value;
+																	return acc;
+																}, {})
 							});
-						});
-					} catch(e) {
-						// 忽略选择器错误
-					}
+					} catch(e) {}
 				});
 				return allElements;
 			})()`, &aiCompletionElements).Do(ctx)
@@ -613,8 +586,7 @@ func (gc *GuardianClient) performBrowserAutomation(prompt string) (string, error
 			}
 
 			// 将AI完成标志元素详情也保存到文件
-			os.MkdirAll("temp", 0755) // 确保temp目录存在
-			aiCompletionFilename := fmt.Sprintf("temp/ai_completion_elements_%d.json", time.Now().Unix())
+			aiCompletionFilename := fmt.Sprintf("ai_completion_elements_%d.json", time.Now().Unix())
 			aiCompletionJSON, jsonErr := json.MarshalIndent(aiCompletionElements, "", "  ")
 			if jsonErr == nil {
 				err = os.WriteFile(aiCompletionFilename, aiCompletionJSON, 0644)
@@ -625,7 +597,7 @@ func (gc *GuardianClient) performBrowserAutomation(prompt string) (string, error
 					gc.logger.Printf("🔍 Potential AI Completion Elements: %+v", aiCompletionElements)
 				}
 			} else {
-				gc.logger.Printf("⚠° Error marshaling AI completion elements to JSON: %v", jsonErr)
+				gc.logger.Printf("⚠️ Error marshaling AI completion elements to JSON: %v", jsonErr)
 				gc.logger.Printf("🔍 Potential AI Completion Elements: %+v", aiCompletionElements)
 			}
 			return nil
@@ -673,9 +645,7 @@ func (gc *GuardianClient) performBrowserAutomation(prompt string) (string, error
 								rect: { top: rect.top, left: rect.left, bottom: rect.bottom, right: rect.right, width: rect.width, height: rect.height }
 							});
 						});
-					} catch(e) {
-						// 忽略选择器错误
-					}
+					} catch(e) {}
 				});
 				return allElements;
 			})()`, &allPageElements).Do(ctx)
@@ -684,8 +654,7 @@ func (gc *GuardianClient) performBrowserAutomation(prompt string) (string, error
 			}
 
 			// 将所有页面元素详情也保存到文件
-			os.MkdirAll("temp", 0755) // 确保temp目录存在
-			allElementsFilename := fmt.Sprintf("temp/all_page_elements_%d.json", time.Now().Unix())
+			allElementsFilename := fmt.Sprintf("all_page_elements_%d.json", time.Now().Unix())
 			allElementsJSON, jsonErr := json.MarshalIndent(allPageElements, "", "  ")
 			if jsonErr == nil {
 				err = os.WriteFile(allElementsFilename, allElementsJSON, 0644)
@@ -723,7 +692,7 @@ func (gc *GuardianClient) performBrowserAutomation(prompt string) (string, error
 						textContent: node.nodeType === 3 ? (node.textContent || '').trim().substring(0, 100) : '',
 						children: []
 					};
-
+					
 					if (node.childNodes) {
 						for (var i = 0; i < node.childNodes.length; i++) {
 							var child = node.childNodes[i];
@@ -734,7 +703,7 @@ func (gc *GuardianClient) performBrowserAutomation(prompt string) (string, error
 					}
 					return result;
 				}
-
+				
 				return getDOMTree(document.documentElement);
 			})()`, &domTree).Do(ctx)
 			if err != nil {
@@ -742,8 +711,7 @@ func (gc *GuardianClient) performBrowserAutomation(prompt string) (string, error
 			}
 
 			// 将DOM树结构保存到文件
-			os.MkdirAll("temp", 0755) // 确保temp目录存在
-			domTreeFilename := fmt.Sprintf("temp/dom_tree_%d.json", time.Now().Unix())
+			domTreeFilename := fmt.Sprintf("dom_tree_%d.json", time.Now().Unix())
 			domTreeJSON, jsonErr := json.MarshalIndent(domTree, "", "  ")
 			if jsonErr == nil {
 				err = os.WriteFile(domTreeFilename, domTreeJSON, 0644)
@@ -762,6 +730,110 @@ func (gc *GuardianClient) performBrowserAutomation(prompt string) (string, error
 		gc.logger.Printf("⚠️ Error getting DOM tree: %v", err)
 	}
 
+	// 实现您建议的测试方案：在不同时间点进行多次DOM捕捉
+	gc.logger.Println("⏳ Starting multiple DOM capture test as requested...")
+
+	// 定义捕捉函数
+	captureDOMSnapshot := func(captureTime string) {
+		gc.logger.Printf("📸 Capturing DOM snapshot at %s mark", captureTime)
+
+		// 滚动页面以确保内容加载
+		var result interface{}
+		scrollErr := chromedp.Run(ctx,
+			chromedp.Evaluate(`(() => {
+				window.scrollTo(0, document.body.scrollHeight);
+				return 'scrolled';
+			})()`, &result),
+			chromedp.Sleep(1*time.Second),
+			chromedp.Evaluate(`(() => {
+				window.scrollTo(0, 0);
+				return 'back to top';
+			})()`, &result),
+			chromedp.Sleep(1*time.Second),
+		)
+		if scrollErr != nil {
+			gc.logger.Printf("⚠️ Error during scroll operations: %v", scrollErr)
+		}
+
+		// 获取完整的页面HTML
+		var htmlContent string
+		err := chromedp.Run(ctx, chromedp.OuterHTML("html", &htmlContent))
+		if err != nil {
+			gc.logger.Printf("❌ Failed to get HTML at %s: %v", captureTime, err)
+			return
+		}
+
+		// 确保临时目录存在
+		tempDir := "E:\\AI\\nofx_Dev\\temp"
+		if err := os.MkdirAll(tempDir, 0755); err != nil {
+			gc.logger.Printf("⚠️ Failed to create temp directory: %v", err)
+			// 如果创建失败，继续使用当前目录
+			tempDir = "."
+		}
+
+		// 保存DOM快照
+		timestamp := time.Now().Unix()
+		filename := fmt.Sprintf("%s\\dom_snapshot_%s_%d.html", tempDir, captureTime, timestamp)
+		err = ioutil.WriteFile(filename, []byte(htmlContent), 0644)
+		if err != nil {
+			gc.logger.Printf("❌ Failed to save DOM snapshot at %s: %v", captureTime, err)
+		} else {
+			gc.logger.Printf("📄 DOM snapshot saved to %s, size: %d bytes", filename, len(htmlContent))
+		}
+
+		// 保存ds-theme元素详情
+		var dsThemeElements []map[string]interface{}
+		err = chromedp.Run(ctx,
+			chromedp.Evaluate(`(() => {
+				const elements = document.querySelectorAll('div.ds-theme');
+				const result = [];
+				for (let i = 0; i < elements.length; i++) {
+					const el = elements[i];
+					result.push({
+						tagName: el.tagName,
+						className: el.className,
+						attributes: Array.prototype.reduce.call(el.attributes, function(acc, attr) {
+							acc[attr.name] = attr.value;
+							return acc;
+						}, {}),
+						innerHTML: el.innerHTML.substring(0, 200) + '...'
+					});
+				}
+				return result;
+			})()`, &dsThemeElements),
+		)
+		if err != nil {
+			gc.logger.Printf("⚠️ Error getting ds-theme elements at %s: %v", captureTime, err)
+		} else {
+			jsonData, jsonErr := json.Marshal(dsThemeElements)
+			if jsonErr != nil {
+				gc.logger.Printf("⚠️ Error marshaling ds-theme elements to JSON at %s: %v", captureTime, jsonErr)
+			} else {
+				filename := fmt.Sprintf("%s\\ds_theme_elements_%s_%d.json", tempDir, captureTime, timestamp)
+				err = ioutil.WriteFile(filename, jsonData, 0644)
+				if err != nil {
+					gc.logger.Printf("❌ Failed to save ds-theme elements at %s: %v", captureTime, err)
+				} else {
+					gc.logger.Printf("🔍 ds-theme Elements Detail saved to %s", filename)
+				}
+			}
+		}
+	}
+
+	// 1分钟后进行第一次捕捉
+	time.Sleep(1 * time.Minute)
+	captureDOMSnapshot("1min")
+
+	// 2分钟后进行第二次捕捉
+	time.Sleep(1 * time.Minute)
+	captureDOMSnapshot("2min")
+
+	// 3分钟后进行第三次捕捉
+	time.Sleep(1 * time.Minute)
+	captureDOMSnapshot("3min")
+
+	gc.logger.Println("✅ Completed multiple DOM captures for comparison")
+
 	// 延长窗口存活时间，确保AI有足够时间完成输出
 	gc.logger.Printf("⏳ Keeping browser window alive for configured timeout: %d seconds", GUARDIAN_BROWSER_TIMEOUT_SECONDS)
 	// 不需要额外的sleep，因为整体超时已经在配置中设置
@@ -770,6 +842,7 @@ func (gc *GuardianClient) performBrowserAutomation(prompt string) (string, error
 	gc.logger.Printf("⏳ Waiting for AI response with selectors: %v, timeout: %d seconds", responseSelectors, GUARDIAN_BROWSER_TIMEOUT_SECONDS)
 
 	// 等待响应出现
+	var response string
 	waitCtx, cancel := context.WithTimeout(ctx, time.Duration(GUARDIAN_BROWSER_TIMEOUT_SECONDS)*time.Second) // 使用配置的超时时间
 	defer cancel()
 
@@ -846,18 +919,9 @@ Loop:
 						gc.logger.Println("⏰ Timeout waiting for AI processing to complete")
 						break Loop // 即使没有明确完成标志，我们也已有响应，所以退出主循环
 					default:
-						// 检测AI是否完成输出的多种方法 - 使用新的检测机制
-						// 检查特定关键词是否出现在页面中
-						keywordFound := false
-						err := chromedp.EvaluateAsDevTools(
-							`(function() {
-								var html = document.documentElement.outerHTML;
-								// 精确匹配 ds-flex _0a3d93b 字符串
-								return html.indexOf('ds-flex _0a3d93b') !== -1;
-							})();`, &keywordFound).Do(ctx)
-
-						if err == nil && keywordFound {
-							gc.logger.Println("✅ Specific keyword found, indicating AI processing completed")
+						// 检测AI是否完成输出的多种方法
+						if gc.isAIProcessingCompleted(ctx) {
+							gc.logger.Println("✅ AI processing completed detected by multiple indicators")
 							break Loop
 						}
 
@@ -1020,6 +1084,195 @@ Loop:
 					}
 				*/
 
+				// 检测包含特定复制按钮的HTML元素
+				gc.logger.Println("🔍 Waiting for AI completion by checking for specific button HTML...")
+			ButtonDetectionLoop:
+				for {
+					select {
+					case <-ctx.Done():
+						gc.logger.Println("⏰ Context cancelled, stopping browser automation")
+						break ButtonDetectionLoop
+					default:
+						// 检测包含特定按钮的HTML元素
+						buttonExists := false
+						buttonSelectors := []string{
+							"div.db183363.ds-icon-button.ds-icon-button--m.ds-icon-button--sizing-container[tabindex='0'][role='button']",
+							"div.db183363.ds-icon-button.ds-icon-button--m.ds-icon-button--sizing-container[role='button']",
+							"div.db183363.ds-icon-button[role='button']",
+						}
+
+						for _, buttonSelector := range buttonSelectors {
+							err = chromedp.EvaluateAsDevTools(
+								fmt.Sprintf(
+									`(function() {
+										var element = document.querySelector('%s');
+										return element !== null;
+									})();`, buttonSelector), &buttonExists).Do(ctx)
+
+							if err == nil && buttonExists {
+								gc.logger.Println("⚠️⚠️ WARNING: 已经检测到输出完成，准备复制 ⚠️⚠️")
+								break ButtonDetectionLoop
+							}
+						}
+
+						time.Sleep(1 * time.Second) // 等待一秒后再次检查
+					}
+				}
+
+				/* // 暂时注释掉 ds-theme 元素检测
+					// 检测页面上出现两个 ds-theme 元素（表示AI输出完成）
+					gc.logger.Println("🔍 Waiting for AI completion by checking for two ds-theme elements...")
+					// 增加总的等待时间，因为这个元素可能需要较长时间才能出现
+					timeoutCtx, cancel := context.WithTimeout(ctx, 60*time.Second) // 增加到60秒
+					defer cancel()
+
+				ThemeElementLoop:
+					for {
+						select {
+						case <-timeoutCtx.Done():
+							gc.logger.Println("⏰ Timeout waiting for ds-theme elements")
+							// 如果超时仍未找到，尝试其他检测方法
+							gc.logger.Println("🔄 Trying alternative detection methods...")
+							break ThemeElementLoop
+						default:
+							// 使用JavaScript查询API来计算页面上有多少个 ds-theme 元素
+							var elementCount int
+							err := chromedp.Evaluate(`(() => {
+								const elements = document.querySelectorAll('div.ds-theme');
+								return elements.length;
+							})()`, &elementCount).Do(ctx)
+
+							if err == nil && elementCount >= 2 {
+								gc.logger.Printf("✅ Found %d ds-theme elements in page, indicating AI output completed", elementCount)
+								gc.logger.Println("⚠️⚠️ WARNING: 已经检测到输出完成，准备复制 ⚠️⚠️")
+								break ThemeElementLoop
+							} else if err != nil {
+								gc.logger.Printf("⚠️ Error querying for ds-theme elements: %v", err)
+							} else {
+								gc.logger.Printf("🔍 Found %d ds-theme element(s), waiting for 2 elements to indicate completion...", elementCount)
+								// 同时也尝试通过Runtime评估来获取更多信息
+								var result string
+								err = chromedp.Evaluate(`(() => {
+									const elements = document.querySelectorAll('div.ds-theme');
+									return 'Found ' + elements.length + ' elements with ds-theme class';
+								})()`, &result).Do(ctx)
+								if err == nil {
+									gc.logger.Printf("📋 DOM Query Result: %s", result)
+								}
+							}
+
+							time.Sleep(300 * time.Millisecond) // 减少等待间隔，更快地检测
+						}
+					}
+				*/
+
+				// 添加页面DOM内容输出功能，用于调试和查看实际页面结构
+				gc.logger.Println("🔍 Setting up DOM snapshot for debugging...")
+				// 等待2秒后输出当前页面的DOM结构
+				time.Sleep(2 * time.Second)
+
+				// 获取完整的页面HTML内容
+				var pageHTML string
+				err := chromedp.OuterHTML("html", &pageHTML).Do(ctx)
+				if err == nil {
+					maxLength := 2000
+					if len(pageHTML) < maxLength {
+						maxLength = len(pageHTML)
+					}
+					gc.logger.Printf("📄 DOM Snapshot (first %d chars):\n%s", maxLength, pageHTML[:maxLength])
+				} else {
+					gc.logger.Printf("⚠️ Error getting page HTML: %v", err)
+				}
+
+				// 同时也获取页面上所有ds-theme元素的详细信息
+				var themeElements []map[string]interface{}
+				err = chromedp.Evaluate(`(() => {
+					const elements = document.querySelectorAll('div.ds-theme');
+					return Array.from(elements).map(el => ({
+						tagName: el.tagName,
+						className: el.className,
+						style: el.style.cssText,
+						innerHTML: el.innerHTML ? el.innerHTML.substring(0, 200) : '', // 只取前200个字符
+						attributes: Array.prototype.reduce.call(el.attributes, function(acc, attr) {
+															acc[attr.name] = attr.value;
+															return acc;
+														}, {})
+					}));
+				})()`, &themeElements).Do(ctx)
+				if err == nil {
+					gc.logger.Printf("🔍 ds-theme Elements Detail: %+v", themeElements)
+				} else {
+					gc.logger.Printf("⚠️ Error getting ds-theme elements detail: %v", err)
+				}
+
+				// 也获取页面上所有可能的AI完成标志元素
+				var aiCompletionElements []map[string]interface{}
+				err = chromedp.Evaluate(`(() => {
+					const selectors = ['div.ds-flex._0a3d93b', '.ds-floating-position-wrapper', '[class*="_0a3d93b"]', '[class*="ds-flex"]'];
+					let allElements = [];
+					selectors.forEach(selector => {
+						try {
+							const elements = document.querySelectorAll(selector);
+							Array.from(elements).forEach(el => {
+								allElements.push({
+									selector: selector,
+									tagName: el.tagName,
+									className: el.className,
+									style: el.style.cssText,
+									innerHTML: el.innerHTML ? el.innerHTML.substring(0, 100) : '',
+									attributes: Array.prototype.reduce.call(el.attributes, function(acc, attr) {
+																		acc[attr.name] = attr.value;
+																		return acc;
+																	}, {})
+								});
+						} catch(e) {}
+					});
+					return allElements;
+				})()`, &aiCompletionElements).Do(ctx)
+				if err == nil {
+					gc.logger.Printf("🔍 Potential AI Completion Elements: %+v", aiCompletionElements)
+				} else {
+					gc.logger.Printf("⚠️ Error getting potential AI completion elements: %v", err)
+				}
+
+				// 检测第一个出现的特定浮动位置包装器div
+				gc.logger.Println("🔍 Waiting for AI completion by checking for specific floating wrapper div...")
+			FloatingWrapperLoop:
+				for {
+					select {
+					case <-ctx.Done():
+						gc.logger.Println("⏰ Context cancelled, stopping browser automation")
+						break FloatingWrapperLoop
+					default:
+						// 检测第一个出现的特定浮动位置包装器div
+						elementExists := false
+						selector := "div.ds-floating-position-wrapper.ds-theme[data-transform-origin='top']"
+
+						err = chromedp.EvaluateAsDevTools(
+							fmt.Sprintf(
+								`(function() {
+									var element = document.querySelector('%s');
+									if (element) {
+										// 检查元素的style属性是否匹配特定样式
+										var style = element.getAttribute('style');
+										if (style && style.includes('--ds-rgb-hover: 255 255 255 / 8%') && 
+												style.includes('z-index: 0;') && 
+												style.includes('left: 46.5px;') && 
+												style.includes('top: 713px;')) {
+											return true;
+										}
+									}
+									return false;
+								})();`, selector), &elementExists).Do(ctx)
+
+						if err == nil && elementExists {
+							gc.logger.Println("⚠️⚠️ WARNING: 已经检测到输出完成，准备复制 ⚠️⚠️")
+							break FloatingWrapperLoop
+						}
+
+						time.Sleep(1 * time.Second) // 等待一秒后再次检查
+					}
+				}
 			}
 			// 继续循环等待
 			time.Sleep(1 * time.Second)
@@ -1040,6 +1293,46 @@ Loop:
 	}
 
 	gc.logger.Printf("✅ Successfully retrieved AI response, length: %d", len(response))
+
+	// 尝试点击复制按钮
+	gc.logger.Println("📋 Attempting to click copy button...")
+	copyErr := chromedp.Run(ctx,
+		chromedp.ActionFunc(func(ctx context.Context) error {
+			copySelectors := []string{
+				"div.db183363.ds-icon-button.ds-icon-button--m.ds-icon-button--sizing-container[role='button'][aria-disabled='false']", // DeepSeek复制按钮 - 启用状态
+				"div.db183363.ds-icon-button[role='button']",        // DeepSeek复制按钮
+				"button[aria-label*='Copy'], button[title*='Copy']", // 通用复制按钮
+				".copy-button, #copy-button",
+			}
+
+			for _, selector := range copySelectors {
+				gc.logger.Printf("🔍 Attempting to find copy button with selector: %s", selector)
+				// 等待复制按钮可见
+				err := chromedp.WaitVisible(selector).Do(ctx)
+				if err == nil {
+					gc.logger.Printf("✅ Found copy button with selector: %s", selector)
+
+					// 点击复制按钮
+					err = chromedp.Click(selector).Do(ctx)
+					if err != nil {
+						gc.logger.Printf("❌ Failed to click copy button %s: %v", selector, err)
+						continue
+					}
+					gc.logger.Printf("✅ Successfully clicked copy button: %s", selector)
+					return nil
+				} else {
+					gc.logger.Printf("❌ Copy button selector %s not found or not visible: %v", selector, err)
+				}
+			}
+			return fmt.Errorf("no copy button found with any of the attempted selectors: %v", copySelectors)
+		}),
+	)
+	if copyErr != nil {
+		gc.logger.Printf("⚠️ Copy button not found or failed to click: %v", copyErr)
+		// 复制失败不是严重错误，继续执行
+	} else {
+		gc.logger.Println("✅ Successfully copied response")
+	}
 
 	// 计算总耗时
 	duration := time.Since(startTime)
@@ -1248,164 +1541,196 @@ func (gc *GuardianClient) SetDynamicConfig(baseURL string) {
 	gc.ProviderConfig.BaseURL = baseURL
 }
 
-// 在提交后等待指定时间并轮询检测AI输出完成信号，并提取AI输出内容
-func (gc *GuardianClient) waitForAndValidateOutput(ctx context.Context) (string, error) {
-	// 从环境变量获取配置值
-	initialWaitSeconds := getEnvInt("GUARDIAN_INITIAL_WAIT_SECONDS", 60)
-	minPollSeconds := getEnvInt("GUARDIAN_MIN_POLL_SECONDS", 2)
-	maxPollSeconds := getEnvInt("GUARDIAN_MAX_POLL_SECONDS", 5)
-
-	// 前 initialWaitSeconds 秒等待AI输入完成，不做检测
-	gc.logger.Printf("⏳ Waiting %d seconds for AI to start output...", initialWaitSeconds)
-	time.Sleep(time.Duration(initialWaitSeconds) * time.Second)
-
-	gc.logger.Println("🔍 Starting to poll for AI completion signal...")
-
-	// 开始轮询检测，直到找到 ds-flex _0a3d93b 字符串
-	for {
-		select {
-		case <-ctx.Done():
-			gc.logger.Println("⏰ Context cancelled, stopping polling for AI completion")
-			return "", ctx.Err()
-		default:
-			// 获取当前页面的HTML内容
-			var pageHTML string
-			err := chromedp.Run(ctx,
-				chromedp.ActionFunc(func(ctx context.Context) error {
-					err := chromedp.OuterHTML("html", &pageHTML).Do(ctx)
-					return err
-				}),
-			)
-			if err != nil {
-				gc.logger.Printf("⚠️ Error getting page HTML: %v", err)
-				// 继续尝试，不中断轮询
-			} else {
-				// 检查是否包含 ds-flex _0a3d93b 字符串
-				if strings.Contains(pageHTML, "ds-flex _0a3d93b") {
-					gc.logger.Println("✅ AI completion detected: 'ds-flex _0a3d93b' found in page content")
-					// 提取AI输出内容
-					extractedContent, extractErr := gc.extractAIOutputContent(ctx)
-					if extractErr != nil {
-						gc.logger.Printf("⚠️ Error extracting AI output content: %v", extractErr)
-						// 如果提取失败，仍然返回成功，但内容为空
-						return "", nil
-					}
-					gc.logger.Printf("✅ Successfully extracted AI output content, length: %d", len(extractedContent))
-					return extractedContent, nil // 找到关键字并提取内容，返回成功
-				}
-			}
-
-			// 随机等待 minPollSeconds 到 maxPollSeconds 秒
-			randWait := time.Duration(minPollSeconds+rand.Intn(maxPollSeconds-minPollSeconds+1)) * time.Second
-			gc.logger.Printf("⏳ Polling wait: checking again in %.0f seconds", randWait.Seconds())
-			time.Sleep(randWait)
-		}
+// 检测AI是否完成处理的多种指标
+func (gc *GuardianClient) isAIProcessingCompleted(ctx context.Context) bool {
+	// 检查是否包含完成标记
+	keywordFound := gc.checkAICompletionPattern(ctx)
+	if keywordFound {
+		gc.logger.Println("✅ Pattern matched: ds-flex _0a3d93b found, AI processing completed")
+		return true
 	}
+
+	// 次要检测指标: 提交按钮变为禁用状态
+	submitButtonDisabled := gc.checkSubmitButtonDisabled(ctx)
+	if submitButtonDisabled {
+		gc.logger.Println("✅ Submit button disabled: AI processing likely completed")
+		return true
+	}
+
+	// 次要检测指标: 复制按钮出现
+	copyButtonAppeared := gc.checkCopyButtonAppeared(ctx)
+	if copyButtonAppeared {
+		gc.logger.Println("✅ Copy button appeared: AI processing likely completed")
+		return true
+	}
+
+	// 次要检测指标: 特定完成文本出现
+	completionTextFound := gc.checkCompletionText(ctx)
+	if completionTextFound {
+		gc.logger.Println("✅ Completion text found: '本回答由 AI 生成'")
+		return true
+	}
+
+	return false
 }
 
-// 从包含 ds-flex _0a3d93b 的HTML容器中提取AI输出内容
-func (gc *GuardianClient) extractAIOutputContent(ctx context.Context) (string, error) {
-	var aiContent string
+// 在提交后等待3分钟并保存网页内容到临时文件进行验证
+func (gc *GuardianClient) waitForAndValidateOutput(ctx context.Context) error {
+	// 等待3分钟让AI完成输出
+	gc.logger.Println("⏳ Waiting 3 minutes for AI to complete output...")
+	time.Sleep(3 * time.Minute)
 
-	// 尝试使用多种选择器来定位AI输出内容
-	selectors := []string{
-		"div.ds-flex._0a3d93b",      // 包含 ds-flex _0a3d93b 的容器
-		"div.ds-flex._0a3d93b div",  // 容器内的内容
-		"div.ds-flex._0a3d93b span", // 容器内的文本节点
-		"div.ds-flex._0a3d93b *",    // 容器内的任意元素
-	}
-
-	for _, selector := range selectors {
-		err := chromedp.Run(ctx,
-			chromedp.ActionFunc(func(ctx context.Context) error {
-				// 尝试获取元素的文本内容
-				var content string
-				err := chromedp.Text(selector, &content).Do(ctx)
-				if err == nil && strings.TrimSpace(content) != "" {
-					aiContent = strings.TrimSpace(content)
-					gc.logger.Printf("✅ Extracted content from selector '%s', length: %d", selector, len(aiContent))
-					return nil // 成功提取内容
-				}
-
-				// 如果Text获取失败，尝试获取innerHTML
-				var innerHTML string
-				err = chromedp.InnerHTML(selector, &innerHTML).Do(ctx)
-				if err == nil && strings.TrimSpace(innerHTML) != "" {
-					aiContent = strings.TrimSpace(innerHTML)
-					gc.logger.Printf("✅ Extracted innerHTML from selector '%s', length: %d", selector, len(aiContent))
-					return nil // 成功提取内容
-				}
-
-				// 如果上述方法都失败，尝试OuterHTML
-				var outerHTML string
-				err = chromedp.OuterHTML(selector, &outerHTML).Do(ctx)
-				if err == nil && strings.TrimSpace(outerHTML) != "" {
-					aiContent = strings.TrimSpace(outerHTML)
-					gc.logger.Printf("✅ Extracted outerHTML from selector '%s', length: %d", selector, len(aiContent))
-					return nil // 成功提取内容
-				}
-
-				return fmt.Errorf("no content found with selector: %s", selector)
-			}),
-		)
-
-		if err == nil && aiContent != "" {
-			return aiContent, nil
-		}
-	}
-
-	// 如果常规选择器都失败，尝试使用JavaScript直接查找包含 ds-flex _0a3d93b 的元素及其内容
+	// 获取当前页面的完整HTML内容并保存到临时文件
+	var pageHTML string
 	err := chromedp.Run(ctx,
-		chromedp.Evaluate(`(() => {
-			const elements = document.querySelectorAll('div.ds-flex._0a3d93b');
-			if (elements.length > 0) {
-				// 获取第一个匹配元素的内容
-				const element = elements[0];
-				// 首先尝试获取文本内容
-				if (element.textContent && element.textContent.trim()) {
-					return element.textContent.trim();
-				}
-				// 如果文本内容为空，返回内部HTML
-				return element.innerHTML || element.outerHTML || '';
+		chromedp.ActionFunc(func(ctx context.Context) error {
+			// 获取完整的页面HTML内容
+			err := chromedp.OuterHTML("html", &pageHTML).Do(ctx)
+			if err != nil {
+				return err
 			}
-			return '';
-		})()`, &aiContent),
+
+			// 将完整的HTML内容保存到临时文件
+			filename := fmt.Sprintf("temp/page_source_%d.html", time.Now().Unix())
+			err = os.MkdirAll("temp", 0755) // 确保temp目录存在
+			if err != nil {
+				gc.logger.Printf("Warning: Could not create temp directory: %v", err)
+				filename = fmt.Sprintf("page_source_%d.html", time.Now().Unix()) // 回退到当前目录
+			}
+			err = os.WriteFile(filename, []byte(pageHTML), 0644)
+			if err == nil {
+				gc.logger.Printf("Full page HTML saved to %s, size: %d bytes", filename, len(pageHTML))
+
+				// 检查文件是否包含 ds-flex _0a3d93b 字符串
+				if strings.Contains(pageHTML, "ds-flex _0a3d93b") {
+					gc.logger.Println("✅ Verification: File contains 'ds-flex _0a3d93b', HTML extraction method works correctly")
+				} else {
+					gc.logger.Println("❌ Verification: File does NOT contain 'ds-flex _0a3d93b', HTML extraction may have issues")
+				}
+			} else {
+				gc.logger.Printf("Error saving page HTML to file: %v", err)
+				// 如果保存文件失败，至少输出部分HTML内容到日志
+				maxLength := 2000
+				if len(pageHTML) < maxLength {
+					maxLength = len(pageHTML)
+				}
+				gc.logger.Printf("Page HTML (first %d chars):\n%s", maxLength, pageHTML[:maxLength])
+			}
+			return nil
+		}),
 	)
-
-	if err != nil {
-		return "", err
-	}
-
-	if aiContent != "" {
-		gc.logger.Printf("✅ Extracted content using JavaScript evaluation, length: %d", len(aiContent))
-		return aiContent, nil
-	}
-
-	return "", fmt.Errorf("no AI output content found in ds-flex _0a3d93b container")
+	return err
 }
 
-// 清理HTML内容，移除多余的HTML标签，保留文本内容
-func (gc *GuardianClient) cleanHTMLContent(htmlContent string) string {
-	// 首先尝试使用正则表达式移除HTML标签
-	cleaned := htmlContent
+// 检测AI完成的特定HTML模式
+func (gc *GuardianClient) checkAICompletionPattern(ctx context.Context) bool {
+	var keywordFound bool
+	err := chromedp.EvaluateAsDevTools(
+		`(function() {
+			var html = document.documentElement.outerHTML;
+			// 精确匹配 ds-flex _0a3d93b 字符串
+			return html.indexOf('ds-flex _0a3d93b') !== -1;
+		})();`, &keywordFound).Do(ctx)
 
-	// 移除HTML标签（保留标签间的内容）
-	re := regexp.MustCompile(`<[^>]*>`)
-	cleaned = re.ReplaceAllString(cleaned, " ")
+	return err == nil && keywordFound
+}
 
-	// 替换多个空白字符为单个空格
-	space := regexp.MustCompile(`\s+`)
-	cleaned = space.ReplaceAllString(cleaned, " ")
+// 检测提交按钮是否变为禁用状态
+func (gc *GuardianClient) checkSubmitButtonDisabled(ctx context.Context) bool {
+	submitSelectors := []string{
+		"button[data-testid='chat-send-button'][disabled]",
+		"button[aria-disabled='true']",
+		"div.ds-icon-button[aria-disabled='true']",
+		"button:disabled",
+	}
 
-	// 移除常见的转义字符
-	cleaned = strings.ReplaceAll(cleaned, "&nbsp;", " ")
-	cleaned = strings.ReplaceAll(cleaned, "&lt;", "<")
-	cleaned = strings.ReplaceAll(cleaned, "&gt;", ">")
-	cleaned = strings.ReplaceAll(cleaned, "&amp;", "&")
-	cleaned = strings.ReplaceAll(cleaned, "&quot;", "\"")
-	cleaned = strings.ReplaceAll(cleaned, "&#39;", "'")
+	for _, submitSel := range submitSelectors {
+		var buttonDisabled bool
+		err := chromedp.EvaluateAsDevTools(
+			fmt.Sprintf(
+				`(function() {
+					var element = document.querySelector('%s');
+					if (element) {
+						// 检查按钮是否被禁用
+						var isDisabled = element.disabled === true || 
+							(element.hasAttribute('disabled') && element.getAttribute('disabled') !== 'false') ||
+							(element.hasAttribute('aria-disabled') && element.getAttribute('aria-disabled') === 'true');
+						return isDisabled;
+					}
+					return false; // 元素不存在认为按钮不可用
+				})();`, submitSel), &buttonDisabled).Do(ctx)
 
-	return strings.TrimSpace(cleaned)
+		if err == nil && buttonDisabled {
+			return true
+		}
+	}
+	return false
+}
+
+// 检测复制按钮是否出现
+func (gc *GuardianClient) checkCopyButtonAppeared(ctx context.Context) bool {
+	copySelectors := []string{
+		"div.db183363.ds-icon-button[role='button']", // DeepSeek复制按钮
+		"div.ds-icon-button__hover-bg",               // 可能的复制按钮
+		"button[aria-label*='copy']",                 // 带有copy标签的按钮
+		"[data-testid*='copy']",                      // 带有copy标识的元素
+	}
+
+	for _, copySelector := range copySelectors {
+		var copyButtonExists bool
+		err := chromedp.EvaluateAsDevTools(
+			fmt.Sprintf(
+				`(function() {
+					var element = document.querySelector('%s');
+					if (element !== null) {
+						// 检查按钮是否可见且在视口中
+						var rect = element.getBoundingClientRect();
+						var isVisible = rect.top >= 0 && rect.left >= 0 &&
+								rect.bottom <= (window.innerHeight || document.documentElement.clientHeight) &&
+								rect.right <= (window.innerWidth || document.documentElement.clientWidth);
+
+						// 检查按钮是否有尺寸（不为0）
+						var hasDimensions = rect.width > 0 && rect.height > 0;
+
+						return isVisible && hasDimensions;
+					}
+					return false;
+				})();`, copySelector), &copyButtonExists).Do(ctx)
+
+		if err == nil && copyButtonExists {
+			return true
+		}
+	}
+	return false
+}
+
+// 检测特定完成文本
+func (gc *GuardianClient) checkCompletionText(ctx context.Context) bool {
+	completionTextSelectors := []string{
+		"div.dbe8cf4a", // AI生成完成标记文本
+		"div",          // 搜索所有div中包含完成文本的
+	}
+
+	for _, textSelector := range completionTextSelectors {
+		var textFound bool
+		err := chromedp.EvaluateAsDevTools(
+			fmt.Sprintf(
+				`(function() {
+					var elements = document.querySelectorAll('%s');
+					for (var i = 0; i < elements.length; i++) {
+						var text = elements[i].textContent || elements[i].innerText;
+						if (text && (text.includes('本回答由 AI 生成') || text.includes('AI生成') || text.includes('generated by AI'))) {
+							return true;
+					}
+					}
+					return false;
+				})();`, textSelector), &textFound).Do(ctx)
+
+		if err == nil && textFound {
+			return true
+		}
+	}
+	return false
 }
 
 const (

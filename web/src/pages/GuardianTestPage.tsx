@@ -6,6 +6,7 @@ const { Title, Text, Paragraph } = Typography;
 const GuardianTestPage: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [testResult, setTestResult] = useState('');
+  const [aiContent, setAiContent] = useState('');
   const [predefinedPrompt, setPredefinedPrompt] = useState('');
 
   // 模拟Guardian浏览器自动化测试
@@ -32,6 +33,10 @@ const GuardianTestPage: React.FC = () => {
 
       const data = await response.json();
       setTestResult(data.message || 'Guardian浏览器自动化测试已启动');
+      // 如果返回了AI内容，也更新AI内容状态
+      if (data.result) {
+        setAiContent(data.result);
+      }
       
       message.success('Guardian测试已启动，请查看浏览器弹窗');
     } catch (error: any) {
@@ -189,6 +194,23 @@ const GuardianTestPage: React.FC = () => {
           }}>
             {testResult}
           </pre>
+        </Card>
+      )}
+
+      {aiContent && (
+        <Card title="AI输出内容" style={{ marginTop: '24px' }}>
+          <div style={{ 
+            backgroundColor: '#fafafa', 
+            padding: '16px', 
+            borderRadius: '4px',
+            maxHeight: '500px',
+            overflow: 'auto',
+            lineHeight: '1.6'
+          }}>
+            {aiContent.split('\n').map((line, index) => (
+              <div key={index}>{line}</div>
+            ))}
+          </div>
         </Card>
       )}
 
