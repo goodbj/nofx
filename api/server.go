@@ -10,6 +10,7 @@ import (
 	"nofx/backtest"
 	"nofx/config"
 	"nofx/crypto"
+	"nofx/dataprovider"
 	"nofx/kernel"
 	"nofx/logger"
 	"nofx/manager"
@@ -44,6 +45,7 @@ type Server struct {
 	httpServer      *http.Server
 	port            int
 	logger          *logrus.Logger
+	dataProvider    dataprovider.DataProvider
 }
 
 // NewServer Creates API server
@@ -70,6 +72,9 @@ func NewServer(traderManager *manager.TraderManager, st *store.Store, cryptoServ
 	debateHandler := NewDebateHandler(debateStore, st.Strategy(), st.AIModel())
 	debateHandler.SetTraderManager(traderManager)
 
+	// 从环境变量获取数据提供者
+	dataProvider := dataprovider.GetDataProviderFromEnv()
+
 	s := &Server{
 		router:          router,
 		traderManager:   traderManager,
@@ -79,6 +84,7 @@ func NewServer(traderManager *manager.TraderManager, st *store.Store, cryptoServ
 		debateHandler:   debateHandler,
 		port:            port,
 		logger:          logger.Log,
+		dataProvider:    dataProvider,
 	}
 
 	// Setup routes
@@ -4316,3 +4322,8 @@ func (s *Server) handleOpenGuardianBrowser(c *gin.Context) {
 // ============================================================================
 // End of Server Implementation
 // ============================================================================
+ 
+// ============================================================================
+// End of Server Implementation
+// ============================================================================
+
