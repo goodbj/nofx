@@ -8,6 +8,8 @@ import (
 	"net/http"
 	"os"
 	"time"
+
+	"nofx/config"
 )
 
 // Kline 表示K线数据结构
@@ -94,22 +96,38 @@ func (p *ProxyDataProvider) GetBalance(apiKey, secretKey, customAPIURL string) (
 
 // GetPositions 通过代理服务获取持仓
 func (p *ProxyDataProvider) GetPositions(apiKey, secretKey, customAPIURL string) ([]map[string]interface{}, error) {
+	// 脱敏处理API Key
+	maskedAPIKey := ""
+	if len(apiKey) > 6 {
+		maskedAPIKey = apiKey[:3] + "***" + apiKey[len(apiKey)-3:]
+	} else {
+		maskedAPIKey = apiKey
+	}
+
+	fmt.Printf("[DEBUG] GetPositions - Request to proxy - API Key: %s, Custom API URL: %s\n",
+		maskedAPIKey, customAPIURL)
+
 	url := fmt.Sprintf("%s/api/proxy/positions", p.ProxyURL)
 
 	response, err := p.makeRequest(url, map[string]string{}, apiKey, secretKey, customAPIURL)
 	if err != nil {
+		fmt.Printf("[DEBUG] GetPositions - Error making request: %v\n", err)
 		return nil, err
 	}
 
-	// 将响应转换为[]map[string]interface{}
+	fmt.Printf("[DEBUG] GetPositions - Raw response from proxy (truncated): %s\n", truncateString(fmt.Sprintf("%+v", response), 1000))
+
+	// 直接返回原始响应中的数据，让后端服务使用其原有的处理逻辑
 	positionsData, ok := response["data"]
 	if !ok {
+		fmt.Printf("[DEBUG] GetPositions - Response does not contain 'data' field: %+v\n", response)
 		return nil, fmt.Errorf("response does not contain 'data' field, response: %+v", response)
 	}
 
 	positions, ok := positionsData.([]interface{})
 	if !ok {
 		// 添加调试信息，输出实际的数据类型
+		fmt.Printf("[DEBUG] GetPositions - Positions data is not an array, actual type: %T, value: %+v\n", positionsData, positionsData)
 		return nil, fmt.Errorf("positions data is not an array, actual type: %T, value: %+v", positionsData, positionsData)
 	}
 
@@ -125,6 +143,7 @@ func (p *ProxyDataProvider) GetPositions(apiKey, secretKey, customAPIURL string)
 		}
 	}
 
+	fmt.Printf("[DEBUG] GetPositions - Final result count: %d, result: %+v\n", len(result), result)
 	return result, nil
 }
 
@@ -168,10 +187,56 @@ func (p *ProxyDataProvider) GetKlines(symbol, interval string, limit int, apiKey
 	return result, nil
 }
 
+// truncateString 用于截断长字符串，只显示前n个字符
+func truncateString(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
+	}
+	return s[:maxLen] + "..."
+}
+
 // GetAccountInfo 通过代理服务获取账户信息
 func (p *ProxyDataProvider) GetAccountInfo(apiKey, secretKey, customAPIURL string) (interface{}, error) {
+	// 脱敏处理API Key
+	maskedAPIKey := ""
+	if len(apiKey) > 6 {
+		maskedAPIKey = apiKey[:3] + "***" + apiKey[len(apiKey)-3:]
+	} else {
+		maskedAPIKey = apiKey
+	}
+
+	fmt.Printf("[DEBUG] GetAccountInfo - Request to proxy - API Key: %s, Custom API URL: %s\n",
+		maskedAPIKey, customAPIURL)
+
 	url := fmt.Sprintf("%s/api/proxy/account", p.ProxyURL)
-	return p.makeRequest(url, map[string]string{}, apiKey, secretKey, customAPIURL)
+	response, err := p.makeRequest(url, map[string]string{}, apiKey, secretKey, customAPIURL)
+	if err != nil {
+		fmt.Printf("[DEBUG] GetAccountInfo - Error making request: %v\n", err)
+		return nil, err
+	}
+
+	fmt.Printf("[DEBUG] GetAccountInfo - Raw response from proxy (truncated): %s\n", truncateString(fmt.Sprintf("%+v", response), 1000))
+
+	// 提取data字段，与GetPositions等其他方法保持一致
+	accountData, ok := response["data"]
+	if !ok {
+		fmt.Printf("[DEBUG] GetAccountInfo - Response does not contain 'data' field: %+v\n", response)
+		return nil, fmt.Errorf("response does not contain 'data' field, response: %+v", response)
+	}
+
+	// 检查是否有错误信息
+	if errorMsg, exists := response["error"]; exists {
+		return nil, fmt.Errorf("binance proxy error: %v", errorMsg)
+	}
+
+	// 返回data部分的内容，让后端服务使用其原有的处理逻辑
+	// 这样可以完全模仿nofx原生的处理逻辑
+	accountInfo, ok := accountData.(map[string]interface{})
+	if !ok {
+		return nil, fmt.Errorf("account data is not an object, actual type: %T, value: %+v", accountData, accountData)
+	}
+
+	return accountInfo, nil
 }
 
 // GetTrades 通过代理服务获取交易历史
@@ -285,7 +350,8 @@ func GetDataProviderFromEnv() DataProvider {
 	useProxy := os.Getenv("USE_BINANCE_PROXY") == "true"
 	proxyURL := os.Getenv("BINANCE_PROXY_URL")
 	if proxyURL == "" {
-		proxyURL = "http://localhost:8081" // 默认代理URL
+		// 使用集中的端口配置
+		proxyURL = config.GetBinanceProxyURLWithEnv()
 	}
 
 	return NewDataProvider(useProxy, proxyURL)

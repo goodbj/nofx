@@ -25,6 +25,14 @@ func maskString(s string) string {
 	return s[:3] + "***" + s[len(s)-3:]
 }
 
+// truncateString 用于截断长字符串，只显示前n个字符
+func truncateString(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
+	}
+	return s[:maxLen] + "..."
+}
+
 // NewBinanceProxyService 创建新的币安代理服务实例
 func NewBinanceProxyService() *BinanceProxyService {
 	return &BinanceProxyService{}
@@ -80,19 +88,9 @@ func (s *BinanceProxyService) GetBalance(c *gin.Context) {
 		}
 	}
 
-	// 构造返回结果
-	result := make(map[string]interface{})
-	result["totalWalletBalance"], _ = strconv.ParseFloat(account.TotalWalletBalance, 64)
-	result["availableBalance"], _ = strconv.ParseFloat(account.AvailableBalance, 64)
-	result["totalUnrealizedProfit"], _ = strconv.ParseFloat(account.TotalUnrealizedProfit, 64)
-
-	// 添加调试日志，输出转换后的数据
-	fmt.Printf("[DEBUG] GetAccountInfo - Converted Result - TotalWalletBalance: %.2f, AvailableBalance: %.2f, TotalUnrealizedProfit: %.2f\n",
-		result["totalWalletBalance"], result["availableBalance"], result["totalUnrealizedProfit"])
-
-	// 按照后端服务期望的格式返回数据
+	// 直接返回原始响应，让后端服务处理数据
 	response := gin.H{
-		"data": result,
+		"data": account,
 	}
 	c.JSON(http.StatusOK, response)
 }
@@ -129,6 +127,7 @@ func (s *BinanceProxyService) GetPositions(c *gin.Context) {
 		return
 	}
 
+	// 直接返回原始数据，不做任何处理
 	// 添加调试日志，输出从币安API获取的原始持仓数据
 	fmt.Printf("[DEBUG] GetPositions - Raw API Response - Positions Count: %d\n", len(positions))
 	for i, pos := range positions {
@@ -138,44 +137,9 @@ func (s *BinanceProxyService) GetPositions(c *gin.Context) {
 		}
 	}
 
-	var result []map[string]interface{}
-	for _, pos := range positions {
-		posAmt, _ := strconv.ParseFloat(pos.PositionAmt, 64)
-		if posAmt == 0 {
-			continue // 跳过零持仓
-		}
-
-		posMap := make(map[string]interface{})
-		posMap["symbol"] = pos.Symbol
-		posMap["positionAmt"], _ = strconv.ParseFloat(pos.PositionAmt, 64)
-		posMap["entryPrice"], _ = strconv.ParseFloat(pos.EntryPrice, 64)
-		posMap["markPrice"], _ = strconv.ParseFloat(pos.MarkPrice, 64)
-		posMap["unRealizedProfit"], _ = strconv.ParseFloat(pos.UnRealizedProfit, 64)
-		posMap["leverage"], _ = strconv.ParseFloat(pos.Leverage, 64)
-		posMap["liquidationPrice"], _ = strconv.ParseFloat(pos.LiquidationPrice, 64)
-
-		// 确定方向
-		if posAmt > 0 {
-			posMap["side"] = "long"
-		} else {
-			posMap["side"] = "short"
-		}
-
-		result = append(result, posMap)
-	}
-
-	// 添加调试日志，输出处理后的持仓数据
-	fmt.Printf("[DEBUG] GetPositions - Processed Result - Positions Count: %d\n", len(result))
-	for i, pos := range result {
-		if i < 5 { // 只打印前5个处理后的持仓
-			fmt.Printf("[DEBUG] GetPositions - Processed Position[%d]: Symbol: %s, PositionAmt: %.4f, EntryPrice: %.4f, MarkPrice: %.4f, UnrealizedProfit: %.4f\n",
-				i, pos["symbol"], pos["positionAmt"], pos["entryPrice"], pos["markPrice"], pos["unRealizedProfit"])
-		}
-	}
-
-	// 按照后端服务期望的格式返回数据
+	// 直接返回原始响应，让后端服务处理数据
 	response := gin.H{
-		"data": result,
+		"data": positions,
 	}
 	c.JSON(http.StatusOK, response)
 }
@@ -368,10 +332,65 @@ func (s *BinanceProxyService) GetAccountInfo(c *gin.Context) {
 		return
 	}
 
+	// 模仿nofx原生的BinanceFuturesTrader.GetBalance方法，返回相同的数据结构
+	result := make(map[string]interface{})
+
+	// 直接转换关键字段，模仿原生处理方式（参考BinanceFuturesTrader.GetBalance）
+	result["totalWalletBalance"], _ = strconv.ParseFloat(account.TotalWalletBalance, 64)
+	result["availableBalance"], _ = strconv.ParseFloat(account.AvailableBalance, 64)
+	result["totalUnrealizedProfit"], _ = strconv.ParseFloat(account.TotalUnrealizedProfit, 64)
+
+	// 为了兼容性，也提供nofx前端期望的字段（参考AutoTrader.GetAccountInfo）
+	totalWalletBalanceVal, _ := strconv.ParseFloat(account.TotalWalletBalance, 64)
+	availableBalanceVal, _ := strconv.ParseFloat(account.AvailableBalance, 64)
+	totalUnrealizedProfitVal, _ := strconv.ParseFloat(account.TotalUnrealizedProfit, 64)
+
+	totalEquityVal := totalWalletBalanceVal + totalUnrealizedProfitVal // 总权益 = 钱包余额 + 未实现盈亏
+	result["total_equity"] = totalEquityVal
+	result["wallet_balance"] = totalWalletBalanceVal
+	result["unrealized_profit"] = totalUnrealizedProfitVal
+	result["available_balance"] = availableBalanceVal
+
+	// 按照nofx标准字段优先级设置，兼容不同交易所格式
+	// 优先级: total_equity > totalWalletBalance > wallet_balance > totalEq > balance
+	result["totalEq"] = totalEquityVal // 添加额外的兼容字段
+	result["balance"] = totalEquityVal // 添加额外的兼容字段
+
+	// 处理资产列表（模仿nofx原生处理方式）
+	var assets []map[string]interface{}
+	fmt.Printf("[DEBUG] GetAccountInfo - Processing %d assets\n", len(account.Assets))
+	for i, asset := range account.Assets {
+		assetMap := make(map[string]interface{})
+		assetMap["asset"] = asset.Asset
+
+		fmt.Printf("[DEBUG] GetAccountInfo - Processing asset[%d]: %s, WalletBalance: '%s', UnrealizedProfit: '%s', MarginBalance: '%s', AvailableBalance: '%s'\n",
+			i, asset.Asset, asset.WalletBalance, asset.UnrealizedProfit, asset.MarginBalance, asset.AvailableBalance)
+
+		assetMap["walletBalance"], _ = strconv.ParseFloat(asset.WalletBalance, 64)
+		assetMap["unrealizedProfit"], _ = strconv.ParseFloat(asset.UnrealizedProfit, 64)
+		assetMap["marginBalance"], _ = strconv.ParseFloat(asset.MarginBalance, 64)
+		assetMap["availableBalance"], _ = strconv.ParseFloat(asset.AvailableBalance, 64)
+
+		assets = append(assets, assetMap)
+	}
+	result["assets"] = assets
+
+	// 输出处理后的数据调试信息
+	fmt.Printf("[DEBUG] GetAccountInfo - Processed totalWalletBalance: %v, availableBalance: %v, totalUnrealizedProfit: %v\n",
+		result["totalWalletBalance"], result["availableBalance"], result["totalUnrealizedProfit"])
+	fmt.Printf("[DEBUG] GetAccountInfo - Processed assets count: %d\n", len(assets))
+	for i, asset := range assets {
+		if i < 5 { // 只打印前5个资产的关键信息
+			fmt.Printf("[DEBUG] GetAccountInfo - Processed Asset[%d]: %s, walletBalance: %v, unrealizedProfit: %v\n",
+				i, asset["asset"], asset["walletBalance"], asset["unrealizedProfit"])
+		}
+	}
+
 	// 按照后端服务期望的格式返回数据
 	response := gin.H{
-		"data": account,
+		"data": result,
 	}
+	fmt.Printf("[DEBUG] GetAccountInfo - Returning response (truncated): %s\n", truncateString(fmt.Sprintf("%+v", response), 500))
 	c.JSON(http.StatusOK, response)
 }
 

@@ -4,11 +4,14 @@ FROM golang:1.25-alpine AS builder
 # 设置工作目录
 WORKDIR /app
 
-# 配置Go模块代理以加速下载（适用于中国用户）
-ENV GOPROXY=https://goproxy.cn,direct
+# 配置Go模块代理
+ENV GOPROXY=direct
 
 # 复制go.mod和go.sum文件
 COPY go.mod go.sum ./
+
+# 安装git和其他必要工具
+RUN apk add --no-cache git
 
 # 下载依赖
 RUN go mod download
@@ -33,12 +36,6 @@ RUN if [ "$HOT_RELOAD" != "true" ] ; then \
 
 # 使用轻量级基础镜像运行应用
 FROM alpine:latest
-
-# 更换APK软件源为国内源以加快下载速度（适用于中国用户）
-RUN sed -i 's/dl-cdn.alpinelinux.org/mirrors.ustc.edu.cn/g' /etc/apk/repositories
-
-# 安装ca-certificates以支持HTTPS请求
-RUN apk --no-cache add ca-certificates
 
 # 设置工作目录
 WORKDIR /root/

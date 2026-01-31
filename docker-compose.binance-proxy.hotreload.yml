@@ -4,9 +4,7 @@ services:
   binance-proxy-hotreload:
     build:
       context: ./api/binance_proxy
-      dockerfile: Dockerfile
-      args:
-        - HOT_RELOAD=true
+      dockerfile: Dockerfile.hotreload.fixed
     container_name: binance-proxy-hotreload
     ports:
       - "8081:8080"
