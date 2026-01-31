@@ -16,7 +16,7 @@ type Config struct {
 // LoadConfig 从环境变量加载配置
 func LoadConfig() *Config {
 	config := &Config{
-		Port:             getEnvOrDefault("PORT", "8080"),
+		Port:             getEnvOrDefault("PORT", "8082"),
 		BinanceAPIKey:    os.Getenv("BINANCE_API_KEY"),
 		BinanceSecretKey: os.Getenv("BINANCE_SECRET_KEY"),
 		CustomAPIURL:     os.Getenv("BINANCE_CUSTOM_API_URL"),

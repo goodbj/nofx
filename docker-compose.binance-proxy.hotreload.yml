@@ -1,0 +1,25 @@
+version: '3.8'
+
+services:
+  binance-proxy-hotreload:
+    build:
+      context: ./api/binance_proxy
+      dockerfile: Dockerfile
+      args:
+        - HOT_RELOAD=true
+    container_name: binance-proxy-hotreload
+    ports:
+      - "8081:8080"
+    volumes:
+      - ./api/binance_proxy:/app
+    environment:
+      - PORT=8080
+      - GIN_MODE=debug  # 启用调试模式以便看到实时日志
+      - DEBUG=true
+    networks:
+      - nofx-network
+    restart: unless-stopped
+
+networks:
+  nofx-network:
+    driver: bridge

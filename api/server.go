@@ -48,6 +48,14 @@ type Server struct {
 	dataProvider    dataprovider.DataProvider
 }
 
+// min returns the minimum of two integers
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
 // NewServer Creates API server
 func NewServer(traderManager *manager.TraderManager, st *store.Store, cryptoService *crypto.CryptoService, backtestManager *backtest.Manager, port int) *Server {
 	// Set to Release mode (reduce log output)
@@ -213,6 +221,10 @@ func (s *Server) setupRoutes() {
 			protected.POST("/traders/:id/execute-decision", s.handleExecuteDecision)
 			protected.POST("/traders/:id/execute-multiple-decisions", s.handleExecuteMultipleDecisions)
 			protected.POST("/guardian/execute", s.handleGuardianExecuteDecision)
+
+			// Binance proxy endpoints
+			protected.POST("/binance/balance", s.handleGetBinanceBalance)
+			protected.POST("/binance/positions", s.handleGetBinancePositions)
 
 			protected.PUT("/traders/:id/prompt", s.handleUpdateTraderPrompt)
 			protected.POST("/traders/:id/sync-balance", s.handleSyncBalance)
@@ -1137,6 +1149,52 @@ func (s *Server) handleGetTraderStatus(c *gin.Context) {
 	// 返回状态信息
 	status := trader.GetStatus()
 	c.JSON(http.StatusOK, status)
+}
+
+// handleGetBinanceBalance 通过代理获取币安账户余额
+func (s *Server) handleGetBinanceBalance(c *gin.Context) {
+	var req struct {
+		ApiKey       string `json:"api_key"`
+		SecretKey    string `json:"secret_key"`
+		CustomAPIURL string `json:"custom_api_url"`
+	}
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request format"})
+		return
+	}
+
+	balance, err := s.dataProvider.GetBalance(req.ApiKey, req.SecretKey, req.CustomAPIURL)
+	if err != nil {
+		s.logger.Errorf("Failed to get binance balance: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, balance)
+}
+
+// handleGetBinancePositions 通过代理获取币安持仓信息
+func (s *Server) handleGetBinancePositions(c *gin.Context) {
+	var req struct {
+		ApiKey       string `json:"api_key"`
+		SecretKey    string `json:"secret_key"`
+		CustomAPIURL string `json:"custom_api_url"`
+	}
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request format"})
+		return
+	}
+
+	positions, err := s.dataProvider.GetPositions(req.ApiKey, req.SecretKey, req.CustomAPIURL)
+	if err != nil {
+		s.logger.Errorf("Failed to get binance positions: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, positions)
 }
 
 // handleExecuteDecision Manually trigger trader to execute decision immediately
@@ -2510,6 +2568,59 @@ func (s *Server) handleAccount(c *gin.Context) {
 		return
 	}
 
+	// 获取用户ID
+	userID := c.GetString("user_id")
+
+	// 获取交易者的完整配置信息
+	traderConfig, err := s.store.Trader().GetFullConfig(userID, traderID)
+	if err != nil {
+		SafeNotFound(c, "Trader config")
+		return
+	}
+
+	// 从交易者配置中获取交换机配置
+	exchangeConfig := traderConfig.Exchange
+	if exchangeConfig == nil {
+		SafeInternalError(c, "Get account info", fmt.Errorf("exchange config not found"))
+		return
+	}
+
+	// 根据交易所类型提取API凭据
+	// 注意：traderConfig.Exchange中的APIKey和SecretKey是crypto.EncryptedString类型，应该已经自动解密
+	var apiKey, secretKey, customAPIURL string
+	switch exchangeConfig.ExchangeType {
+	case "binance":
+		// 直接从原始Exchange对象获取，确保加密字符串被正确处理
+		apiKey = string(traderConfig.Exchange.APIKey)
+		secretKey = string(traderConfig.Exchange.SecretKey)
+		customAPIURL = traderConfig.Exchange.CustomAPIURL
+
+		// 添加调试日志，检查API密钥是否被正确解密
+		fmt.Printf("[DEBUG] handleAccount - Raw API Key: %s, Length: %d\n", apiKey, len(apiKey))
+		fmt.Printf("[DEBUG] handleAccount - Raw Secret Key: %s, Length: %d\n", secretKey, len(secretKey))
+
+		// 检查是否是加密格式
+		if strings.HasPrefix(apiKey, "ENC:") {
+			fmt.Printf("[WARN] handleAccount - API Key appears to be encrypted! Prefix: %s\n", apiKey[:min(len(apiKey), 10)])
+		}
+		if strings.HasPrefix(secretKey, "ENC:") {
+			fmt.Printf("[WARN] handleAccount - Secret Key appears to be encrypted! Prefix: %s\n", secretKey[:min(len(secretKey), 10)])
+		}
+	}
+
+	// 如果API凭据有效，则使用dataProvider获取账户信息
+	if apiKey != "" && secretKey != "" {
+		account, err := s.dataProvider.GetAccountInfo(apiKey, secretKey, customAPIURL)
+		if err != nil {
+			s.logger.Errorf("Failed to get account info via data provider: %v", err)
+			SafeInternalError(c, "Get account info", err)
+			return
+		}
+		c.JSON(http.StatusOK, account)
+		return
+	}
+
+	// 如果无法从配置中获取API凭据，回退到原始方法
 	trader, err := s.traderManager.GetTrader(traderID)
 	if err != nil {
 		SafeNotFound(c, "Trader")
@@ -2540,6 +2651,59 @@ func (s *Server) handlePositions(c *gin.Context) {
 		return
 	}
 
+	// 获取用户ID
+	userID := c.GetString("user_id")
+
+	// 获取交易者的完整配置信息
+	traderConfig, err := s.store.Trader().GetFullConfig(userID, traderID)
+	if err != nil {
+		SafeNotFound(c, "Trader config")
+		return
+	}
+
+	// 从交易者配置中获取交换机配置
+	exchangeConfig := traderConfig.Exchange
+	if exchangeConfig == nil {
+		SafeInternalError(c, "Get positions", fmt.Errorf("exchange config not found"))
+		return
+	}
+
+	// 根据交易所类型提取API凭据
+	// 注意：traderConfig.Exchange中的APIKey和SecretKey是crypto.EncryptedString类型，应该已经自动解密
+	var apiKey, secretKey, customAPIURL string
+	switch exchangeConfig.ExchangeType {
+	case "binance":
+		// 直接从原始Exchange对象获取，确保加密字符串被正确处理
+		apiKey = string(traderConfig.Exchange.APIKey)
+		secretKey = string(traderConfig.Exchange.SecretKey)
+		customAPIURL = traderConfig.Exchange.CustomAPIURL
+
+		// 添加调试日志，检查API密钥是否被正确解密
+		fmt.Printf("[DEBUG] handlePositions - Raw API Key: %s, Length: %d\n", apiKey, len(apiKey))
+		fmt.Printf("[DEBUG] handlePositions - Raw Secret Key: %s, Length: %d\n", secretKey, len(secretKey))
+
+		// 检查是否是加密格式
+		if strings.HasPrefix(apiKey, "ENC:") {
+			fmt.Printf("[WARN] handlePositions - API Key appears to be encrypted! Prefix: %s\n", apiKey[:min(len(apiKey), 10)])
+		}
+		if strings.HasPrefix(secretKey, "ENC:") {
+			fmt.Printf("[WARN] handlePositions - Secret Key appears to be encrypted! Prefix: %s\n", secretKey[:min(len(secretKey), 10)])
+		}
+	}
+
+	// 如果API凭据有效，则使用dataProvider获取持仓信息
+	if apiKey != "" && secretKey != "" {
+		positions, err := s.dataProvider.GetPositions(apiKey, secretKey, customAPIURL)
+		if err != nil {
+			s.logger.Errorf("Failed to get positions via data provider: %v", err)
+			SafeInternalError(c, "Get positions", err)
+			return
+		}
+		c.JSON(http.StatusOK, positions)
+		return
+	}
+
+	// 如果无法从配置中获取API凭据，回退到原始方法
 	trader, err := s.traderManager.GetTrader(traderID)
 	if err != nil {
 		SafeNotFound(c, "Trader")
@@ -4322,8 +4486,7 @@ func (s *Server) handleOpenGuardianBrowser(c *gin.Context) {
 // ============================================================================
 // End of Server Implementation
 // ============================================================================
- 
+
 // ============================================================================
 // End of Server Implementation
 // ============================================================================
-

@@ -17,6 +17,14 @@ type BinanceProxyService struct {
 	// 可以在这里添加配置或共享资源
 }
 
+// maskString 用于隐藏敏感信息，只显示前3位和后3位，中间用***代替
+func maskString(s string) string {
+	if len(s) <= 6 {
+		return "***"
+	}
+	return s[:3] + "***" + s[len(s)-3:]
+}
+
 // NewBinanceProxyService 创建新的币安代理服务实例
 func NewBinanceProxyService() *BinanceProxyService {
 	return &BinanceProxyService{}
@@ -28,12 +36,21 @@ func (s *BinanceProxyService) GetBalance(c *gin.Context) {
 	secretKey := c.GetHeader("X-Secret-Key")
 	customAPIURL := c.GetHeader("X-Custom-API-URL")
 
+	fmt.Printf("[DEBUG] GetBalance - Received API Key: %s, Secret Key: %s, Custom API URL: %s\n",
+		maskString(apiKey), maskString(secretKey), customAPIURL)
+
 	if apiKey == "" || secretKey == "" {
+		fmt.Printf("[DEBUG] GetBalance - Missing API Key or Secret Key\n")
 		c.JSON(http.StatusBadRequest, gin.H{"error": "API Key和Secret Key是必需的"})
 		return
 	}
 
+	fmt.Printf("[DEBUG] GetBalance - Creating client with API Key: %s, Custom API URL: %s\n",
+		maskString(apiKey), customAPIURL)
+
 	client := s.createClient(apiKey, secretKey, customAPIURL)
+
+	fmt.Printf("[DEBUG] GetBalance - Client created, attempting to call Binance API...\n")
 
 	// 调用币安API获取账户信息
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
@@ -41,8 +58,26 @@ func (s *BinanceProxyService) GetBalance(c *gin.Context) {
 	cancel()
 
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("获取账户信息失败: %v", err)})
+		// 即使发生错误，也要返回标准的数据格式
+		errorResponse := gin.H{
+			"data":  nil,
+			"error": fmt.Sprintf("获取账户信息失败: %v", err),
+		}
+		c.JSON(http.StatusInternalServerError, errorResponse)
 		return
+	}
+
+	// 添加调试日志，输出从币安API获取的原始数据
+	fmt.Printf("[DEBUG] GetAccountInfo - Raw API Response - TotalWalletBalance: %s, AvailableBalance: %s, TotalUnrealizedProfit: %s\n",
+		account.TotalWalletBalance, account.AvailableBalance, account.TotalUnrealizedProfit)
+
+	// 检查账户资产信息
+	fmt.Printf("[DEBUG] GetAccountInfo - Account Assets Count: %d\n", len(account.Assets))
+	for i, asset := range account.Assets {
+		if i < 5 { // 只打印前5个资产，避免日志过多
+			fmt.Printf("[DEBUG] GetAccountInfo - Asset[%d]: %s, WalletBalance: %s, UnrealizedProfit: %s\n",
+				i, asset.Asset, asset.WalletBalance, asset.UnrealizedProfit)
+		}
 	}
 
 	// 构造返回结果
@@ -51,7 +86,15 @@ func (s *BinanceProxyService) GetBalance(c *gin.Context) {
 	result["availableBalance"], _ = strconv.ParseFloat(account.AvailableBalance, 64)
 	result["totalUnrealizedProfit"], _ = strconv.ParseFloat(account.TotalUnrealizedProfit, 64)
 
-	c.JSON(http.StatusOK, result)
+	// 添加调试日志，输出转换后的数据
+	fmt.Printf("[DEBUG] GetAccountInfo - Converted Result - TotalWalletBalance: %.2f, AvailableBalance: %.2f, TotalUnrealizedProfit: %.2f\n",
+		result["totalWalletBalance"], result["availableBalance"], result["totalUnrealizedProfit"])
+
+	// 按照后端服务期望的格式返回数据
+	response := gin.H{
+		"data": result,
+	}
+	c.JSON(http.StatusOK, response)
 }
 
 // GetPositions 获取持仓信息
@@ -60,7 +103,11 @@ func (s *BinanceProxyService) GetPositions(c *gin.Context) {
 	secretKey := c.GetHeader("X-Secret-Key")
 	customAPIURL := c.GetHeader("X-Custom-API-URL")
 
+	fmt.Printf("[DEBUG] GetPositions - Received API Key: %s, Secret Key: %s, Custom API URL: %s\n",
+		maskString(apiKey), maskString(secretKey), customAPIURL)
+
 	if apiKey == "" || secretKey == "" {
+		fmt.Printf("[DEBUG] GetPositions - Missing API Key or Secret Key\n")
 		c.JSON(http.StatusBadRequest, gin.H{"error": "API Key和Secret Key是必需的"})
 		return
 	}
@@ -73,8 +120,22 @@ func (s *BinanceProxyService) GetPositions(c *gin.Context) {
 	cancel()
 
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("获取持仓信息失败: %v", err)})
+		// 即使发生错误，也要返回标准的数据格式
+		errorResponse := gin.H{
+			"data":  nil, // 或者可以返回空数组 []
+			"error": fmt.Sprintf("获取持仓信息失败: %v", err),
+		}
+		c.JSON(http.StatusInternalServerError, errorResponse)
 		return
+	}
+
+	// 添加调试日志，输出从币安API获取的原始持仓数据
+	fmt.Printf("[DEBUG] GetPositions - Raw API Response - Positions Count: %d\n", len(positions))
+	for i, pos := range positions {
+		if i < 5 { // 只打印前5个持仓，避免日志过多
+			fmt.Printf("[DEBUG] GetPositions - Position[%d]: Symbol: %s, PositionAmt: %s, EntryPrice: %s, MarkPrice: %s, UnrealizedProfit: %s\n",
+				i, pos.Symbol, pos.PositionAmt, pos.EntryPrice, pos.MarkPrice, pos.UnRealizedProfit)
+		}
 	}
 
 	var result []map[string]interface{}
@@ -103,7 +164,20 @@ func (s *BinanceProxyService) GetPositions(c *gin.Context) {
 		result = append(result, posMap)
 	}
 
-	c.JSON(http.StatusOK, result)
+	// 添加调试日志，输出处理后的持仓数据
+	fmt.Printf("[DEBUG] GetPositions - Processed Result - Positions Count: %d\n", len(result))
+	for i, pos := range result {
+		if i < 5 { // 只打印前5个处理后的持仓
+			fmt.Printf("[DEBUG] GetPositions - Processed Position[%d]: Symbol: %s, PositionAmt: %.4f, EntryPrice: %.4f, MarkPrice: %.4f, UnrealizedProfit: %.4f\n",
+				i, pos["symbol"], pos["positionAmt"], pos["entryPrice"], pos["markPrice"], pos["unRealizedProfit"])
+		}
+	}
+
+	// 按照后端服务期望的格式返回数据
+	response := gin.H{
+		"data": result,
+	}
+	c.JSON(http.StatusOK, response)
 }
 
 // GetKlines 获取K线数据
@@ -119,7 +193,11 @@ func (s *BinanceProxyService) PlaceOrder(c *gin.Context) {
 	secretKey := c.GetHeader("X-Secret-Key")
 	customAPIURL := c.GetHeader("X-Custom-API-URL")
 
+	fmt.Printf("[DEBUG] PlaceOrder - Received API Key: %s, Secret Key: %s, Custom API URL: %s\n",
+		maskString(apiKey), maskString(secretKey), customAPIURL)
+
 	if apiKey == "" || secretKey == "" {
+		fmt.Printf("[DEBUG] PlaceOrder - Missing API Key or Secret Key\n")
 		c.JSON(http.StatusBadRequest, gin.H{"error": "API Key和Secret Key是必需的"})
 		return
 	}
@@ -177,7 +255,11 @@ func (s *BinanceProxyService) CancelOrder(c *gin.Context) {
 	secretKey := c.GetHeader("X-Secret-Key")
 	customAPIURL := c.GetHeader("X-Custom-API-URL")
 
+	fmt.Printf("[DEBUG] CancelOrder - Received API Key: %s, Secret Key: %s, Custom API URL: %s\n",
+		maskString(apiKey), maskString(secretKey), customAPIURL)
+
 	if apiKey == "" || secretKey == "" {
+		fmt.Printf("[DEBUG] CancelOrder - Missing API Key or Secret Key\n")
 		c.JSON(http.StatusBadRequest, gin.H{"error": "API Key和Secret Key是必需的"})
 		return
 	}
@@ -224,7 +306,11 @@ func (s *BinanceProxyService) GetOrders(c *gin.Context) {
 	secretKey := c.GetHeader("X-Secret-Key")
 	customAPIURL := c.GetHeader("X-Custom-API-URL")
 
+	fmt.Printf("[DEBUG] GetOrders - Received API Key: %s, Secret Key: %s, Custom API URL: %s\n",
+		maskString(apiKey), maskString(secretKey), customAPIURL)
+
 	if apiKey == "" || secretKey == "" {
+		fmt.Printf("[DEBUG] GetOrders - Missing API Key or Secret Key\n")
 		c.JSON(http.StatusBadRequest, gin.H{"error": "API Key和Secret Key是必需的"})
 		return
 	}
@@ -257,7 +343,11 @@ func (s *BinanceProxyService) GetAccountInfo(c *gin.Context) {
 	secretKey := c.GetHeader("X-Secret-Key")
 	customAPIURL := c.GetHeader("X-Custom-API-URL")
 
+	fmt.Printf("[DEBUG] GetAccountInfo - Received API Key: %s, Secret Key: %s, Custom API URL: %s\n",
+		maskString(apiKey), maskString(secretKey), customAPIURL)
+
 	if apiKey == "" || secretKey == "" {
+		fmt.Printf("[DEBUG] GetAccountInfo - Missing API Key or Secret Key\n")
 		c.JSON(http.StatusBadRequest, gin.H{"error": "API Key和Secret Key是必需的"})
 		return
 	}
@@ -269,11 +359,20 @@ func (s *BinanceProxyService) GetAccountInfo(c *gin.Context) {
 	cancel()
 
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("获取账户信息失败: %v", err)})
+		// 即使发生错误，也要返回标准的数据格式
+		errorResponse := gin.H{
+			"data":  nil,
+			"error": fmt.Sprintf("获取账户信息失败: %v", err),
+		}
+		c.JSON(http.StatusInternalServerError, errorResponse)
 		return
 	}
 
-	c.JSON(http.StatusOK, account)
+	// 按照后端服务期望的格式返回数据
+	response := gin.H{
+		"data": account,
+	}
+	c.JSON(http.StatusOK, response)
 }
 
 // GetTrades 获取交易历史
@@ -282,7 +381,11 @@ func (s *BinanceProxyService) GetTrades(c *gin.Context) {
 	secretKey := c.GetHeader("X-Secret-Key")
 	customAPIURL := c.GetHeader("X-Custom-API-URL")
 
+	fmt.Printf("[DEBUG] GetTrades - Received API Key: %s, Secret Key: %s, Custom API URL: %s\n",
+		maskString(apiKey), maskString(secretKey), customAPIURL)
+
 	if apiKey == "" || secretKey == "" {
+		fmt.Printf("[DEBUG] GetTrades - Missing API Key or Secret Key\n")
 		c.JSON(http.StatusBadRequest, gin.H{"error": "API Key和Secret Key是必需的"})
 		return
 	}
@@ -322,12 +425,31 @@ func (s *BinanceProxyService) createClient(apiKey, secretKey, customAPIURL strin
 		client = futures.NewClient(apiKey, secretKey)
 	}
 
-	// 增加HTTP客户端超时时间以应对网络不稳定
-	if client.HTTPClient == nil {
-		client.HTTPClient = &http.Client{Timeout: 30 * time.Second}
-	} else {
-		client.HTTPClient.Timeout = 30 * time.Second
+	// 设置较长的超时时间
+	httpClient := &http.Client{
+		Timeout: 30 * time.Second,
 	}
+	client.HTTPClient = httpClient
+
+	// 同步币安服务器时间以避免时间戳错误
+	s.syncBinanceServerTime(client)
 
 	return client
+}
+
+// syncBinanceServerTime 同步币安服务器时间以确保请求时间戳有效
+func (s *BinanceProxyService) syncBinanceServerTime(client *futures.Client) {
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+
+	serverTime, err := client.NewServerTimeService().Do(ctx)
+	if err != nil {
+		fmt.Printf("⚠️ Failed to sync Binance server time: %v\n", err)
+		return
+	}
+
+	now := time.Now().UnixMilli()
+	offset := now - serverTime
+	client.TimeOffset = offset
+	fmt.Printf("⏱ Binance server time synced, offset %dms\n", offset)
 }

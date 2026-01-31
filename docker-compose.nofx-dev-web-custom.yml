@@ -1,0 +1,64 @@
+version: '3.8'
+
+services:
+  backend-display:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.backend.dev.chrome.fixed
+    container_name: nofx-dev-backend-display
+    ports:
+      - "8080:8888"
+    environment:
+      - CHROME_HEADLESS=false  # 启用浏览器显示
+      - CHROME_BIN=/usr/bin/chromium-browser
+      - PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
+    volumes:
+      - ./api:/app/api
+      - ./auth:/app/auth
+      - ./backtest:/app/backtest
+      - ./config:/app/config
+      - ./crypto:/app/crypto
+      - ./debate:/app/debate
+      - ./decision:/app/decision
+      - ./hook:/app/hook
+      - ./kernel:/app/kernel
+      - ./launcher:/app/launcher
+      - ./llm:/app/llm
+      - ./logger:/app/logger
+      - ./manager:/app/manager
+      - ./market:/app/market
+      - ./mcp:/app/mcp
+      - ./provider:/app/provider
+      - ./scripts:/app/scripts
+      - ./security:/app/security
+      - ./setup:/app/setup
+      - ./store:/app/store
+      - ./trader:/app/trader
+      - ./web:/app/web
+      - ./go.mod:/app/go.mod
+      - ./go.sum:/app/go.sum
+      - ./main.go:/app/main.go
+      - ./data:/app/data  # 数据库目录
+    networks:
+      - display-net
+    working_dir: /app
+
+  frontend-display:
+    # 使用现有的前端镜像
+    image: setup-nofx-dev-frontend
+    container_name: nofx-dev-frontend-display
+    ports:
+      - "3000:5173"
+    volumes:
+      - ./web:/app
+      - /app/node_modules
+    environment:
+      - NODE_ENV=development
+      - VITE_API_TARGET=http://host.docker.internal:8080  # 指向带显示功能的后端
+    networks:
+      - display-net
+    restart: unless-stopped
+
+networks:
+  display-net:
+    driver: bridge

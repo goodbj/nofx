@@ -7,9 +7,9 @@ services:
       dockerfile: Dockerfile
     container_name: binance-proxy
     ports:
-      - "8081:8080"
+      - "8081:8082"
     environment:
-      - PORT=8080
+      - PORT=8082
       - GIN_MODE=release
       - DEBUG=false
     networks:

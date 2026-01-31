@@ -6,18 +6,31 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"nofx/market"
-	"nofx/trader"
 	"os"
 	"time"
 )
+
+// Kline 表示K线数据结构
+type Kline struct {
+	OpenTime                 int64   `json:"openTime"`
+	Open                     float64 `json:"open"`
+	High                     float64 `json:"high"`
+	Low                      float64 `json:"low"`
+	Close                    float64 `json:"close"`
+	Volume                   float64 `json:"volume"`
+	CloseTime                int64   `json:"closeTime"`
+	QuoteAssetVolume         float64 `json:"quoteAssetVolume"`
+	NumberOfTrades           int64   `json:"numberOfTrades"`
+	TakerBuyBaseAssetVolume  float64 `json:"takerBuyBaseAssetVolume"`
+	TakerBuyQuoteAssetVolume float64 `json:"takerBuyQuoteAssetVolume"`
+}
 
 // DataProvider 数据提供者接口定义，用于实现低耦合设计
 // 币安代理服务插件，专门负责绕过币安监管，从主程序获取连接参数，专门负责获取数据、发送数据和执行命令
 type DataProvider interface {
 	GetBalance(apiKey, secretKey, customAPIURL string) (map[string]interface{}, error)
 	GetPositions(apiKey, secretKey, customAPIURL string) ([]map[string]interface{}, error)
-	GetKlines(symbol, interval string, limit int, apiKey, secretKey, customAPIURL string) ([]market.Kline, error)
+	GetKlines(symbol, interval string, limit int, apiKey, secretKey, customAPIURL string) ([]Kline, error)
 	GetAccountInfo(apiKey, secretKey, customAPIURL string) (interface{}, error)
 	GetTrades(symbol, apiKey, secretKey, customAPIURL string) (interface{}, error)
 }
@@ -33,54 +46,31 @@ func NewDirectDataProvider() *DirectDataProvider {
 
 // GetBalance 通过直接API调用获取余额
 func (d *DirectDataProvider) GetBalance(apiKey, secretKey, customAPIURL string) (map[string]interface{}, error) {
-	// 使用现有的Binance期货交易者实现
-	binanceTrader := trader.NewFuturesTrader(apiKey, secretKey, "", customAPIURL)
-	return binanceTrader.GetBalance()
+	// 直接模式下，暂时返回错误，因为需要完整实现
+	return nil, fmt.Errorf("direct模式需要完整实现")
 }
 
 // GetPositions 通过直接API调用获取持仓
 func (d *DirectDataProvider) GetPositions(apiKey, secretKey, customAPIURL string) ([]map[string]interface{}, error) {
-	// 使用现有的Binance期货交易者实现
-	binanceTrader := trader.NewFuturesTrader(apiKey, secretKey, "", customAPIURL)
-	return binanceTrader.GetPositions()
+	// 直接模式下，暂时返回错误，因为需要完整实现
+	return nil, fmt.Errorf("direct模式需要完整实现")
 }
 
 // GetKlines 通过直接API调用获取K线数据
-func (d *DirectDataProvider) GetKlines(symbol, interval string, limit int, apiKey, secretKey, customAPIURL string) ([]market.Kline, error) {
-	// 由于现有实现中没有直接的K线获取方法，这里返回错误
-	// 实际项目中可以从CoinAnk API或其他数据源获取
+func (d *DirectDataProvider) GetKlines(symbol, interval string, limit int, apiKey, secretKey, customAPIURL string) ([]Kline, error) {
+	// 直接模式下，暂时返回错误，因为需要完整实现
 	return nil, fmt.Errorf("direct K线数据获取功能暂未实现")
 }
 
 // GetAccountInfo 通过直接API调用获取账户信息
 func (d *DirectDataProvider) GetAccountInfo(apiKey, secretKey, customAPIURL string) (interface{}, error) {
-	// 使用现有的Binance期货交易者实现
-	binanceTrader := trader.NewFuturesTrader(apiKey, secretKey, "", customAPIURL)
-
-	// 获取账户信息
-	balance, err := binanceTrader.GetBalance()
-	if err != nil {
-		return nil, err
-	}
-
-	positions, err := binanceTrader.GetPositions()
-	if err != nil {
-		return nil, err
-	}
-
-	accountInfo := map[string]interface{}{
-		"balance":   balance,
-		"positions": positions,
-		"timestamp": time.Now().Unix(),
-	}
-
-	return accountInfo, nil
+	// 直接模式下，暂时返回错误，因为需要完整实现
+	return nil, fmt.Errorf("direct模式需要完整实现")
 }
 
 // GetTrades 通过直接API调用获取交易历史
 func (d *DirectDataProvider) GetTrades(symbol, apiKey, secretKey, customAPIURL string) (interface{}, error) {
-	// 这里需要实现具体的交易历史获取逻辑
-	// 由于现有代码中没有直接方法，暂时返回错误
+	// 直接模式下，暂时返回错误，因为需要完整实现
 	return nil, fmt.Errorf("direct 交易历史获取功能暂未实现")
 }
 
@@ -114,12 +104,18 @@ func (p *ProxyDataProvider) GetPositions(apiKey, secretKey, customAPIURL string)
 	// 将响应转换为[]map[string]interface{}
 	positionsData, ok := response["data"]
 	if !ok {
-		return nil, fmt.Errorf("response does not contain 'data' field")
+		return nil, fmt.Errorf("response does not contain 'data' field, response: %+v", response)
 	}
 
 	positions, ok := positionsData.([]interface{})
 	if !ok {
-		return nil, fmt.Errorf("positions data is not an array")
+		// 添加调试信息，输出实际的数据类型
+		return nil, fmt.Errorf("positions data is not an array, actual type: %T, value: %+v", positionsData, positionsData)
+	}
+
+	// 检查是否有错误信息
+	if errorMsg, exists := response["error"]; exists {
+		return nil, fmt.Errorf("binance proxy error: %v", errorMsg)
 	}
 
 	var result []map[string]interface{}
@@ -133,7 +129,7 @@ func (p *ProxyDataProvider) GetPositions(apiKey, secretKey, customAPIURL string)
 }
 
 // GetKlines 通过代理服务获取K线数据
-func (p *ProxyDataProvider) GetKlines(symbol, interval string, limit int, apiKey, secretKey, customAPIURL string) ([]market.Kline, error) {
+func (p *ProxyDataProvider) GetKlines(symbol, interval string, limit int, apiKey, secretKey, customAPIURL string) ([]Kline, error) {
 	url := fmt.Sprintf("%s/api/proxy/klines?symbol=%s&interval=%s&limit=%d", p.ProxyURL, symbol, interval, limit)
 
 	response, err := p.makeRequest(url, map[string]string{}, apiKey, secretKey, customAPIURL)
@@ -141,21 +137,22 @@ func (p *ProxyDataProvider) GetKlines(symbol, interval string, limit int, apiKey
 		return nil, err
 	}
 
-	// 将响应转换为market.Kline数组
+	// 将响应转换为Kline数组
 	klinesData, ok := response["data"]
 	if !ok {
-		return nil, fmt.Errorf("response does not contain 'data' field")
+		return nil, fmt.Errorf("response does not contain 'data' field, response: %+v", response)
 	}
 
 	klines, ok := klinesData.([]interface{})
 	if !ok {
-		return nil, fmt.Errorf("klines data is not an array")
+		// 添加调试信息，输出实际的数据类型
+		return nil, fmt.Errorf("klines data is not an array, actual type: %T, value: %+v", klinesData, klinesData)
 	}
 
-	var result []market.Kline
+	var result []Kline
 	for _, k := range klines {
 		if kMap, ok := k.(map[string]interface{}); ok {
-			kline := market.Kline{
+			kline := Kline{
 				OpenTime:  int64(kMap["openTime"].(float64)),
 				Open:      kMap["open"].(float64),
 				High:      kMap["high"].(float64),
