@@ -1,10 +1,5 @@
 import React, { useState } from 'react';
-import Card from 'antd/lib/card';
-import Button from 'antd/lib/button';
-import Space from 'antd/lib/space';
-import Typography from 'antd/lib/typography';
-import message from 'antd/lib/message';
-import TextArea from 'antd/lib/input/TextArea';
+import { Card, Button, Space, Typography, message, Input } from 'antd';
 
 const { Title, Text, Paragraph } = Typography;
 
@@ -41,8 +36,6 @@ const GuardianTestPage: React.FC = () => {
       // 如果返回了AI内容，也更新AI内容状态
       if (data.result) {
         setAiContent(data.result);
-      } else if (data.analysis) {
-        setAiContent(data.analysis);
       }
       
       message.success('Guardian测试已启动，请查看浏览器弹窗');
@@ -78,13 +71,6 @@ const GuardianTestPage: React.FC = () => {
 
       const data = await response.json();
       setTestResult(JSON.stringify(data, null, 2));
-      
-      // 如果返回了AI分析内容，也更新AI内容状态
-      if (data.analysis) {
-        setAiContent(data.analysis);
-      } else if (data.result) {
-        setAiContent(data.result);
-      }
       
       message.success('AI分析测试完成');
     } catch (error: any) {
@@ -160,14 +146,11 @@ const GuardianTestPage: React.FC = () => {
           </div>
           
           <Text strong>自定义提示词：</Text>
-          <TextArea
-            rows={12}
+          <Input.TextArea
+            rows={4}
             placeholder="输入自定义提示词..."
             value={predefinedPrompt}
             onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setPredefinedPrompt(e.target.value)}
-            style={{ minHeight: 180, maxHeight: 500 }}
-            maxLength={200000}
-            showCount
           />
         </Space>
       </Card>
@@ -230,23 +213,6 @@ const GuardianTestPage: React.FC = () => {
           </div>
         </Card>
       )}
-
-      <Card title="AI内容展示区" style={{ marginTop: '24px' }}>
-        <TextArea
-          rows={20}
-          value={aiContent}
-          readOnly
-          placeholder="AI输出内容将显示在这里..."
-          style={{ 
-            fontFamily: 'monospace',
-            fontSize: '14px',
-            backgroundColor: '#f9f9f9',
-            minHeight: 300,
-            maxHeight: 600 
-          }}
-          showCount
-        />
-      </Card>
 
       <Card title="使用说明" style={{ marginTop: '24px' }}>
         <Paragraph>
