@@ -10,6 +10,7 @@ import (
 	"nofx/market"
 	"nofx/mcp"
 	"nofx/store"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -154,6 +155,7 @@ type AutoTrader struct {
 	lastManualScanTime    time.Time              // 🔥 新增：上次手动扫描时间（用于延迟系统扫描）
 	nextSystemScanTime    time.Time              // 🔥 新增：下次系统扫描时间
 	scanDelayDuration     time.Duration          // 🔥 新增：手动扫描后延迟系统扫描的时长
+
 }
 
 // calculateScanDelay 智能计算手动扫描后的延迟时长
@@ -257,6 +259,15 @@ func NewAutoTrader(config AutoTraderConfig, st *store.Store, userID string) (*Au
 		mcpClient.SetAPIKey(apiKey, config.CustomAPIURL, config.CustomModelName)
 		logger.Infof("🤖 [%s] Using Ollama AI: %s (model: %s)", config.Name, config.CustomAPIURL, config.CustomModelName)
 
+	case "guardian":
+		mcpClient = mcp.NewGuardianClient()
+		if config.CustomAPIURL != "" {
+			if guardianClient, ok := mcpClient.(*mcp.GuardianClient); ok {
+				guardianClient.SetDynamicConfig(config.CustomAPIURL)
+			}
+		}
+		logger.Infof("🤖 [%s] Using Guardian AI", config.Name)
+
 	default: // deepseek or empty
 		mcpClient = mcp.NewDeepSeekClient()
 		apiKey := config.DeepSeekKey
@@ -290,7 +301,42 @@ func NewAutoTrader(config AutoTraderConfig, st *store.Store, userID string) (*Au
 	switch config.Exchange {
 	case "binance":
 		logger.Infof("🏦 [%s] Using Binance Futures trading", config.Name)
-		trader = NewFuturesTrader(config.BinanceAPIKey, config.BinanceSecretKey, userID, getBinanceCustomEndpointForAutoTrader(&config))
+		// 检查全局代理开关
+		useProxyGlobal := os.Getenv("USE_BINANCE_PROXY") == "true"
+
+		// 根据全局设置决定使用哪种端点
+		var endpoint string
+		var targetEndpoint string
+		if useProxyGlobal {
+			// 对于代理模式，我们需要连接到代理服务，但告诉代理真正的目标URL
+			proxyURL := os.Getenv("BINANCE_PROXY_URL")
+			if proxyURL == "" {
+				proxyURL = "http://localhost:8082" // 默认代理URL
+			}
+			endpoint = proxyURL
+			// 真正的目标端点应该是自定义API URL或默认的交易所URL
+			targetEndpoint = getBinanceCustomEndpointForAutoTrader(&config)
+			if targetEndpoint == "" {
+				if config.ExchangeTestnet {
+					targetEndpoint = "https://testnet.binancefuture.com"
+				} else {
+					targetEndpoint = "https://fapi.binance.com"
+				}
+			}
+		} else {
+			endpoint = getBinanceCustomEndpointForAutoTrader(&config)
+			targetEndpoint = endpoint
+		}
+
+		// 创建交易者实例（使用适当的端点）
+		originalTrader := NewFuturesTrader(config.BinanceAPIKey, config.BinanceSecretKey, userID, endpoint)
+
+		// 创建代理包装器（始终创建，但根据端点决定行为）
+		if useProxyGlobal {
+			trader = NewProxyTraderWrapperWithAuth(originalTrader, "proxy", os.Getenv("BINANCE_PROXY_URL"), config.BinanceAPIKey, config.BinanceSecretKey, targetEndpoint)
+		} else {
+			trader = NewProxyTraderWrapperWithAuth(originalTrader, "native", "", config.BinanceAPIKey, config.BinanceSecretKey, targetEndpoint)
+		}
 	case "bybit":
 		logger.Infof("🏦 [%s] Using Bybit Futures trading", config.Name)
 		trader = NewBybitTrader(config.BybitAPIKey, config.BybitSecretKey)

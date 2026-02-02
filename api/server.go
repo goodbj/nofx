@@ -10,7 +10,6 @@ import (
 	"nofx/backtest"
 	"nofx/config"
 	"nofx/crypto"
-	"nofx/dataprovider"
 	"nofx/kernel"
 	"nofx/logger"
 	"nofx/manager"
@@ -45,15 +44,6 @@ type Server struct {
 	httpServer      *http.Server
 	port            int
 	logger          *logrus.Logger
-	dataProvider    dataprovider.DataProvider
-}
-
-// min returns the minimum of two integers
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
 }
 
 // NewServer Creates API server
@@ -80,9 +70,6 @@ func NewServer(traderManager *manager.TraderManager, st *store.Store, cryptoServ
 	debateHandler := NewDebateHandler(debateStore, st.Strategy(), st.AIModel())
 	debateHandler.SetTraderManager(traderManager)
 
-	// 从环境变量获取数据提供者
-	dataProvider := dataprovider.GetDataProviderFromEnv()
-
 	s := &Server{
 		router:          router,
 		traderManager:   traderManager,
@@ -92,7 +79,6 @@ func NewServer(traderManager *manager.TraderManager, st *store.Store, cryptoServ
 		debateHandler:   debateHandler,
 		port:            port,
 		logger:          logger.Log,
-		dataProvider:    dataProvider,
 	}
 
 	// Setup routes
@@ -221,10 +207,6 @@ func (s *Server) setupRoutes() {
 			protected.POST("/traders/:id/execute-decision", s.handleExecuteDecision)
 			protected.POST("/traders/:id/execute-multiple-decisions", s.handleExecuteMultipleDecisions)
 			protected.POST("/guardian/execute", s.handleGuardianExecuteDecision)
-
-			// Binance proxy endpoints
-			protected.POST("/binance/balance", s.handleGetBinanceBalance)
-			protected.POST("/binance/positions", s.handleGetBinancePositions)
 
 			protected.PUT("/traders/:id/prompt", s.handleUpdateTraderPrompt)
 			protected.POST("/traders/:id/sync-balance", s.handleSyncBalance)
@@ -677,13 +659,7 @@ func (s *Server) handleCreateTrader(c *gin.Context) {
 		// Convert EncryptedString fields to string
 		switch exchangeCfg.ExchangeType {
 		case "binance":
-			customEndpoint := ""
-			if exchangeCfg.CustomAPIURL != "" {
-				customEndpoint = exchangeCfg.CustomAPIURL
-			} else if exchangeCfg.Testnet {
-				customEndpoint = "https://testnet.binancefuture.com"
-			}
-			tempTrader = trader.NewFuturesTrader(string(exchangeCfg.APIKey), string(exchangeCfg.SecretKey), userID, customEndpoint)
+			tempTrader = createBinanceTraderWithProxy(userID, exchangeCfg)
 		case "hyperliquid":
 			tempTrader, createErr = trader.NewHyperliquidTrader(
 				string(exchangeCfg.APIKey), // private key
@@ -1151,52 +1127,6 @@ func (s *Server) handleGetTraderStatus(c *gin.Context) {
 	c.JSON(http.StatusOK, status)
 }
 
-// handleGetBinanceBalance 通过代理获取币安账户余额
-func (s *Server) handleGetBinanceBalance(c *gin.Context) {
-	var req struct {
-		ApiKey       string `json:"api_key"`
-		SecretKey    string `json:"secret_key"`
-		CustomAPIURL string `json:"custom_api_url"`
-	}
-
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request format"})
-		return
-	}
-
-	balance, err := s.dataProvider.GetBalance(req.ApiKey, req.SecretKey, req.CustomAPIURL)
-	if err != nil {
-		s.logger.Errorf("Failed to get binance balance: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-
-	c.JSON(http.StatusOK, balance)
-}
-
-// handleGetBinancePositions 通过代理获取币安持仓信息
-func (s *Server) handleGetBinancePositions(c *gin.Context) {
-	var req struct {
-		ApiKey       string `json:"api_key"`
-		SecretKey    string `json:"secret_key"`
-		CustomAPIURL string `json:"custom_api_url"`
-	}
-
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request format"})
-		return
-	}
-
-	positions, err := s.dataProvider.GetPositions(req.ApiKey, req.SecretKey, req.CustomAPIURL)
-	if err != nil {
-		s.logger.Errorf("Failed to get binance positions: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-
-	c.JSON(http.StatusOK, positions)
-}
-
 // handleExecuteDecision Manually trigger trader to execute decision immediately
 func (s *Server) handleExecuteDecision(c *gin.Context) {
 	userID := c.GetString("user_id")
@@ -1522,13 +1452,7 @@ func (s *Server) handleSyncBalance(c *gin.Context) {
 	// Convert EncryptedString fields to string
 	switch exchangeCfg.ExchangeType {
 	case "binance":
-		customEndpoint := ""
-		if exchangeCfg.CustomAPIURL != "" {
-			customEndpoint = exchangeCfg.CustomAPIURL
-		} else if exchangeCfg.Testnet {
-			customEndpoint = "https://testnet.binancefuture.com"
-		}
-		tempTrader = trader.NewFuturesTrader(string(exchangeCfg.APIKey), string(exchangeCfg.SecretKey), userID, customEndpoint)
+		tempTrader = createBinanceTraderWithProxy(userID, exchangeCfg)
 	case "hyperliquid":
 		tempTrader, createErr = trader.NewHyperliquidTrader(
 			string(exchangeCfg.APIKey),
@@ -1680,13 +1604,7 @@ func (s *Server) handleClosePosition(c *gin.Context) {
 	// Convert EncryptedString fields to string
 	switch exchangeCfg.ExchangeType {
 	case "binance":
-		customEndpoint := ""
-		if exchangeCfg.CustomAPIURL != "" {
-			customEndpoint = exchangeCfg.CustomAPIURL
-		} else if exchangeCfg.Testnet {
-			customEndpoint = "https://testnet.binancefuture.com"
-		}
-		tempTrader = trader.NewFuturesTrader(string(exchangeCfg.APIKey), string(exchangeCfg.SecretKey), userID, customEndpoint)
+		tempTrader = createBinanceTraderWithProxy(userID, exchangeCfg)
 	case "hyperliquid":
 		tempTrader, createErr = trader.NewHyperliquidTrader(
 			string(exchangeCfg.APIKey),
@@ -2130,7 +2048,7 @@ func (s *Server) handleUpdateModelConfigs(c *gin.Context) {
 		// Don't return error here since model config was successfully updated to database
 	}
 
-	logger.Infof("??AI model config updated: %+v", req.Models)
+	logger.Infof("??AI model config updated: %d models for user %s", len(req.Models), userID)
 	c.JSON(http.StatusOK, gin.H{"message": "Model configuration updated"})
 }
 
@@ -2300,7 +2218,7 @@ func (s *Server) handleUpdateExchangeConfigs(c *gin.Context) {
 		// Don't return error here since exchange config was successfully updated to database
 	}
 
-	logger.Infof("??Exchange config updated: %+v", req.Exchanges)
+	logger.Infof("??Exchange config updated: %d exchanges for user %s", len(req.Exchanges), userID)
 	c.JSON(http.StatusOK, gin.H{"message": "Exchange configuration updated"})
 }
 
@@ -2568,59 +2486,6 @@ func (s *Server) handleAccount(c *gin.Context) {
 		return
 	}
 
-	// 获取用户ID
-	userID := c.GetString("user_id")
-
-	// 获取交易者的完整配置信息
-	traderConfig, err := s.store.Trader().GetFullConfig(userID, traderID)
-	if err != nil {
-		SafeNotFound(c, "Trader config")
-		return
-	}
-
-	// 从交易者配置中获取交换机配置
-	exchangeConfig := traderConfig.Exchange
-	if exchangeConfig == nil {
-		SafeInternalError(c, "Get account info", fmt.Errorf("exchange config not found"))
-		return
-	}
-
-	// 根据交易所类型提取API凭据
-	// 注意：traderConfig.Exchange中的APIKey和SecretKey是crypto.EncryptedString类型，应该已经自动解密
-	var apiKey, secretKey, customAPIURL string
-	switch exchangeConfig.ExchangeType {
-	case "binance":
-		// 直接从原始Exchange对象获取，确保加密字符串被正确处理
-		apiKey = string(traderConfig.Exchange.APIKey)
-		secretKey = string(traderConfig.Exchange.SecretKey)
-		customAPIURL = traderConfig.Exchange.CustomAPIURL
-
-		// 添加调试日志，检查API密钥是否被正确解密
-		fmt.Printf("[DEBUG] handleAccount - Raw API Key: %s, Length: %d\n", apiKey, len(apiKey))
-		fmt.Printf("[DEBUG] handleAccount - Raw Secret Key: %s, Length: %d\n", secretKey, len(secretKey))
-
-		// 检查是否是加密格式
-		if strings.HasPrefix(apiKey, "ENC:") {
-			fmt.Printf("[WARN] handleAccount - API Key appears to be encrypted! Prefix: %s\n", apiKey[:min(len(apiKey), 10)])
-		}
-		if strings.HasPrefix(secretKey, "ENC:") {
-			fmt.Printf("[WARN] handleAccount - Secret Key appears to be encrypted! Prefix: %s\n", secretKey[:min(len(secretKey), 10)])
-		}
-	}
-
-	// 如果API凭据有效，则使用dataProvider获取账户信息
-	if apiKey != "" && secretKey != "" {
-		account, err := s.dataProvider.GetAccountInfo(apiKey, secretKey, customAPIURL)
-		if err != nil {
-			s.logger.Errorf("Failed to get account info via data provider: %v", err)
-			SafeInternalError(c, "Get account info", err)
-			return
-		}
-		c.JSON(http.StatusOK, account)
-		return
-	}
-
-	// 如果无法从配置中获取API凭据，回退到原始方法
 	trader, err := s.traderManager.GetTrader(traderID)
 	if err != nil {
 		SafeNotFound(c, "Trader")
@@ -2651,59 +2516,6 @@ func (s *Server) handlePositions(c *gin.Context) {
 		return
 	}
 
-	// 获取用户ID
-	userID := c.GetString("user_id")
-
-	// 获取交易者的完整配置信息
-	traderConfig, err := s.store.Trader().GetFullConfig(userID, traderID)
-	if err != nil {
-		SafeNotFound(c, "Trader config")
-		return
-	}
-
-	// 从交易者配置中获取交换机配置
-	exchangeConfig := traderConfig.Exchange
-	if exchangeConfig == nil {
-		SafeInternalError(c, "Get positions", fmt.Errorf("exchange config not found"))
-		return
-	}
-
-	// 根据交易所类型提取API凭据
-	// 注意：traderConfig.Exchange中的APIKey和SecretKey是crypto.EncryptedString类型，应该已经自动解密
-	var apiKey, secretKey, customAPIURL string
-	switch exchangeConfig.ExchangeType {
-	case "binance":
-		// 直接从原始Exchange对象获取，确保加密字符串被正确处理
-		apiKey = string(traderConfig.Exchange.APIKey)
-		secretKey = string(traderConfig.Exchange.SecretKey)
-		customAPIURL = traderConfig.Exchange.CustomAPIURL
-
-		// 添加调试日志，检查API密钥是否被正确解密
-		fmt.Printf("[DEBUG] handlePositions - Raw API Key: %s, Length: %d\n", apiKey, len(apiKey))
-		fmt.Printf("[DEBUG] handlePositions - Raw Secret Key: %s, Length: %d\n", secretKey, len(secretKey))
-
-		// 检查是否是加密格式
-		if strings.HasPrefix(apiKey, "ENC:") {
-			fmt.Printf("[WARN] handlePositions - API Key appears to be encrypted! Prefix: %s\n", apiKey[:min(len(apiKey), 10)])
-		}
-		if strings.HasPrefix(secretKey, "ENC:") {
-			fmt.Printf("[WARN] handlePositions - Secret Key appears to be encrypted! Prefix: %s\n", secretKey[:min(len(secretKey), 10)])
-		}
-	}
-
-	// 如果API凭据有效，则使用dataProvider获取持仓信息
-	if apiKey != "" && secretKey != "" {
-		positions, err := s.dataProvider.GetPositions(apiKey, secretKey, customAPIURL)
-		if err != nil {
-			s.logger.Errorf("Failed to get positions via data provider: %v", err)
-			SafeInternalError(c, "Get positions", err)
-			return
-		}
-		c.JSON(http.StatusOK, positions)
-		return
-	}
-
-	// 如果无法从配置中获取API凭据，回退到原始方法
 	trader, err := s.traderManager.GetTrader(traderID)
 	if err != nil {
 		SafeNotFound(c, "Trader")
@@ -4486,6 +4298,50 @@ func (s *Server) handleOpenGuardianBrowser(c *gin.Context) {
 // ============================================================================
 // End of Server Implementation
 // ============================================================================
+
+// ============================================================================
+// Helper Functions
+// ============================================================================
+
+// createBinanceTraderWithProxy 创建带代理支持的币安交易者实例
+func createBinanceTraderWithProxy(userID string, exchangeCfg *store.Exchange) trader.Trader {
+	// 确定真实的交易所API URL（用于代理转发）
+	realExchangeEndpoint := ""
+	if exchangeCfg.CustomAPIURL != "" && !strings.Contains(exchangeCfg.CustomAPIURL, "://localhost:") && !strings.Contains(exchangeCfg.CustomAPIURL, "://127.0.0.1:") {
+		// 如果CustomAPIURL不包含本地地址，则使用它作为真实的交易所URL
+		realExchangeEndpoint = exchangeCfg.CustomAPIURL
+	} else if exchangeCfg.Testnet {
+		realExchangeEndpoint = "https://testnet.binancefuture.com"
+	} else {
+		realExchangeEndpoint = "https://fapi.binance.com" // 默认主网API URL
+	}
+
+	// 调试日志：记录确定的交易所端点
+	logger.Debugf("🔍 [createBinanceTraderWithProxy] UserID: %s, ExchangeType: %s, Original CustomAPIURL: '%s', Determined realExchangeEndpoint: '%s', Testnet: %t", userID, exchangeCfg.ExchangeType, exchangeCfg.CustomAPIURL, realExchangeEndpoint, exchangeCfg.Testnet)
+
+	// 使用代理包装器根据全局设置决定是否通过代理访问
+	originalTrader := trader.NewFuturesTrader(string(exchangeCfg.APIKey), string(exchangeCfg.SecretKey), userID, realExchangeEndpoint)
+
+	// 检查全局代理开关
+	useProxyGlobal := os.Getenv("USE_BINANCE_PROXY") == "true"
+
+	if useProxyGlobal {
+		proxyURL := os.Getenv("BINANCE_PROXY_URL")
+		if proxyURL == "" {
+			// 从环境变量获取代理端口，如果未设置则使用默认值
+			proxyPort := os.Getenv("BINANCE_PROXY_PORT")
+			if proxyPort == "" {
+				proxyPort = "8081" // 默认代理端口
+			}
+			proxyURL = "http://localhost:" + proxyPort // 默认代理URL
+		}
+		logger.Debugf("🔗 [createBinanceTraderWithProxy] Using proxy mode: proxyURL='%s', realExchangeEndpoint='%s'", proxyURL, realExchangeEndpoint)
+		return trader.NewProxyTraderWrapperWithAuth(originalTrader, "proxy", proxyURL, string(exchangeCfg.APIKey), string(exchangeCfg.SecretKey), realExchangeEndpoint)
+	} else {
+		logger.Debugf("🔗 [createBinanceTraderWithProxy] Using native mode: realExchangeEndpoint='%s'", realExchangeEndpoint)
+		return trader.NewProxyTraderWrapperWithAuth(originalTrader, "native", "", string(exchangeCfg.APIKey), string(exchangeCfg.SecretKey), realExchangeEndpoint)
+	}
+}
 
 // ============================================================================
 // End of Server Implementation

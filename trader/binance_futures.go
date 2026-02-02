@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log"
 	"math"
+	"net"
 	"net/http"
 	"nofx/hook"
 	"nofx/logger"
@@ -79,11 +80,113 @@ func NewFuturesTrader(apiKey, secretKey, userId, customEndpoint string) *Futures
 		client = futures.NewClient(apiKey, secretKey)
 	}
 
-	// Increase HTTP client timeout to handle network instability, especially for testnet
-	if client.HTTPClient == nil {
-		client.HTTPClient = &http.Client{Timeout: 30 * time.Second}
+	// Enhance HTTP client with robust network configuration to handle network instability, especially for testnet and restricted networks
+	// Use similar configuration as proxy service for better connectivity
+	transport := &http.Transport{
+		DialContext: (&net.Dialer{
+			Timeout:   30 * time.Second,
+			KeepAlive: 30 * time.Second,
+		}).DialContext,
+		TLSHandshakeTimeout:   30 * time.Second,
+		ResponseHeaderTimeout: 60 * time.Second,
+		ExpectContinueTimeout: 1 * time.Second,
+		MaxIdleConns:          100,
+		MaxIdleConnsPerHost:   10,
+		IdleConnTimeout:       90 * time.Second,
+	}
+
+	// 如果customEndpoint是代理URL（localhost或127.0.0.1），则添加自定义头
+	// 但如果customEndpoint是代理URL，我们需要告诉代理服务真正的目标URL是什么
+	// 注意：这里需要特殊处理，因为在代理场景中，customEndpoint是目标URL，而不是代理URL
+	// 实际的代理URL是在ProxyTraderWrapper中处理的
+	if customEndpoint != "" && (strings.Contains(customEndpoint, "localhost") || strings.Contains(customEndpoint, "127.0.0.1")) {
+		// 创建一个自定义RoundTripper来添加自定义头信息
+		customTransport := &CustomTransport{
+			Transport:      transport,
+			TargetEndpoint: customEndpoint, // 实际的目标端点
+		}
+
+		if client.HTTPClient == nil {
+			client.HTTPClient = &http.Client{
+				Transport: customTransport,
+				Timeout:   120 * time.Second, // Increased timeout
+			}
+		} else {
+			client.HTTPClient.Transport = customTransport
+			client.HTTPClient.Timeout = 120 * time.Second // Increased timeout
+		}
 	} else {
-		client.HTTPClient.Timeout = 30 * time.Second
+		// 非代理情况，使用普通的增强传输配置
+		if client.HTTPClient == nil {
+			client.HTTPClient = &http.Client{
+				Transport: transport,
+				Timeout:   120 * time.Second, // Increased timeout
+			}
+		} else {
+			client.HTTPClient.Transport = transport
+			client.HTTPClient.Timeout = 120 * time.Second // Increased timeout
+		}
+	}
+
+	hookRes := hook.HookExec[hook.NewBinanceTraderResult](hook.NEW_BINANCE_TRADER, userId, client)
+	if hookRes != nil && hookRes.GetResult() != nil {
+		client = hookRes.GetResult()
+	}
+
+	// Sync time to avoid "Timestamp ahead" error
+	syncBinanceServerTime(client)
+	trader := &FuturesTrader{
+		client:        client,
+		cacheDuration: 15 * time.Second, // 15-second cache
+	}
+
+	// Set dual-side position mode (Hedge Mode)
+	// This is required because the code uses PositionSide (LONG/SHORT)
+	if err := trader.setDualSidePosition(); err != nil {
+		logger.Infof("⚠️ Failed to set dual-side position mode: %v (ignore this warning if already in dual-side mode)", err)
+	}
+
+	return trader
+}
+
+// NewFuturesTraderViaProxy 创建通过代理的期货交易者实例
+// proxyURL: 代理服务的URL
+// targetEndpoint: 真正的目标端点
+func NewFuturesTraderViaProxy(apiKey, secretKey, userId, proxyURL, targetEndpoint string) *FuturesTrader {
+	var client *futures.Client
+	// 连接到代理URL
+	client = futures.NewClient(apiKey, secretKey)
+	client.BaseURL = proxyURL // 连接到代理
+
+	// Enhance HTTP client with robust network configuration to handle network instability, especially for testnet and restricted networks
+	// Use similar configuration as proxy service for better connectivity
+	transport := &http.Transport{
+		DialContext: (&net.Dialer{
+			Timeout:   30 * time.Second,
+			KeepAlive: 30 * time.Second,
+		}).DialContext,
+		TLSHandshakeTimeout:   30 * time.Second,
+		ResponseHeaderTimeout: 60 * time.Second,
+		ExpectContinueTimeout: 1 * time.Second,
+		MaxIdleConns:          100,
+		MaxIdleConnsPerHost:   10,
+		IdleConnTimeout:       90 * time.Second,
+	}
+
+	// 创建CustomTransport，将真正的目标端点传递给代理
+	customTransport := &CustomTransport{
+		Transport:      transport,
+		TargetEndpoint: targetEndpoint, // 真正的目标URL
+	}
+
+	if client.HTTPClient == nil {
+		client.HTTPClient = &http.Client{
+			Transport: customTransport,
+			Timeout:   120 * time.Second, // Increased timeout
+		}
+	} else {
+		client.HTTPClient.Transport = customTransport
+		client.HTTPClient.Timeout = 120 * time.Second // Increased timeout
 	}
 
 	hookRes := hook.HookExec[hook.NewBinanceTraderResult](hook.NEW_BINANCE_TRADER, userId, client)
@@ -1862,4 +1965,20 @@ func (t *FuturesTrader) GetOpenOrders(symbol string) ([]OpenOrder, error) {
 	}
 
 	return result, nil
+}
+
+// CustomTransport 自定义传输层，用于在请求头中添加目标端点信息
+type CustomTransport struct {
+	Transport      http.RoundTripper
+	TargetEndpoint string // 真正的目标端点
+}
+
+// RoundTrip 实现RoundTripper接口
+func (ct *CustomTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	// 如果我们正在使用代理，将真实的目标端点添加到请求头中
+	// 这样代理就知道应该将请求转发到哪里
+	if ct.TargetEndpoint != "" {
+		req.Header.Set("X-Custom-API-URL", ct.TargetEndpoint)
+	}
+	return ct.Transport.RoundTrip(req)
 }
