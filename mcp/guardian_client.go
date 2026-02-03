@@ -67,6 +67,36 @@ func NewGuardianClientFromConfig(config Config) *GuardianClient {
 	return client
 }
 
+// NewGuardianClientWithService creates a GuardianClient configured for a specific service
+func NewGuardianClientWithService(serviceType string) AIClient {
+	client := NewGuardianClientWithOptions(
+		WithProvider(ProviderGuardian),
+		WithModel(DefaultGuardianModel),
+	)
+
+	gc, ok := client.(*GuardianClient)
+	if !ok {
+		return client
+	}
+
+	// Configure for the specific service
+	switch strings.ToLower(serviceType) {
+	case "deepseek":
+		gc.ConfigureForDeepSeek()
+	case "chatgpt":
+		gc.ProviderConfig.Provider = "chatgpt"
+		gc.BaseURL = "https://chat.openai.com"
+		gc.Model = "chatgpt-browser"
+	case "claude":
+		gc.ProviderConfig.Provider = "claude"
+		gc.BaseURL = "https://claude.ai/chat"
+		gc.Model = "claude-browser"
+		// Add more services as needed
+	}
+
+	return gc
+}
+
 // NewGuardianClient creates Guardian client (backward compatible)
 func NewGuardianClient_() AIClient {
 	return NewGuardianClientWithOptions()
@@ -1583,17 +1613,55 @@ func (gc *GuardianClient) extractAIOutputContent(ctx context.Context) (string, e
 
 // cleanAndDecodeContent 清理和解码AI输出内容，处理HTML实体编码和其他特殊字符
 func (gc *GuardianClient) cleanAndDecodeContent(content string) string {
-	// 移除多余的空白字符
-	cleaned := strings.TrimSpace(content)
+	// 使用与cleanHTMLContent类似的方法来清理内容，但保留重要的非HTML标签
+	cleaned := content
+
+	// 保护特殊的非HTML标签：reasoning 和 decision（这些是AI输出的结构化标记）
+	reasoningRegex := regexp.MustCompile(`(?s)<reasoning>(.*?)</reasoning>`)
+	decisionRegex := regexp.MustCompile(`(?s)<decision>(.*?)</decision>`)
+
+	placeholderMap := make(map[string]string)
+
+	// 保护reasoning标签内容
+	reasoningMatches := reasoningRegex.FindAllString(content, -1)
+	protectedContent := content
+	for i, match := range reasoningMatches {
+		placeholder := fmt.Sprintf("<<REASONING_PLACEHOLDER_%d>>", i)
+		placeholderMap[placeholder] = match
+		protectedContent = strings.Replace(protectedContent, match, placeholder, 1)
+	}
+
+	// 保护decision标签内容
+	decisionMatches := decisionRegex.FindAllString(protectedContent, -1)
+	for i, match := range decisionMatches {
+		placeholder := fmt.Sprintf("<<DECISION_PLACEHOLDER_%d>>", i)
+		placeholderMap[placeholder] = match
+		protectedContent = strings.Replace(protectedContent, match, placeholder, 1)
+	}
+
+	// 对剩余内容使用类似cleanHTMLContent的方法处理
+	cleaned = protectedContent
+
+	// 移除其他HTML标签（保留标签间的内容）
+	re := regexp.MustCompile(`<[^>]*>`)
+	cleaned = re.ReplaceAllString(cleaned, " ")
+
+	// 替换多个空白字符为单个空格
+	space := regexp.MustCompile(`\s+`)
+	cleaned = space.ReplaceAllString(cleaned, " ")
 
 	// 处理常见的HTML实体编码
+	cleaned = strings.ReplaceAll(cleaned, "&nbsp;", " ")
 	cleaned = strings.ReplaceAll(cleaned, "&lt;", "<")
 	cleaned = strings.ReplaceAll(cleaned, "&gt;", ">")
 	cleaned = strings.ReplaceAll(cleaned, "&amp;", "&")
 	cleaned = strings.ReplaceAll(cleaned, "&quot;", "\"")
 	cleaned = strings.ReplaceAll(cleaned, "&#39;", "'")
-	cleaned = strings.ReplaceAll(cleaned, "&#x27;", "'")
-	cleaned = strings.ReplaceAll(cleaned, "&#x2F;", "/")
+
+	// 恢复受保护的内容
+	for placeholder, original := range placeholderMap {
+		cleaned = strings.Replace(cleaned, placeholder, original, 1)
+	}
 
 	// 移除多余的空格和换行
 	cleaned = strings.TrimSpace(cleaned)
