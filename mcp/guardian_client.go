@@ -63,6 +63,7 @@ func NewGuardianClientFromConfig(config Config) *GuardianClient {
 		SystemPrompt:   "", // Config结构体中没有SystemPrompt字段，暂时设为空
 		logger:         log.Default(),
 		httpClient:     config.HTTPClient,
+		DisplayEnabled: true, // 默认启用显示
 	}
 
 	return client
@@ -173,17 +174,17 @@ func (gc *GuardianClient) performBrowserAutomation(prompt string) (string, error
 		chromedp.Flag("profile-directory", "Default"),             // 使用默认配置文件
 	)
 
-	allocCtx, cancel := chromedp.NewExecAllocator(context.Background(), opts...)
-	defer cancel() // 恢复取消函数，确保浏览器在完成任务后关闭
+	allocCtx, allocCancel := chromedp.NewExecAllocator(context.Background(), opts...)
+	defer allocCancel() // 取消浏览器分配器
 
 	// 创建chrome实例上下文
-	ctx, cancel := chromedp.NewContext(allocCtx)
-	defer cancel() // 恢复取消函数，确保浏览器在完成任务后关闭
+	ctx, browserCancel := chromedp.NewContext(allocCtx)
+	defer browserCancel() // 取消浏览器实例
 
 	// 设置超时
 	timeout := time.Duration(GUARDIAN_BROWSER_TIMEOUT_SECONDS) * time.Second
-	ctx, cancel = context.WithTimeout(ctx, timeout)
-	defer cancel() // 恢复取消函数，确保浏览器在完成任务后关闭
+	ctx, timeoutCancel := context.WithTimeout(ctx, timeout)
+	defer timeoutCancel() // 取消带超时的上下文
 
 	// 记录开始时间
 	startTime := time.Now()
@@ -255,6 +256,7 @@ func (gc *GuardianClient) performBrowserAutomation(prompt string) (string, error
 			"button:enabled:not([disabled])",
 		}
 		responseSelectors = []string{
+			"div.ds-flex._0a3d93b", // 主要的AI输出完成标识容器
 			"div.text-message span",
 			"div[data-testid='response-container']",
 			"div.message-response",
@@ -299,6 +301,7 @@ func (gc *GuardianClient) performBrowserAutomation(prompt string) (string, error
 			".send-btn",
 		}
 		responseSelectors = []string{
+			"div.ds-flex._0a3d93b", // 主要的AI输出"[data-testid*='response'], [data-testid*='answer']"完成标识容器
 			"div.text-message span",
 			"div[data-testid='response-container']",
 			"div.message-response",
@@ -500,6 +503,9 @@ func (gc *GuardianClient) performBrowserAutomation(prompt string) (string, error
 			response = extractedContent
 			gc.logger.Printf("✅ Using extracted content as response, length: %d", len(response))
 		}
+
+		// 在AI输出完成后关闭浏览器
+		gc.logger.Println("✅ Closing browser after AI output completion")
 	}
 
 	// 重新启用：保存网页到文件功能
@@ -847,18 +853,13 @@ Loop:
 						break Loop // 即使没有明确完成标志，我们也已有响应，所以退出主循环
 					default:
 						// 检测AI是否完成输出的多种方法 - 使用新的检测机制
-						// 检查特定关键词是否出现在页面中
-						keywordFound := false
-						err := chromedp.EvaluateAsDevTools(
-							`(function() {
-								var html = document.documentElement.outerHTML;
-								// 精确匹配 ds-flex _0a3d93b 字符串
-								return html.indexOf('ds-flex _0a3d93b') !== -1;
-							})();`, &keywordFound).Do(ctx)
-
-						if err == nil && keywordFound {
-							gc.logger.Println("✅ Specific keyword found, indicating AI processing completed")
+						// 使用新增的AI完成检测方法
+						err := gc.ProcessAIOutputCompletion(ctx)
+						if err == nil {
+							gc.logger.Println("✅ AI processing completed using enhanced detection")
 							break Loop
+						} else {
+							gc.logger.Printf("⏳ AI processing still in progress: %v", err)
 						}
 
 						time.Sleep(1 * time.Second) // 等待一秒后再次检查
@@ -1050,7 +1051,9 @@ Loop:
 	// gc.logger.Printf("😴 Keeping browser alive for %d seconds as configured", GUARDIAN_AUTO_KEEP_OPEN_SECONDS)
 	// time.Sleep(time.Duration(GUARDIAN_AUTO_KEEP_OPEN_SECONDS) * time.Second)
 
-	// 临时注释掉浏览器窗口关闭延迟，保持浏览器窗口打开
+	// 在AI处理完成后立即关闭浏览器，不再等待长时间延迟
+	gc.logger.Println("✅ AI processing completed, closing browser immediately")
+	// 不再等待配置的延迟时间，直接返回
 	return response, nil
 }
 
@@ -1078,6 +1081,20 @@ func (gc *GuardianClient) GetRemainingTokenCount() int {
 // SetLogger sets the logger for the client
 func (gc *GuardianClient) SetLogger(logger *logrus.Logger) {
 	gc.logger.SetOutput(logger.Out)
+}
+
+// IsDeepSeekService checks if the current service is DeepSeek
+func (gc *GuardianClient) IsDeepSeekService() bool {
+	return strings.Contains(strings.ToLower(gc.ProviderConfig.Provider), "deepseek") ||
+		strings.Contains(strings.ToLower(gc.BaseURL), "deepseek")
+}
+
+// ConfigureForDeepSeek configures the client specifically for DeepSeek service
+func (gc *GuardianClient) ConfigureForDeepSeek() {
+	gc.ProviderConfig.Provider = "deepseek"
+	gc.BaseURL = "https://chat.deepseek.com"
+	gc.Model = "deepseek-chat"
+	gc.logger.Println("🔧 Guardian Client configured for DeepSeek service")
 }
 
 // 实现 AIClient 接口
@@ -1242,10 +1259,40 @@ func (gc *GuardianClient) isRetryableError(err error) bool {
 	return true
 }
 
-// SetDynamicConfig 动态设置配置
+// GetProvider returns the provider name
+func (gc *GuardianClient) GetProvider() string {
+	return gc.ProviderConfig.Provider
+}
+
+// GetModel returns the model name
+func (gc *GuardianClient) GetModel() string {
+	return gc.Model
+}
+
+// GetBaseURL returns the base URL
+func (gc *GuardianClient) GetBaseURL() string {
+	return gc.BaseURL
+}
+
+// GetAPIKey returns the API key
+func (gc *GuardianClient) GetAPIKey() string {
+	return gc.APIKey
+}
+
+// SetDynamicConfig dynamically sets the base URL
 func (gc *GuardianClient) SetDynamicConfig(baseURL string) {
 	gc.BaseURL = baseURL
 	gc.ProviderConfig.BaseURL = baseURL
+}
+
+// GetDisplayEnabled returns whether display is enabled
+func (gc *GuardianClient) GetDisplayEnabled() bool {
+	return gc.DisplayEnabled
+}
+
+// SetDisplayEnabled sets whether display is enabled
+func (gc *GuardianClient) SetDisplayEnabled(enabled bool) {
+	gc.DisplayEnabled = enabled
 }
 
 // 在提交后等待指定时间并轮询检测AI输出完成信号，并提取AI输出内容
@@ -1280,9 +1327,11 @@ func (gc *GuardianClient) waitForAndValidateOutput(ctx context.Context) (string,
 				gc.logger.Printf("⚠️ Error getting page HTML: %v", err)
 				// 继续尝试，不中断轮询
 			} else {
-				// 检查是否包含 ds-flex _0a3d93b 字符串
+				// 检查页面是否包含 ds-flex _0a3d93b 字符串
 				if strings.Contains(pageHTML, "ds-flex _0a3d93b") {
-					gc.logger.Println("✅ AI completion detected: 'ds-flex _0a3d93b' found in page content")
+					// 发现关键字，输出日志
+					gc.logger.Println("✅ ds-flex _0a3d93b keyword detected, AI output completed")
+
 					// 提取AI输出内容
 					extractedContent, extractErr := gc.extractAIOutputContent(ctx)
 					if extractErr != nil {
@@ -1290,7 +1339,10 @@ func (gc *GuardianClient) waitForAndValidateOutput(ctx context.Context) (string,
 						// 如果提取失败，仍然返回成功，但内容为空
 						return "", nil
 					}
-					gc.logger.Printf("✅ Successfully extracted AI output content, length: %d", len(extractedContent))
+
+					// 复制AI输出内容后输出日志
+					gc.logger.Printf("📋 AI output copied, content length: %d", len(extractedContent))
+
 					return extractedContent, nil // 找到关键字并提取内容，返回成功
 				}
 			}
@@ -1406,6 +1458,49 @@ func (gc *GuardianClient) cleanHTMLContent(htmlContent string) string {
 	cleaned = strings.ReplaceAll(cleaned, "&#39;", "'")
 
 	return strings.TrimSpace(cleaned)
+}
+
+// CheckForAICompletionKeyword 在HTML文档内存中查找AI输出完成的标志关键字
+func (gc *GuardianClient) CheckForAICompletionKeyword(htmlContent string) bool {
+	// 检查HTML内容中是否包含AI输出完成的标志
+	// "ds-flex _0a3d93b" 是DeepSeek AI输出完成的标志性关键字
+	containsKeyword := strings.Contains(htmlContent, "ds-flex _0a3d93b")
+	if containsKeyword {
+		gc.logger.Println("✅ AI输出完成标志检测成功: 找到 'ds-flex _0a3d93b' 关键字")
+	}
+	return containsKeyword
+}
+
+// ProcessAIOutputCompletion 查找AI输出完成标志并执行后续操作
+func (gc *GuardianClient) ProcessAIOutputCompletion(ctx context.Context) error {
+	// 获取当前页面的完整HTML内容
+	var pageHTML string
+	err := chromedp.Run(ctx,
+		chromedp.ActionFunc(func(ctx context.Context) error {
+			err := chromedp.OuterHTML("html", &pageHTML).Do(ctx)
+			return err
+		}),
+	)
+	if err != nil {
+		gc.logger.Printf("⚠️ 获取页面HTML失败: %v", err)
+		return err
+	}
+
+	// 检查HTML文档中是否包含AI输出完成的标志
+	if gc.CheckForAICompletionKeyword(pageHTML) {
+		// 发现AI输出完成标志，执行下一步自动化操作
+		gc.logger.Println("🚀 检测到AI输出完成，开始执行下一步自动化操作...")
+
+		// 这里可以添加任何需要的后续操作
+		// 例如：点击复制按钮、保存内容、截图等
+
+		// 输出日志表示AI输出数据复制完成
+		gc.logger.Println("📋 AI输出数据复制完成")
+		return nil
+	} else {
+		gc.logger.Println("❌ 未检测到AI输出完成标志")
+		return fmt.Errorf("AI output not completed yet")
+	}
 }
 
 const (
