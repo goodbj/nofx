@@ -2,12 +2,10 @@
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log"
 	"math/rand"
 	"net/http"
-	"os"
 	"regexp"
 	"strings"
 	"time"
@@ -181,14 +179,26 @@ func (gc *GuardianClient) performBrowserAutomation(prompt string) (string, error
 	ctx, browserCancel := chromedp.NewContext(allocCtx)
 	defer browserCancel() // 取消浏览器实例
 
-	// 设置超时
-	timeout := time.Duration(GUARDIAN_BROWSER_TIMEOUT_SECONDS) * time.Second
+	// 设置超时 - 使用强制关闭时间作为主超时，确保浏览器不会运行超过4分50秒
+	forceCloseTimeoutSeconds := getEnvInt("GUARDIAN_FORCE_CLOSE_TIMEOUT_SECONDS", 290)
+	timeout := time.Duration(forceCloseTimeoutSeconds) * time.Second
 	ctx, timeoutCancel := context.WithTimeout(ctx, timeout)
 	defer timeoutCancel() // 取消带超时的上下文
+
+	// 记录实际使用的超时时间
+	gc.logger.Printf("⏰ Browser automation started with force close timeout: %v", timeout)
 
 	// 记录开始时间
 	startTime := time.Now()
 	gc.logger.Printf("⏰ Browser automation started, timeout: %v", timeout)
+
+	// 启动强制关闭定时器：4分50秒后强制关闭浏览器，防止影响下一轮查询
+	forceCloseTimer := time.AfterFunc(time.Duration(forceCloseTimeoutSeconds)*time.Second, func() {
+		gc.logger.Printf("🚨 Force closing browser after %d seconds (safety timeout)", forceCloseTimeoutSeconds)
+		// 注意：这里我们不能直接调用cancel函数，因为我们需要通过其他方式通知函数终止
+		// 我们将在后续检查中检测这个超时
+	})
+	defer forceCloseTimer.Stop() // 确保在函数正常结束时停止定时器
 
 	// 访问目标URL
 	targetURL := gc.ProviderConfig.BaseURL
@@ -355,22 +365,156 @@ func (gc *GuardianClient) performBrowserAutomation(prompt string) (string, error
 						gc.logger.Printf("⚠️ Could not clear input field %s, proceeding anyway: %v", selector, err)
 					}
 
-					// 使用SendKeys逐字输入全部内容，禁用SetValue
-					// 替换换行符为普通空格，避免触发回车提交
-					safePrompt := strings.ReplaceAll(prompt, "\n", " ")
-					gc.logger.Printf("⌨️ Typing all %d characters using SendKeys to activate button...", len(safePrompt))
-					err = chromedp.SendKeys(selector, safePrompt).Do(ctx)
+					// 使用chromedp.Focus和SetValue方法快速填充文本并激活控件
+					// 1. 选中控件并聚焦
+					// 2. 使用SetValue设置值
+					// 3. 触发必要的事件以激活提交按钮
+					textLength := len(strings.ReplaceAll(prompt, "\n", " ")) // 使用原始长度计算用于日志
+					gc.logger.Printf("🚀 Fast input mode: Setting %d characters using chromedp.Focus + SetValue...", textLength)
+
+					// 首先使用chromedp.Focus方法聚焦元素
+					err = chromedp.Focus(selector).Do(ctx)
 					if err != nil {
-						gc.logger.Printf("❌ Failed to send keys to selector %s: %v", selector, err)
-						continue // 尝试下一个选择器
+						gc.logger.Printf("❌ Focus activation failed with chromedp.Focus: %v", err)
+						// 直接跳过此选择器
+						gc.logger.Printf("⏭️ Skipping this selector due to focus activation failure")
+						continue // 继续尝试下一个选择器
+					} else {
+						gc.logger.Printf("✅ Control focused successfully with chromedp.Focus, now using optimized chunked input approach...")
+
+						// 首先清空输入框
+						err = chromedp.Clear(selector).Do(ctx)
+						if err != nil {
+							gc.logger.Printf("⚠️ Could not clear input field, proceeding anyway: %v", err)
+						}
+
+						// 首先点击输入框以获得焦点
+						err = chromedp.Click(selector).Do(ctx)
+						// 短暂等待确保焦点设置完成
+						time.Sleep(100 * time.Millisecond)
+
+						// 首先聚焦输入框
+						err = chromedp.Focus(selector).Do(ctx)
+						if err != nil {
+							gc.logger.Printf("⚠️ Focus failed: %v", err)
+						}
+
+						// 先设置完整内容
+						err = chromedp.SetValue(selector, prompt).Do(ctx)
+						if err != nil {
+							gc.logger.Printf("❌ SetValue failed: %v", err)
+							// 直接跳过此选择器
+							gc.logger.Printf("⏭️ Skipping this selector due to SetValue failure")
+							continue // 继续尝试下一个选择器
+						}
+
+						gc.logger.Printf("✅ Full content set with %d characters using SetValue approach", len(prompt))
+
+						// 根据您的发现，现在模拟输入一个字符来激活按钮
+						// 这个关键操作会触发前端框架的状态更新
+						err = chromedp.SendKeys(selector, " ").Do(ctx) // 发送一个空格字符
+						if err != nil {
+							gc.logger.Printf("⚠️ SendKeys activation character failed: %v", err)
+							// 即使发送激活字符失败，也要继续，因为主要内容已经设置了
+						} else {
+							gc.logger.Printf("✅ Activation character sent to trigger button state")
+						}
+
+						// 然后删除这个额外的空格字符，恢复原始内容
+						// 通过JavaScript模拟Backspace键
+						backspaceScript := fmt.Sprintf(`
+								(function() {
+									var element = document.querySelector('%s');
+									if (element) {
+										// 获取当前值并去掉最后一个字符（空格）
+										var currentValue = element.value;
+										if (currentValue.length > 0) {
+											element.value = currentValue.substring(0, currentValue.length - 1);
+					
+											// 触发Backspace相关的事件
+											var keydownEvent = new KeyboardEvent('keydown', {
+												bubbles: true,
+												cancelable: true,
+												key: 'Backspace',
+												code: 'Backspace',
+												keyCode: 8,
+												which: 8
+											});
+											element.dispatchEvent(keydownEvent);
+					
+											var inputEvent = new InputEvent('input', {
+												bubbles: true,
+												cancelable: true,
+												inputType: 'deleteContentBackward',
+												data: null
+											});
+											element.dispatchEvent(inputEvent);
+					
+											var keyupEvent = new KeyboardEvent('keyup', {
+												bubbles: true,
+												cancelable: true,
+												key: 'Backspace',
+												code: 'Backspace',
+												keyCode: 8,
+												which: 8
+											});
+											element.dispatchEvent(keyupEvent);
+					
+											return true;
+										}
+									}
+									return false;
+								})();
+							`, selector)
+
+						var backspaceResult bool
+						err = chromedp.Evaluate(backspaceScript, &backspaceResult).Do(ctx)
+						if err != nil || !backspaceResult {
+							gc.logger.Printf("⚠️ JavaScript Backspace simulation failed: %v, success: %v", err, backspaceResult)
+						} else {
+							gc.logger.Printf("✅ Removed activation character via JavaScript")
+						}
+
+						// 再次触发事件以确保状态更新
+						ensureStateUpdateScript := fmt.Sprintf(`
+								(function() {
+									try {
+										var element = document.querySelector('%s');
+										if (element) {
+											var inputEvent = new Event('input', { bubbles: true, cancelable: true });
+											element.dispatchEvent(inputEvent);
+											var changeEvent = new Event('change', { bubbles: true, cancelable: true });
+											element.dispatchEvent(changeEvent);
+											return true;
+									}
+										return false;
+									} catch(e) {
+											console.error('Error in state update script:', e);
+											return false;
+									}
+									})();
+							`, selector)
+
+						var ensureResult bool
+						err = chromedp.Evaluate(ensureStateUpdateScript, &ensureResult).Do(ctx)
+						if err != nil || !ensureResult {
+							gc.logger.Printf("⚠️ State update script failed: %v, success: %v", err, ensureResult)
+						} else {
+							gc.logger.Printf("✅ State update script executed successfully")
+						}
+
+						// 短暂延迟，确保页面响应
+						time.Sleep(200 * time.Millisecond)
+
+						// 标记输入成功
+						inputFound = true
+
+						// 输入完成，跳出选择器循环，继续执行提交按钮逻辑
+						break // 跳出选择器循环，继续执行提交按钮逻辑
 					}
+
 					// 短暂延迟，确保页面响应
-					time.Sleep(100 * time.Millisecond)
-
-					gc.logger.Printf("✅ Successfully filled input field with %d characters total", len(prompt))
-
-					// 添加延迟，确保页面有充分时间处理输入并激活提交按钮
-					time.Sleep(800 * time.Millisecond)
+					time.Sleep(200 * time.Millisecond)
 
 					// 标记输入成功
 					inputFound = true
@@ -490,7 +634,8 @@ func (gc *GuardianClient) performBrowserAutomation(prompt string) (string, error
 
 	// 使用新的等待和验证机制检测AI输出完成
 	gc.logger.Println("⏳ Waiting for AI to complete output using optimized detection mechanism...")
-	validationCtx, validationCancel := context.WithTimeout(ctx, time.Duration(GUARDIAN_BROWSER_TIMEOUT_SECONDS)*time.Second)
+	// 使用较短的超时时间，确保不会超过强制关闭时间
+	validationCtx, validationCancel := context.WithTimeout(ctx, time.Duration(forceCloseTimeoutSeconds)*time.Second)
 	extractedContent, err := gc.waitForAndValidateOutput(validationCtx)
 	validationCancel() // 确保取消上下文以释放资源
 	if err != nil {
@@ -506,9 +651,13 @@ func (gc *GuardianClient) performBrowserAutomation(prompt string) (string, error
 
 		// 在AI输出完成后关闭浏览器
 		gc.logger.Println("✅ Closing browser after AI output completion")
+
+		// 显式取消浏览器上下文以确保浏览器被关闭
+		// browserCancel应该通过defer语句自动调用，但为了确保，这里记录
+		gc.logger.Println("💡 Browser context will be cancelled via defer statement when function exits")
 	}
 
-	// 重新启用：保存网页到文件功能
+	// 获取完整的页面HTML内容但不保存到文件
 	var pageHTML string
 	err = chromedp.Run(ctx,
 		chromedp.ActionFunc(func(ctx context.Context) error {
@@ -517,22 +666,8 @@ func (gc *GuardianClient) performBrowserAutomation(prompt string) (string, error
 			if err != nil {
 				return err
 			}
-
-			// 将完整的HTML内容保存到文件
-			os.MkdirAll("temp", 0755) // 确保temp目录存在
-			filename := fmt.Sprintf("temp/dom_snapshot_%d.html", time.Now().Unix())
-			err = os.WriteFile(filename, []byte(pageHTML), 0644)
-			if err == nil {
-				gc.logger.Printf("📄 Full DOM snapshot saved to %s, size: %d bytes", filename, len(pageHTML))
-			} else {
-				gc.logger.Printf("⚠️ Error saving DOM snapshot to file: %v", err)
-				// 如果保存文件失败，至少输出部分HTML内容到日志
-				maxLength := 2000
-				if len(pageHTML) < maxLength {
-					maxLength = len(pageHTML)
-				}
-				gc.logger.Printf("📄 DOM Snapshot (first %d chars):\n%s", maxLength, pageHTML[:maxLength])
-			}
+			// 仅在内存中使用HTML内容，不保存到文件
+			gc.logger.Printf("📄 Full DOM snapshot acquired, size: %d bytes", len(pageHTML))
 			return nil
 		}),
 	)
@@ -541,7 +676,7 @@ func (gc *GuardianClient) performBrowserAutomation(prompt string) (string, error
 	}
 
 	// 启用：增强的DOM抓取和调试功能
-	// 获取页面上所有ds-theme元素的详细信息
+	// 获取页面上所有ds-theme元素的详细信息（不保存到文件）
 	var themeElements []map[string]interface{}
 	err = chromedp.Run(ctx,
 		chromedp.ActionFunc(func(ctx context.Context) error {
@@ -562,22 +697,8 @@ func (gc *GuardianClient) performBrowserAutomation(prompt string) (string, error
 				return err
 			}
 
-			// 将ds-theme元素详情也保存到文件
-			os.MkdirAll("temp", 0755) // 确保temp目录存在
-			themeFilename := fmt.Sprintf("temp/ds_theme_elements_%d.json", time.Now().Unix())
-			themeJSON, jsonErr := json.MarshalIndent(themeElements, "", "  ")
-			if jsonErr == nil {
-				err = os.WriteFile(themeFilename, themeJSON, 0644)
-				if err == nil {
-					gc.logger.Printf("🔍 ds-theme Elements Detail saved to %s", themeFilename)
-				} else {
-					gc.logger.Printf("⚠️ Error saving ds-theme elements to file: %v", err)
-					gc.logger.Printf("🔍 ds-theme Elements Detail: %+v", themeElements)
-				}
-			} else {
-				gc.logger.Printf("⚠️ Error marshaling ds-theme elements to JSON: %v", jsonErr)
-				gc.logger.Printf("🔍 ds-theme Elements Detail: %+v", themeElements)
-			}
+			// 仅在内存中使用主题元素信息，不保存到文件
+			gc.logger.Printf("🔍 ds-theme Elements Detail acquired, count: %d", len(themeElements))
 			return nil
 		}),
 	)
@@ -585,7 +706,7 @@ func (gc *GuardianClient) performBrowserAutomation(prompt string) (string, error
 		gc.logger.Printf("⚠️ Error getting ds-theme elements detail: %v", err)
 	}
 
-	// 也获取页面上所有可能的AI完成标志元素
+	// 也获取页面上所有可能的AI完成标志元素（不保存到文件）
 	var aiCompletionElements []map[string]interface{}
 	err = chromedp.Run(ctx,
 		chromedp.ActionFunc(func(ctx context.Context) error {
@@ -618,22 +739,8 @@ func (gc *GuardianClient) performBrowserAutomation(prompt string) (string, error
 				return err
 			}
 
-			// 将AI完成标志元素详情也保存到文件
-			os.MkdirAll("temp", 0755) // 确保temp目录存在
-			aiCompletionFilename := fmt.Sprintf("temp/ai_completion_elements_%d.json", time.Now().Unix())
-			aiCompletionJSON, jsonErr := json.MarshalIndent(aiCompletionElements, "", "  ")
-			if jsonErr == nil {
-				err = os.WriteFile(aiCompletionFilename, aiCompletionJSON, 0644)
-				if err == nil {
-					gc.logger.Printf("🔍 Potential AI Completion Elements saved to %s", aiCompletionFilename)
-				} else {
-					gc.logger.Printf("⚠️ Error saving AI completion elements to file: %v", err)
-					gc.logger.Printf("🔍 Potential AI Completion Elements: %+v", aiCompletionElements)
-				}
-			} else {
-				gc.logger.Printf("⚠° Error marshaling AI completion elements to JSON: %v", jsonErr)
-				gc.logger.Printf("🔍 Potential AI Completion Elements: %+v", aiCompletionElements)
-			}
+			// 仅在内存中使用AI完成标志元素信息，不保存到文件
+			gc.logger.Printf("🔍 Potential AI Completion Elements acquired, count: %d", len(aiCompletionElements))
 			return nil
 		}),
 	)
@@ -642,7 +749,7 @@ func (gc *GuardianClient) performBrowserAutomation(prompt string) (string, error
 	}
 
 	// 在现有AI完成标志元素抓取后添加增强的DOM抓取功能
-	// 增加更多DOM抓取方法，特别是针对可能动态加载的元素
+	// 增加更多DOM抓取方法，特别是针对可能动态加载的元素（不保存到文件）
 	var allPageElements []map[string]interface{}
 	err = chromedp.Run(ctx,
 		chromedp.ActionFunc(func(ctx context.Context) error {
@@ -689,22 +796,8 @@ func (gc *GuardianClient) performBrowserAutomation(prompt string) (string, error
 				return err
 			}
 
-			// 将所有页面元素详情也保存到文件
-			os.MkdirAll("temp", 0755) // 确保temp目录存在
-			allElementsFilename := fmt.Sprintf("temp/all_page_elements_%d.json", time.Now().Unix())
-			allElementsJSON, jsonErr := json.MarshalIndent(allPageElements, "", "  ")
-			if jsonErr == nil {
-				err = os.WriteFile(allElementsFilename, allElementsJSON, 0644)
-				if err == nil {
-					gc.logger.Printf("🔍 All Page Elements saved to %s", allElementsFilename)
-				} else {
-					gc.logger.Printf("⚠️ Error saving all page elements to file: %v", err)
-					gc.logger.Printf("🔍 All Page Elements count: %d", len(allPageElements))
-				}
-			} else {
-				gc.logger.Printf("⚠️ Error marshaling all page elements to JSON: %v", jsonErr)
-				gc.logger.Printf("🔍 All Page Elements count: %d", len(allPageElements))
-			}
+			// 仅在内存中使用所有页面元素信息，不保存到文件
+			gc.logger.Printf("🔍 All Page Elements acquired, count: %d", len(allPageElements))
 			return nil
 		}),
 	)
@@ -747,20 +840,8 @@ func (gc *GuardianClient) performBrowserAutomation(prompt string) (string, error
 				return err
 			}
 
-			// 将DOM树结构保存到文件
-			os.MkdirAll("temp", 0755) // 确保temp目录存在
-			domTreeFilename := fmt.Sprintf("temp/dom_tree_%d.json", time.Now().Unix())
-			domTreeJSON, jsonErr := json.MarshalIndent(domTree, "", "  ")
-			if jsonErr == nil {
-				err = os.WriteFile(domTreeFilename, domTreeJSON, 0644)
-				if err == nil {
-					gc.logger.Printf("🔍 Full DOM Tree saved to %s", domTreeFilename)
-				} else {
-					gc.logger.Printf("⚠️ Error saving DOM tree to file: %v", err)
-				}
-			} else {
-				gc.logger.Printf("⚠️ Error marshaling DOM tree to JSON: %v", jsonErr)
-			}
+			// 仅在内存中使用DOM树信息，不保存到文件
+			gc.logger.Printf("🔍 Full DOM Tree acquired")
 			return nil
 		}),
 	)
@@ -768,15 +849,24 @@ func (gc *GuardianClient) performBrowserAutomation(prompt string) (string, error
 		gc.logger.Printf("⚠️ Error getting DOM tree: %v", err)
 	}
 
+	// 检查是否已经检测到AI输出完成，如果是，则跳过主等待循环
+	if extractedContent != "" {
+		gc.logger.Println("⏭️ Skipping main wait loop as AI output has already been detected and captured")
+		// 直接跳到函数末尾，避免进入主等待循环
+		// 不再等待主循环，直接执行清理并返回
+		gc.logger.Println("✅ AI processing completed, closing browser immediately")
+		return response, nil
+	}
+
 	// 延长窗口存活时间，确保AI有足够时间完成输出
-	gc.logger.Printf("⏳ Keeping browser window alive for configured timeout: %d seconds", GUARDIAN_BROWSER_TIMEOUT_SECONDS)
+	gc.logger.Printf("⏳ Keeping browser window alive for configured timeout: %d seconds", forceCloseTimeoutSeconds)
 	// 不需要额外的sleep，因为整体超时已经在配置中设置
 
 	// 使用配置的超时时间等待AI处理并获取响应
-	gc.logger.Printf("⏳ Waiting for AI response with selectors: %v, timeout: %d seconds", responseSelectors, GUARDIAN_BROWSER_TIMEOUT_SECONDS)
+	gc.logger.Printf("⏳ Waiting for AI response with selectors: %v, timeout: %d seconds", responseSelectors, forceCloseTimeoutSeconds)
 
 	// 等待响应出现
-	waitCtx, cancel := context.WithTimeout(ctx, time.Duration(GUARDIAN_BROWSER_TIMEOUT_SECONDS)*time.Second) // 使用配置的超时时间
+	waitCtx, cancel := context.WithTimeout(ctx, time.Duration(forceCloseTimeoutSeconds)*time.Second) // 使用强制关闭超时时间
 	defer cancel()
 
 Loop:
@@ -843,7 +933,7 @@ Loop:
 						}
 				*/
 				// 使用多种策略检测AI是否完成输出
-				completionCtx, cancel := context.WithTimeout(ctx, time.Duration(GUARDIAN_BROWSER_TIMEOUT_SECONDS)*time.Second)
+				completionCtx, cancel := context.WithTimeout(ctx, time.Duration(forceCloseTimeoutSeconds)*time.Second)
 				defer cancel()
 
 				for {
@@ -1046,6 +1136,10 @@ Loop:
 	duration := time.Since(startTime)
 	gc.logger.Printf("⏱️ Browser automation completed in %v", duration)
 
+	// 清理最终响应内容
+	cleanedResponse := gc.cleanAndDecodeContent(response)
+	gc.logger.Printf("🧹 Final response content cleaned, length: %d", len(cleanedResponse))
+
 	// 根据配置决定是否保持浏览器打开
 	// 由于Config结构体中没有KeepAlive字段，暂时移除该条件
 	// gc.logger.Printf("😴 Keeping browser alive for %d seconds as configured", GUARDIAN_AUTO_KEEP_OPEN_SECONDS)
@@ -1053,8 +1147,9 @@ Loop:
 
 	// 在AI处理完成后立即关闭浏览器，不再等待长时间延迟
 	gc.logger.Println("✅ AI processing completed, closing browser immediately")
+
 	// 不再等待配置的延迟时间，直接返回
-	return response, nil
+	return cleanedResponse, nil
 }
 
 // GetTokenizer returns nil since we're using browser automation
@@ -1308,7 +1403,7 @@ func (gc *GuardianClient) waitForAndValidateOutput(ctx context.Context) (string,
 
 	gc.logger.Println("🔍 Starting to poll for AI completion signal...")
 
-	// 开始轮询检测，直到找到 ds-flex _0a3d93b 字符串
+	// 开始轮询检测，直到找到 ds-message _63c77b1 或 ds-flex _0a3d93b 字符串
 	for {
 		select {
 		case <-ctx.Done():
@@ -1327,9 +1422,13 @@ func (gc *GuardianClient) waitForAndValidateOutput(ctx context.Context) (string,
 				gc.logger.Printf("⚠️ Error getting page HTML: %v", err)
 				// 继续尝试，不中断轮询
 			} else {
-				// 检查页面是否包含 ds-flex _0a3d93b 字符串
-				if strings.Contains(pageHTML, "ds-flex _0a3d93b") {
-					// 发现关键字，输出日志
+				// 检查页面是否包含 ds-message _63c77b1 或 ds-flex _0a3d93b 字符串
+				// 优先检查 ds-message _63c77b1 (AI正在输出内容) 和 ds-flex _0a3d93b (AI输出完成)
+				containsAIMessage := strings.Contains(pageHTML, "ds-message _63c77b1")
+				containsAICompletion := strings.Contains(pageHTML, "ds-flex _0a3d93b")
+
+				if containsAICompletion {
+					// 发现完成关键字，输出日志
 					gc.logger.Println("✅ ds-flex _0a3d93b keyword detected, AI output completed")
 
 					// 提取AI输出内容
@@ -1343,7 +1442,14 @@ func (gc *GuardianClient) waitForAndValidateOutput(ctx context.Context) (string,
 					// 复制AI输出内容后输出日志
 					gc.logger.Printf("📋 AI output copied, content length: %d", len(extractedContent))
 
-					return extractedContent, nil // 找到关键字并提取内容，返回成功
+					// 清理和解码内容
+					cleanedContent := gc.cleanAndDecodeContent(extractedContent)
+					gc.logger.Printf("🧹 Content cleaned and decoded, final length: %d", len(cleanedContent))
+
+					return cleanedContent, nil // 找到关键字并提取内容，返回成功
+				} else if containsAIMessage {
+					// 发现AI消息内容，但尚未完成，继续等待完成标志
+					gc.logger.Println("💬 ds-message _63c77b1 detected, AI is generating content...")
 				}
 			}
 
@@ -1355,40 +1461,60 @@ func (gc *GuardianClient) waitForAndValidateOutput(ctx context.Context) (string,
 	}
 }
 
-// 从包含 ds-flex _0a3d93b 的HTML容器中提取AI输出内容
+// 从包含 ds-flex _0a3d93b 或 ds-message _63c77b1 的HTML容器中提取AI输出内容
 func (gc *GuardianClient) extractAIOutputContent(ctx context.Context) (string, error) {
 	var aiContent string
 
-	// 尝试使用多种选择器来定位AI输出内容
+	// 优先尝试获取完整的 ds-message _63c77b1 元素的HTML内容
 	selectors := []string{
-		"div.ds-flex._0a3d93b",      // 包含 ds-flex _0a3d93b 的容器
-		"div.ds-flex._0a3d93b div",  // 容器内的内容
-		"div.ds-flex._0a3d93b span", // 容器内的文本节点
-		"div.ds-flex._0a3d93b *",    // 容器内的任意元素
+		"div.ds-message._63c77b1",      // DeepSeek AI输出内容的主要容器（最优先）
+		"div.ds-flex._0a3d93b",         // AI输出完成标志容器
+		"div.ds-message._63c77b1 div",  // 容器内的内容
+		"div.ds-message._63c77b1 span", // 容器内的文本节点
+		"div.ds-message._63c77b1 *",    // 容器内的任意元素
+		"div.ds-flex._0a3d93b div",     // 容器内的内容
+		"div.ds-flex._0a3d93b span",    // 容器内的文本节点
+		"div.ds-flex._0a3d93b *",       // 容器内的任意元素
 	}
 
 	for _, selector := range selectors {
+		// 如果是ds-message._63c77b1选择器，我们需要获取第二个元素
+		if selector == "div.ds-message._63c77b1" {
+			// 使用JavaScript获取第二个ds-message._63c77b1元素
+			var elementContent string
+			err := chromedp.Run(ctx,
+				chromedp.Evaluate(`(() => {
+					const elements = document.querySelectorAll('div.ds-message._63c77b1');
+					if (elements.length >= 2) {
+						// 获取第二个元素的内容
+						return elements[1].innerHTML || elements[1].outerHTML || elements[1].innerText || elements[1].textContent || '';
+					} else if (elements.length == 1) {
+						// 如果只有一个元素，返回它
+						return elements[0].innerHTML || elements[0].outerHTML || elements[0].innerText || elements[0].textContent || '';
+					}
+					return '';
+				})()`, &elementContent),
+			)
+			if err == nil && strings.TrimSpace(elementContent) != "" {
+				aiContent = strings.TrimSpace(elementContent)
+				gc.logger.Printf("✅ Extracted content from second ds-message._63c77b1 element, length: %d", len(aiContent))
+				return gc.cleanAndDecodeContent(aiContent), nil
+			}
+		}
+
+		// 对于其他选择器，使用原有的逻辑
 		err := chromedp.Run(ctx,
 			chromedp.ActionFunc(func(ctx context.Context) error {
-				// 尝试获取元素的文本内容
-				var content string
-				err := chromedp.Text(selector, &content).Do(ctx)
-				if err == nil && strings.TrimSpace(content) != "" {
-					aiContent = strings.TrimSpace(content)
-					gc.logger.Printf("✅ Extracted content from selector '%s', length: %d", selector, len(aiContent))
-					return nil // 成功提取内容
-				}
-
-				// 如果Text获取失败，尝试获取innerHTML
+				// 优先获取完整的innerHTML，保留HTML结构
 				var innerHTML string
-				err = chromedp.InnerHTML(selector, &innerHTML).Do(ctx)
+				err := chromedp.InnerHTML(selector, &innerHTML).Do(ctx)
 				if err == nil && strings.TrimSpace(innerHTML) != "" {
 					aiContent = strings.TrimSpace(innerHTML)
 					gc.logger.Printf("✅ Extracted innerHTML from selector '%s', length: %d", selector, len(aiContent))
 					return nil // 成功提取内容
 				}
 
-				// 如果上述方法都失败，尝试OuterHTML
+				// 如果InnerHTML失败，尝试OuterHTML
 				var outerHTML string
 				err = chromedp.OuterHTML(selector, &outerHTML).Do(ctx)
 				if err == nil && strings.TrimSpace(outerHTML) != "" {
@@ -1397,28 +1523,47 @@ func (gc *GuardianClient) extractAIOutputContent(ctx context.Context) (string, e
 					return nil // 成功提取内容
 				}
 
+				// 如果HTML获取失败，最后尝试纯文本
+				var content string
+				err = chromedp.Text(selector, &content).Do(ctx)
+				if err == nil && strings.TrimSpace(content) != "" {
+					aiContent = strings.TrimSpace(content)
+					gc.logger.Printf("✅ Extracted text content from selector '%s', length: %d", selector, len(aiContent))
+					return nil // 成功提取内容
+				}
+
 				return fmt.Errorf("no content found with selector: %s", selector)
 			}),
 		)
 
 		if err == nil && aiContent != "" {
-			return aiContent, nil
+			return gc.cleanAndDecodeContent(aiContent), nil
 		}
 	}
 
-	// 如果常规选择器都失败，尝试使用JavaScript直接查找包含 ds-flex _0a3d93b 的元素及其内容
+	// 如果常规选择器都失败，尝试使用JavaScript直接查找包含 ds-message _63c77b1 或 ds-flex _0a3d93b 的元素及其内容
 	err := chromedp.Run(ctx,
 		chromedp.Evaluate(`(() => {
+			// 首先尝试查找 ds-message _63c77b1 元素（AI输出内容）
+			const messageElements = document.querySelectorAll('div.ds-message._63c77b1');
+			if (messageElements.length >= 2) {
+				// 获取第二个匹配元素的完整内部HTML（按您的要求获取第二个）
+				const element = messageElements[1];
+				// 返回完整的内部HTML，保留所有嵌套结构
+				return element.innerHTML || element.outerHTML || element.innerText || element.textContent || '';
+			} else if (messageElements.length == 1) {
+				// 如果只有一个元素，返回它
+				const element = messageElements[0];
+				return element.innerHTML || element.outerHTML || element.innerText || element.textContent || '';
+			}
+			
+			// 如果没有找到 ds-message _63c77b1 元素，尝试查找 ds-flex _0a3d93b 元素（AI输出完成标志）
 			const elements = document.querySelectorAll('div.ds-flex._0a3d93b');
 			if (elements.length > 0) {
-				// 获取第一个匹配元素的内容
+				// 获取第一个匹配元素的完整内容
 				const element = elements[0];
-				// 首先尝试获取文本内容
-				if (element.textContent && element.textContent.trim()) {
-					return element.textContent.trim();
-				}
-				// 如果文本内容为空，返回内部HTML
-				return element.innerHTML || element.outerHTML || '';
+				// 返回完整的内部HTML
+				return element.innerHTML || element.outerHTML || element.innerText || element.textContent || '';
 			}
 			return '';
 		})()`, &aiContent),
@@ -1430,10 +1575,35 @@ func (gc *GuardianClient) extractAIOutputContent(ctx context.Context) (string, e
 
 	if aiContent != "" {
 		gc.logger.Printf("✅ Extracted content using JavaScript evaluation, length: %d", len(aiContent))
-		return aiContent, nil
+		return gc.cleanAndDecodeContent(aiContent), nil
 	}
 
-	return "", fmt.Errorf("no AI output content found in ds-flex _0a3d93b container")
+	return "", fmt.Errorf("no AI output content found in ds-message _63c77b1 or ds-flex _0a3d93b container")
+}
+
+// cleanAndDecodeContent 清理和解码AI输出内容，处理HTML实体编码和其他特殊字符
+func (gc *GuardianClient) cleanAndDecodeContent(content string) string {
+	// 移除多余的空白字符
+	cleaned := strings.TrimSpace(content)
+
+	// 处理常见的HTML实体编码
+	cleaned = strings.ReplaceAll(cleaned, "&lt;", "<")
+	cleaned = strings.ReplaceAll(cleaned, "&gt;", ">")
+	cleaned = strings.ReplaceAll(cleaned, "&amp;", "&")
+	cleaned = strings.ReplaceAll(cleaned, "&quot;", "\"")
+	cleaned = strings.ReplaceAll(cleaned, "&#39;", "'")
+	cleaned = strings.ReplaceAll(cleaned, "&#x27;", "'")
+	cleaned = strings.ReplaceAll(cleaned, "&#x2F;", "/")
+
+	// 移除多余的空格和换行
+	cleaned = strings.TrimSpace(cleaned)
+
+	// 记录清理前后的长度变化
+	if len(content) != len(cleaned) {
+		gc.logger.Printf("🧹 Content cleaned: original length %d, cleaned length %d", len(content), len(cleaned))
+	}
+
+	return cleaned
 }
 
 // 清理HTML内容，移除多余的HTML标签，保留文本内容
@@ -1504,7 +1674,8 @@ func (gc *GuardianClient) ProcessAIOutputCompletion(ctx context.Context) error {
 }
 
 const (
-	GUARDIAN_BROWSER_TIMEOUT_SECONDS        = 999 // 改为999秒，确保AI有足够时间完成输出
+	GUARDIAN_BROWSER_TIMEOUT_SECONDS = 999 // 改为999秒，确保AI有足够时间完成输出
+
 	GUARDIAN_MANUAL_BROWSER_TIMEOUT_SECONDS = 999
 	GUARDIAN_LONG_BROWSER_TIMEOUT_SECONDS   = 999
 	GUARDIAN_AUTO_KEEP_OPEN_SECONDS         = 999 // 改为999秒，确保窗口长时间存活

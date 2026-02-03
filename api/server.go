@@ -4154,6 +4154,7 @@ func (s *Server) handleGetLastPrompt(c *gin.Context) {
 
 // handleTestGuardian Handle Guardian browser automation test
 func (s *Server) handleTestGuardian(c *gin.Context) {
+	startTime := time.Now()
 	logger.Info("🧪 Received Guardian browser automation test request")
 
 	var req struct {
@@ -4187,28 +4188,41 @@ func (s *Server) handleTestGuardian(c *gin.Context) {
 		result, err := guardianClient.CallWithMessages("", req.Prompt)
 		if err != nil {
 			logger.Errorf("❌ Guardian browser automation failed: %v", err)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Guardian automation failed: %v", err)})
+			executionTime := time.Since(startTime).Seconds()
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"error":         fmt.Sprintf("Guardian automation failed: %v", err),
+				"executionTime": executionTime,
+			})
 			return
 		}
 
-		logger.Infof("✅ Guardian browser automation completed successfully")
+		executionTime := time.Since(startTime).Seconds()
+		logger.Infof("✅ Guardian browser automation completed successfully in %.2f seconds", executionTime)
 		c.JSON(http.StatusOK, gin.H{
-			"message": "Guardian浏览器自动化测试已启动",
-			"result":  result,
-			"status":  "success",
+			"message":         "Guardian浏览器自动化测试已启动",
+			"result":          result,
+			"generatedPrompt": req.Prompt, // 返回用户输入的原始提示词
+			"inputPrompt":     req.Prompt, // 明确返回输入提示词
+			"status":          "success",
+			"executionTime":   executionTime,
 		})
 		return
 	}
 
+	executionTime := time.Since(startTime).Seconds()
 	c.JSON(http.StatusOK, gin.H{
-		"message": "Guardian测试已启动，请查看浏览器弹窗",
-		"prompt":  req.Prompt,
-		"status":  "started",
+		"message":         "Guardian测试已启动，请查看浏览器弹窗",
+		"prompt":          req.Prompt,
+		"generatedPrompt": req.Prompt, // 返回用户输入的原始提示词
+		"inputPrompt":     req.Prompt, // 明确返回输入提示词
+		"status":          "started",
+		"executionTime":   executionTime,
 	})
 }
 
 // handleTestGuardianAnalysis Handle Guardian AI analysis test
 func (s *Server) handleTestGuardianAnalysis(c *gin.Context) {
+	startTime := time.Now()
 	logger.Info("🧪 Received Guardian AI analysis test request")
 
 	var req struct {
@@ -4238,16 +4252,24 @@ func (s *Server) handleTestGuardianAnalysis(c *gin.Context) {
 	result, err := guardianClient.CallWithMessages("", req.Prompt)
 	if err != nil {
 		logger.Errorf("❌ Guardian AI analysis failed: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Guardian AI analysis failed: %v", err)})
+		executionTime := time.Since(startTime).Seconds()
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error":         fmt.Sprintf("Guardian AI analysis failed: %v", err),
+			"executionTime": executionTime,
+		})
 		return
 	}
 
-	logger.Infof("✅ Guardian AI analysis completed successfully")
+	executionTime := time.Since(startTime).Seconds()
+	logger.Infof("✅ Guardian AI analysis completed successfully in %.2f seconds", executionTime)
 	c.JSON(http.StatusOK, gin.H{
-		"message":  "Guardian AI分析测试完成",
-		"prompt":   req.Prompt,
-		"analysis": result,
-		"status":   "completed",
+		"message":         "Guardian AI分析测试完成",
+		"prompt":          req.Prompt,
+		"analysis":        result,
+		"generatedPrompt": req.Prompt, // 返回用户输入的原始提示词
+		"inputPrompt":     req.Prompt, // 明确返回输入提示词
+		"status":          "completed",
+		"executionTime":   executionTime,
 	})
 }
 

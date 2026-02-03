@@ -8,6 +8,8 @@ const GuardianTestPage: React.FC = () => {
   const [testResult, setTestResult] = useState('');
   const [aiContent, setAiContent] = useState('');
   const [predefinedPrompt, setPredefinedPrompt] = useState('');
+  const [executionTime, setExecutionTime] = useState<number | null>(null);
+
 
   // 模拟Guardian浏览器自动化测试
   const testGuardianBrowser = async () => {
@@ -37,12 +39,25 @@ const GuardianTestPage: React.FC = () => {
       if (data.result) {
         setAiContent(data.result);
       }
+      // 设置执行时间
+      if (data.executionTime !== undefined) {
+        setExecutionTime(parseFloat(data.executionTime.toFixed(2)));
+      }
       
       message.success('Guardian测试已启动，请查看浏览器弹窗');
     } catch (error: any) {
       console.error('Guardian测试失败:', error);
       message.error('Guardian测试失败: ' + error.message);
       setTestResult('测试失败: ' + error.message);
+      // 如果错误响应中有执行时间，也设置
+      try {
+        const errorData = await error.response.json();
+        if (errorData.executionTime !== undefined) {
+          setExecutionTime(parseFloat(errorData.executionTime.toFixed(2)));
+        }
+      } catch (e) {
+        // 忽略错误响应解析失败
+      }
     } finally {
       setLoading(false);
     }
@@ -71,12 +86,29 @@ const GuardianTestPage: React.FC = () => {
 
       const data = await response.json();
       setTestResult(JSON.stringify(data, null, 2));
+      // 如果返回了AI分析结果，也更新AI内容状态
+      if (data.analysis) {
+        setAiContent(data.analysis);
+      }
+      // 设置执行时间
+      if (data.executionTime !== undefined) {
+        setExecutionTime(parseFloat(data.executionTime.toFixed(2)));
+      }
       
       message.success('AI分析测试完成');
     } catch (error: any) {
       console.error('AI分析测试失败:', error);
       message.error('AI分析测试失败: ' + error.message);
       setTestResult('AI分析测试失败: ' + error.message);
+      // 如果错误响应中有执行时间，也设置
+      try {
+        const errorData = await error.response.json();
+        if (errorData.executionTime !== undefined) {
+          setExecutionTime(parseFloat(errorData.executionTime.toFixed(2)));
+        }
+      } catch (e) {
+        // 忽略错误响应解析失败
+      }
     } finally {
       setLoading(false);
     }
@@ -104,12 +136,25 @@ const GuardianTestPage: React.FC = () => {
 
       const data = await response.json();
       setTestResult(data.message || '长时间浏览器窗口已打开');
+      // 设置执行时间
+      if (data.executionTime !== undefined) {
+        setExecutionTime(parseFloat(data.executionTime.toFixed(2)));
+      }
       
       message.success('浏览器窗口已打开，请进行设置操作');
     } catch (error: any) {
       console.error('打开浏览器失败:', error);
       message.error('打开浏览器失败: ' + error.message);
       setTestResult('打开浏览器失败: ' + error.message);
+      // 如果错误响应中有执行时间，也设置
+      try {
+        const errorData = await error.response.json();
+        if (errorData.executionTime !== undefined) {
+          setExecutionTime(parseFloat(errorData.executionTime.toFixed(2)));
+        }
+      } catch (e) {
+        // 忽略错误响应解析失败
+      }
     } finally {
       setLoading(false);
     }
@@ -185,17 +230,28 @@ const GuardianTestPage: React.FC = () => {
 
       {testResult && (
         <Card title="测试结果">
+          <div style={{ marginBottom: '12px' }}>
+            {executionTime !== null && (
+              <Text strong style={{ color: '#1890ff' }}>
+                🕐 执行时间: {executionTime} 秒
+              </Text>
+            )}
+          </div>
           <pre style={{ 
             backgroundColor: '#f5f5f5', 
             padding: '16px', 
             borderRadius: '4px',
             maxHeight: '400px',
-            overflow: 'auto'
+            overflow: 'auto',
+            fontSize: '14px',
+            lineHeight: '1.5'
           }}>
             {testResult}
           </pre>
         </Card>
       )}
+
+
 
       {aiContent && (
         <Card title="AI输出内容" style={{ marginTop: '24px' }}>
@@ -205,11 +261,11 @@ const GuardianTestPage: React.FC = () => {
             borderRadius: '4px',
             maxHeight: '500px',
             overflow: 'auto',
-            lineHeight: '1.6'
+            lineHeight: '1.6',
+            whiteSpace: 'pre-wrap',
+            wordWrap: 'break-word'
           }}>
-            {aiContent.split('\n').map((line, index) => (
-              <div key={index}>{line}</div>
-            ))}
+            {aiContent}
           </div>
         </Card>
       )}
