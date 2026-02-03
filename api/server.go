@@ -278,6 +278,10 @@ func (s *Server) setupRoutes() {
 			api.POST("/test-guardian-analysis", s.handleTestGuardianAnalysis)
 			api.POST("/open-guardian-browser", s.handleOpenGuardianBrowser)
 
+			// Guardian AI endpoints for traders page integration
+			api.GET("/guardian/providers", s.handleListGuardianProviders)
+			api.POST("/guardian/call", s.handleCallGuardianAI)
+
 			// Backtest routes
 			backtest := protected.Group("/backtest")
 			s.registerBacktestRoutes(backtest)
@@ -3658,6 +3662,10 @@ func (s *Server) handleGetSupportedModels(c *gin.Context) {
 	// Return static list of supported AI models with default versions
 	supportedModels := []map[string]interface{}{
 		{"id": "deepseek", "name": "DeepSeek", "provider": "deepseek", "defaultModel": "deepseek-chat"},
+		{"id": "guardian-ai", "name": "[BROWSER] GUARDIAN-AI", "provider": "guardian-ai", "defaultModel": "guardian-browser-automation"},
+		{"id": "deepseek-browser", "name": "[BROWSER] DEEPSEEK-BROWSER", "provider": "deepseek-browser", "defaultModel": "deepseek-browser-automation"},
+		{"id": "chatgpt-browser", "name": "[BROWSER] CHATGPT-BROWSER", "provider": "chatgpt-browser", "defaultModel": "chatgpt-browser-automation"},
+		{"id": "claude-browser", "name": "[BROWSER] CLAUDE-BROWSER", "provider": "claude-browser", "defaultModel": "claude-browser-automation"},
 		{"id": "qwen", "name": "Qwen", "provider": "qwen", "defaultModel": "qwen3-max"},
 		{"id": "openai", "name": "OpenAI", "provider": "openai", "defaultModel": "gpt-5.1"},
 		{"id": "claude", "name": "Claude", "provider": "claude", "defaultModel": "claude-opus-4-5-20251101"},

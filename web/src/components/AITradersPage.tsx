@@ -66,6 +66,26 @@ const AI_PROVIDER_CONFIG: Record<string, {
     apiUrl: 'https://platform.deepseek.com/api_keys',
     apiName: 'DeepSeek',
   },
+  'guardian-ai': {
+    defaultModel: 'guardian-browser-automation',
+    apiUrl: '/dashboard', // Local endpoint, no API key needed
+    apiName: 'Guardian AI',
+  },
+  'deepseek-browser': {
+    defaultModel: 'deepseek-browser-automation',
+    apiUrl: '/dashboard', // Local endpoint, no API key needed
+    apiName: 'DeepSeek Browser',
+  },
+  'chatgpt-browser': {
+    defaultModel: 'chatgpt-browser-automation',
+    apiUrl: '/dashboard', // Local endpoint, no API key needed
+    apiName: 'ChatGPT Browser',
+  },
+  'claude-browser': {
+    defaultModel: 'claude-browser-automation',
+    apiUrl: '/dashboard', // Local endpoint, no API key needed
+    apiName: 'Claude Browser',
+  },
   qwen: {
     defaultModel: 'qwen3-max',
     apiUrl: 'https://dashscope.console.aliyun.com/apiKey',

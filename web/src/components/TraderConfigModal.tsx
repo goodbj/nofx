@@ -263,11 +263,18 @@ export function TraderConfigModal({
                     }
                     className="w-full px-3 py-2 bg-[#0B0E11] border border-[#2B3139] rounded text-[#EAECEF] focus:border-[#F0B90B] focus:outline-none"
                   >
-                    {availableModels.map((model) => (
-                      <option key={model.id} value={model.id}>
-                        {getShortName(model.name || model.id).toUpperCase()}
-                      </option>
-                    ))}
+                    {availableModels.map((model) => {
+                      // 对于Guardian AI模型，显示特殊标记
+                      const isGuardianModel = model.id.startsWith('guardian') || model.id.endsWith('-browser');
+                      return (
+                        <option key={model.id} value={model.id}>
+                          {isGuardianModel 
+                            ? `[BROWSER] ${getShortName(model.name || model.id).toUpperCase()}`
+                            : getShortName(model.name || model.id).toUpperCase()
+                          }
+                        </option>
+                      );
+                    })}
                   </select>
                 </div>
                 <div>
