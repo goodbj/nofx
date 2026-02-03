@@ -49,7 +49,7 @@ docker-compose -f docker-compose.proxy.yml up --build
 USE_BINANCE_PROXY=true
 
 # 代理服务地址
-BINANCE_PROXY_URL=http://localhost:8081
+BINANCE_PROXY_URL=http://localhost:8082
 ```
 
 ### 3. 启动主程序
@@ -103,7 +103,7 @@ go run main.go
 ### 启用代理模式
 ```
 USE_BINANCE_PROXY=true
-BINANCE_PROXY_URL=http://localhost:8081
+BINANCE_PROXY_URL=http://localhost:8082
 ```
 
 ### 禁用代理模式（直接调用）

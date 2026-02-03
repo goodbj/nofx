@@ -1,20 +1,15 @@
-# 使用官方Go镜像作为运行环境
-FROM golang:1.25-alpine
+FROM alpine:latest
 
-# 安装git
-RUN apk add --no-cache git
+# 安装 ca-certificates
+RUN apk --no-cache add ca-certificates
 
-# 设置工作目录
-WORKDIR /app
+WORKDIR /root/
 
-# 复制源代码
-COPY . .
-
-# 构建应用
-RUN CGO_ENABLED=0 GOOS=linux go build -o binance-proxy .
+# 复制预构建的二进制文件
+COPY binance-proxy .
 
 # 暴露端口
-EXPOSE 8082
+EXPOSE 8081
 
-# 运行应用
+# 运行二进制文件
 CMD ["./binance-proxy"]

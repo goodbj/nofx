@@ -503,7 +503,7 @@ func (client *Client) call(systemPrompt, userPrompt string) (string, error) {
 	client.logger.Infof("📡 [%s] Request AI Server: BaseURL: %s", client.String(), client.BaseURL)
 	client.logger.Debugf("[%s] UseFullURL: %v", client.String(), client.UseFullURL)
 	if len(client.APIKey) > 8 {
-		client.logger.Debugf("[%s]   API Key: %s...%s", client.String(), client.APIKey[:4], client.APIKey[len(client.APIKey)-4:])
+		client.logger.Debugf("[%s]   API Key configured successfully", client.String())
 	}
 
 	// Validate BaseURL is not empty

@@ -1,0 +1,15 @@
+FROM alpine:latest
+
+# 安装 ca-certificates
+RUN apk --no-cache add ca-certificates
+
+WORKDIR /root/
+
+# 复制预构建的Linux二进制文件
+COPY binance-proxy-linux .
+
+# 暴露端口
+EXPOSE 8081
+
+# 运行二进制文件
+CMD ["./binance-proxy-linux"]

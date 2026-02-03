@@ -49,7 +49,7 @@ func (c *KimiClient) SetAPIKey(apiKey string, customURL string, customModel stri
 	c.APIKey = apiKey
 
 	if len(apiKey) > 8 {
-		c.logger.Infof("🔧 [MCP] Kimi API Key: %s...%s", apiKey[:4], apiKey[len(apiKey)-4:])
+		c.logger.Infof("🔧 [MCP] Kimi API Key configured successfully")
 	}
 	if customURL != "" {
 		c.BaseURL = customURL

@@ -13,10 +13,22 @@ import (
 	"github.com/gorilla/mux"
 )
 
+// 全局HTTP客户端以提高性能和复用连接
+var httpClient = &http.Client{
+	Timeout: 60 * time.Second,
+	Transport: &http.Transport{
+		MaxIdleConns:          100,
+		MaxIdleConnsPerHost:   10,
+		IdleConnTimeout:       90 * time.Second,
+		TLSHandshakeTimeout:   10 * time.Second,
+		ExpectContinueTimeout: 1 * time.Second,
+		DisableKeepAlives:     false,
+	},
+}
+
 // 从请求头获取目标API URL - 完全依赖nofx提供
 func getTargetAPIURL(r *http.Request) string {
 	customURL := r.Header.Get("X-Custom-API-URL")
-	log.Printf("📥 [PROXY-DEBUG] Incoming request from %s, X-Custom-API-URL header: '%s', Path: %s %s", r.RemoteAddr, customURL, r.Method, r.URL.Path)
 	return customURL
 }
 
@@ -26,7 +38,6 @@ func handleProxyRequest(w http.ResponseWriter, r *http.Request) {
 
 	if targetURL == "" {
 		http.Error(w, "Missing X-Custom-API-URL header", http.StatusBadRequest)
-		log.Printf("❌ Missing target URL in request from %s", r.RemoteAddr)
 		return
 	}
 
@@ -106,13 +117,9 @@ func forwardRequest(w http.ResponseWriter, r *http.Request, targetBaseURL string
 	req.Header.Del("Transfer-Encoding")
 	req.Header.Del("Upgrade")
 
-	// 创建HTTP客户端并发送请求
-	client := &http.Client{}
+	// 使用全局HTTP客户端以提高性能
 
-	// 记录请求信息（不包含敏感信息）
-	log.Printf("[PROXY] Forwarding %s request to %s", r.Method, redactURL(targetURL))
-
-	resp, err := client.Do(req)
+	resp, err := httpClient.Do(req)
 	if err != nil {
 		log.Printf("[ERROR] Proxy request failed: %v", err)
 		http.Error(w, "Error forwarding request", http.StatusBadGateway)

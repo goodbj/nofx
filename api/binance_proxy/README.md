@@ -1,67 +1,61 @@
-# Binance Proxy Service
+# 币安代理服务
 
-币安代理服务插件，专门负责绕过币安监管，从主程序获取连接参数，专门负责获取数据、发送数据和执行命令。
-
-## 架构设计
-
-### 核心组件
-
-1. **BinanceProxyService** - 代理服务核心，负责与币安API通信
-2. **DataProvider接口** - 定义数据提供者抽象接口
-3. **DirectDataProvider** - 直接数据提供者，使用原有实现
-4. **ProxyDataProvider** - 代理数据提供者，通过代理服务获取数据
-5. **NewDataProvider工厂函数** - 根据环境变量返回相应的数据提供者
-
-### 低耦合实现
-
-- 通过`DataProvider`接口实现数据获取的抽象
-- 主程序通过环境变量`USE_BINANCE_PROXY`控制是否启用代理模式
-- 环境变量`BINANCE_PROXY_URL`指定代理服务地址
+币安代理服务是一个独立的HTTP代理，用于转发币安期货API请求，绕过地区限制。
 
 ## 配置
 
+代理服务通过环境变量进行配置：
+
 ### 环境变量
 
-```bash
-# 启用代理模式
-USE_BINANCE_PROXY=true
+- `PORT`: 代理服务监听端口（默认: 8081）
+- `DEFAULT_TARGET_API_URL`: 默认目标API URL（默认: https://testnet.binancefuture.com）
+- `DEBUG`: 调试模式（默认: false）
 
-# 代理服务地址
-BINANCE_PROXY_URL=http://localhost:8081
-```
+### 配置文件
 
-### Docker部署
+可以使用 `.env` 文件来设置环境变量：
 
 ```bash
-# 构建并启动代理服务
-docker-compose -f docker-compose.proxy.yml up --build
+PORT=8081
+DEFAULT_TARGET_API_URL=https://testnet.binancefuture.com
+DEBUG=false
 ```
-
-## API端点
-
-- `GET /health` - 健康检查
-- `GET /api/proxy/balance` - 获取账户余额
-- `GET /api/proxy/positions` - 获取持仓信息
-- `GET /api/proxy/klines` - 获取K线数据
-- `GET /api/proxy/account` - 获取账户信息
-- `GET /api/proxy/trades` - 获取交易历史
-- `POST /api/proxy/orders` - 下单
-- `DELETE /api/proxy/orders` - 撤单
-- `GET /api/proxy/orders` - 获取订单
 
 ## 使用方法
 
-### 代理模式
+### 启动服务
 
-当`USE_BINANCE_PROXY=true`时，主程序通过HTTP请求调用代理服务获取币安数据。
+```bash
+# 直接运行
+go run *.go
 
-### 直接模式
+# 或构建后运行
+go build -o binance-proxy .
+./binance-proxy
+```
 
-当`USE_BINANCE_PROXY=false`时，主程序直接调用币安API（原有实现）。
+### API 使用
 
-## 优势
+代理服务支持所有币安期货API端点，例如：
 
-1. **解耦** - 主程序无需关心数据来源的具体实现
-2. **灵活性** - 可随时切换数据获取方式
-3. **可维护性** - 代理服务可以独立部署和扩展
-4. **安全性** - 币安API密钥可以在隔离环境中处理
+```
+# 虚拟盘请求
+GET http://localhost:8081/fapi/v1/time
+
+# 实盘请求（通过请求头指定目标URL）
+GET http://localhost:8081/fapi/v1/time
+Header: X-Custom-API-URL: https://fapi.binance.com
+```
+
+## Docker 部署
+
+```bash
+# 构建并运行
+docker build -t binance-proxy .
+docker run -p 8081:8081 binance-proxy
+```
+
+## 环境变量示例
+
+参见 `.env.example` 文件了解完整的配置选项。

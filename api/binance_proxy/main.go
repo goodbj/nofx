@@ -3,77 +3,54 @@ package main
 import (
 	"log"
 	"net/http"
-	"os"
+	"time"
 
-	"github.com/gin-gonic/gin"
+	"github.com/gorilla/mux"
 )
 
 func main() {
-	// 加载配置
+	// Create router
+	r := mux.NewRouter()
+
+	// Add health check endpoint
+	r.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("OK"))
+	}).Methods("GET")
+
+	// Add proxy endpoints for futures API
+	r.HandleFunc("/fapi/v2/balance", handleBalance).Methods("GET")
+	r.HandleFunc("/fapi/v2/account", handleAccount).Methods("GET")
+	r.HandleFunc("/fapi/v2/positionRisk", handlePositions).Methods("GET")
+	r.HandleFunc("/fapi/v1/order", handleOrder).Methods("POST", "DELETE", "GET")
+	r.HandleFunc("/fapi/v1/openOrders", handleOpenOrders).Methods("GET")
+	r.HandleFunc("/fapi/v1/allOrders", handleAllOrders).Methods("GET")
+	r.HandleFunc("/fapi/v1/ticker/price", handleTickerPrice).Methods("GET")
+	r.HandleFunc("/fapi/v1/ticker/bookTicker", handleBookTicker).Methods("GET")
+	r.HandleFunc("/fapi/v1/klines", handleKlines).Methods("GET")
+
+	// Add catch-all handler for any other endpoints
+	r.PathPrefix("/").HandlerFunc(handleGeneric)
+
+	// Load configuration
 	config := LoadConfig()
 
-	// 设置Gin模式
-	if os.Getenv("GIN_MODE") == "release" {
-		gin.SetMode(gin.ReleaseMode)
+	// Get port from configuration
+	port := config.Port
+
+	// Create HTTP server with timeout settings
+	server := &http.Server{
+		Addr:         ":" + port,
+		Handler:      r,
+		ReadTimeout:  30 * time.Second,
+		WriteTimeout: 60 * time.Second,
+		IdleTimeout:  60 * time.Second,
 	}
 
-	// 创建Gin引擎
-	r := gin.Default()
+	log.Printf("🚀 Binance Proxy Server starting on port %s", port)
+	log.Printf("📊 Health check available at: http://localhost:%s/health", port)
+	log.Printf("🔗 Default Target API URL: %s", defaultTargetAPIURL)
 
-	// 配置CORS
-	r.Use(func(c *gin.Context) {
-		c.Header("Access-Control-Allow-Origin", "*")
-		c.Header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-		c.Header("Access-Control-Allow-Headers", "X-API-Key, X-Secret-Key, X-Custom-API-URL, Content-Type, Authorization")
-
-		if c.Request.Method == "OPTIONS" {
-			c.AbortWithStatus(http.StatusOK)
-			return
-		}
-
-		c.Next()
-	})
-
-	// 初始化服务
-	service := NewBinanceProxyService()
-
-	// 注册路由
-	setupRoutes(r, service)
-
-	log.Printf("币安代理服务启动中，监听端口: %s", config.Port)
-	if err := r.Run(":" + config.Port); err != nil {
-		log.Fatalf("启动币安代理服务失败: %v", err)
-	}
-}
-
-// setupRoutes 设置路由
-func setupRoutes(r *gin.Engine, service *BinanceProxyService) {
-	// 健康检查
-	r.GET("/health", func(c *gin.Context) {
-		c.JSON(http.StatusOK, gin.H{"status": "ok", "service": "binance-proxy"})
-	})
-
-	// 代理API组
-	proxy := r.Group("/api/proxy")
-	{
-		// 获取账户余额
-		proxy.GET("/balance", service.GetBalance)
-
-		// 获取持仓信息
-		proxy.GET("/positions", service.GetPositions)
-
-		// 获取K线数据
-		proxy.GET("/klines", service.GetKlines)
-
-		// 订单管理
-		proxy.POST("/orders", service.PlaceOrder)
-		proxy.DELETE("/orders", service.CancelOrder)
-		proxy.GET("/orders", service.GetOrders)
-
-		// 获取账户信息
-		proxy.GET("/account", service.GetAccountInfo)
-
-		// 获取交易历史
-		proxy.GET("/trades", service.GetTrades)
-	}
+	// Start server
+	log.Fatal(server.ListenAndServe())
 }

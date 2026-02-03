@@ -1,17 +1,16 @@
-# docker/frontend/Dockerfile - Development Watch Mode
-# Supports hot reloading for frontend development
-
-# ═══════════════════════════════════════════════════════════════
-# NOFX Frontend Development Dockerfile (Hot Reload Mode)
-# Uses Vite development server instead of static nginx
-# ═══════════════════════════════════════════════════════════════
+# docker/frontend/Dockerfile - Development with Hot Reload
+# NOFX Frontend Dockerfile (Vite Development Server) - Development Watch Version
+# Runs Vite development server on port 3030 with hot reload capability
 
 ARG NODE_VERSION=20-alpine
 
 # ──────────────────────────────────────────────────────────────
 # Development Stage (Vite Dev Server)
 # ──────────────────────────────────────────────────────────────
-FROM node:${NODE_VERSION} AS dev
+FROM node:${NODE_VERSION} AS dev-server
+
+# 如果在开发环境中需要，可以设置npm使用国内镜像源
+RUN npm config set registry https://registry.npmmirror.com/
 
 WORKDIR /app
 
@@ -24,11 +23,11 @@ RUN npm ci
 # Copy source code
 COPY web/ ./
 
-# Expose port
-EXPOSE 5173
+# Install all dependencies including antd
+RUN npm install antd @ant-design/icons
 
-# Update npm to latest version
-RUN npm install -g npm@latest
+# Expose port 3030 for Vite dev server
+EXPOSE 3030
 
-# Start Vite development server with hot reload
-CMD ["npm", "run", "dev", "--", "--host", "0.0.0.0", "--port", "5173"]
+# Start Vite dev server with hot reload on port 3030
+CMD ["npm", "run", "dev", "--", "--host", "0.0.0.0", "--port", "3030"]

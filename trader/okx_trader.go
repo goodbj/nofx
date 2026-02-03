@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"net"
 	"net/http"
 	"nofx/logger"
 	"strconv"
@@ -106,11 +107,24 @@ func genOkxClOrdID() string {
 
 // NewOKXTrader creates OKX trader
 func NewOKXTrader(apiKey, secretKey, passphrase string) *OKXTrader {
-	// Use default transport which respects system proxy settings
-	// OKX requires proxy in China due to DNS pollution
+	// Enhance HTTP client with robust network configuration to handle network instability
+	// Use robust transport configuration similar to binance futures for better connectivity
+	transport := &http.Transport{
+		DialContext: (&net.Dialer{
+			Timeout:   30 * time.Second,
+			KeepAlive: 30 * time.Second,
+		}).DialContext,
+		TLSHandshakeTimeout:   30 * time.Second,
+		ResponseHeaderTimeout: 60 * time.Second,
+		ExpectContinueTimeout: 1 * time.Second,
+		MaxIdleConns:          100,
+		MaxIdleConnsPerHost:   10,
+		IdleConnTimeout:       90 * time.Second,
+	}
+
 	httpClient := &http.Client{
-		Timeout:   30 * time.Second,
-		Transport: http.DefaultTransport,
+		Timeout:   120 * time.Second, // Increased timeout
+		Transport: transport,
 	}
 
 	trader := &OKXTrader{

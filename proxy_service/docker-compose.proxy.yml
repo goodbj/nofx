@@ -1,0 +1,20 @@
+version: '3.8'
+
+services:
+  binance-proxy:
+    build:
+      context: ../api/binance_proxy
+      dockerfile: Dockerfile.simple
+    container_name: binance-proxy-service
+    ports:
+      - "${BINANCE_PROXY_PORT:-8081}:${BINANCE_PROXY_PORT:-8081}"
+    environment:
+      - PORT=${BINANCE_PROXY_PORT:-8081}
+      - DEFAULT_TARGET_API_URL=https://testnet.binancefuture.com
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:${BINANCE_PROXY_PORT:-8081}/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s

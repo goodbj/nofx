@@ -13,7 +13,7 @@
 在项目根目录运行以下命令来启动币安代理服务：
 
 ```bash
-docker-compose -f docker-compose.binance-proxy.yml up --build -d
+# REMOVED: binance-proxy service no longer exists in pure passthrough architecture
 ```
 
 这将：
@@ -30,7 +30,7 @@ docker-compose -f docker-compose.binance-proxy.yml up --build -d
 USE_BINANCE_PROXY=true
 
 # 代理服务地址（由于币安代理运行在Docker中，其他服务运行在宿主机上）
-BINANCE_PROXY_URL=http://localhost:8081
+BINANCE_PROXY_URL=http://localhost:8082
 
 # 后端API服务器端口
 NOFX_BACKEND_PORT=8888
@@ -99,7 +99,7 @@ docker ps
 
 ### 2. 检查币安代理服务日志
 ```bash
-docker logs binance-proxy
+# REMOVED: binance-proxy service no longer exists in pure passthrough architecture
 ```
 
 ### 3. 检查端口占用
@@ -122,7 +122,7 @@ USE_BINANCE_PROXY=false
 
 停止币安代理服务：
 ```bash
-docker-compose -f docker-compose.binance-proxy.yml down
+# REMOVED: binance-proxy service no longer exists in pure passthrough architecture
 ```
 
 停止后端服务：按 Ctrl+C

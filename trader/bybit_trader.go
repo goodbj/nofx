@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"net"
 	"net/http"
 	"nofx/logger"
 	"strconv"
@@ -49,17 +50,29 @@ func NewBybitTrader(apiKey, secretKey string) *BybitTrader {
 
 	client := bybit.NewBybitHttpClient(apiKey, secretKey, bybit.WithBaseURL(bybit.MAINNET))
 
-	// Set HTTP transport
+	// Set enhanced HTTP transport with robust network configuration
 	if client != nil && client.HTTPClient != nil {
-		defaultTransport := client.HTTPClient.Transport
-		if defaultTransport == nil {
-			defaultTransport = http.DefaultTransport
+		// Create robust transport configuration
+		transport := &http.Transport{
+			DialContext: (&net.Dialer{
+				Timeout:   30 * time.Second,
+				KeepAlive: 30 * time.Second,
+			}).DialContext,
+			TLSHandshakeTimeout:   30 * time.Second,
+			ResponseHeaderTimeout: 60 * time.Second,
+			ExpectContinueTimeout: 1 * time.Second,
+			MaxIdleConns:          100,
+			MaxIdleConnsPerHost:   10,
+			IdleConnTimeout:       90 * time.Second,
 		}
 
+		// Wrap with headerRoundTripper for Bybit-specific headers
 		client.HTTPClient.Transport = &headerRoundTripper{
-			base:      defaultTransport,
+			base:      transport,
 			refererID: src,
 		}
+		// Also increase the timeout for better network reliability
+		client.HTTPClient.Timeout = 120 * time.Second
 	}
 
 	trader := &BybitTrader{

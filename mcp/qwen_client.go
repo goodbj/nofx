@@ -63,7 +63,7 @@ func (qwenClient *QwenClient) SetAPIKey(apiKey string, customURL string, customM
 	qwenClient.APIKey = apiKey
 
 	if len(apiKey) > 8 {
-		qwenClient.logger.Infof("🔧 [MCP] Qwen API Key: %s...%s", apiKey[:4], apiKey[len(apiKey)-4:])
+		qwenClient.logger.Infof("🔧 [MCP] Qwen API Key configured successfully")
 	}
 	if customURL != "" {
 		qwenClient.BaseURL = customURL

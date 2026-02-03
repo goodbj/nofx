@@ -70,8 +70,8 @@ type Config struct {
 	TwelveDataKey   string // TwelveData API key for forex & metals
 }
 
-// Init initializes global configuration (from .env)
-func Init() {
+// LoadConfig 加载配置
+func LoadConfig() *Config {
 	cfg := &Config{
 		APIServerPort:         8080,
 		JWTExpirationDays:     7, // Default: 7 days for JWT token expiration
@@ -186,6 +186,7 @@ func Init() {
 			OutputTokens:  usage.CompletionTokens,
 		})
 	}
+	return cfg
 }
 
 // Load model token limits from environment variables
@@ -414,6 +415,11 @@ func loadModelPricing(cfg *Config) {
 			cfg.ModelPricing["ollama"] = pricing
 		}
 	}
+}
+
+// Init 初始化全局配置
+func Init() {
+	LoadConfig()
 }
 
 // Get returns the global configuration

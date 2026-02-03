@@ -1,0 +1,21 @@
+version: '3.8'
+
+services:
+  binance-proxy-service:
+    build:
+      context: .
+      dockerfile: Dockerfile.run
+    container_name: binance-proxy-service
+    ports:
+      - "8081:8082"
+    environment:
+      - PORT=8082
+      - GIN_MODE=release
+      - DEBUG=false
+    networks:
+      - nofx-network
+    restart: unless-stopped
+
+networks:
+  nofx-network:
+    driver: bridge

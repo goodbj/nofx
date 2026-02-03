@@ -57,9 +57,9 @@ COPY . .
 # Create air configuration
 RUN echo '[build]' > .air.toml && \
     echo '  bin = "./tmp/main"' >> .air.toml && \
-    echo '  cmd = "go build -o ./tmp/main ."' >> .air.toml && \
+    echo '  cmd = "go build -o ./tmp/main main.go"' >> .air.toml && \
     echo '  delay = 1000' >> .air.toml && \
-    echo '  exclude_dir = ["assets", "tmp", "vendor", "node_modules", "web"]' >> .air.toml && \
+    echo '  exclude_dir = ["assets", "tmp", "vendor", "node_modules", "web", "trader"]' >> .air.toml && \
     echo '  exclude_file = []' >> .air.toml && \
     echo '  exclude_regex = ["_test.go"]' >> .air.toml && \
     echo '  exclude_unchanged = false' >> .air.toml && \
