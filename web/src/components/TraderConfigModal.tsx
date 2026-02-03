@@ -276,6 +276,140 @@ export function TraderConfigModal({
                       );
                     })}
                   </select>
+                                  
+                  {/* API Bypass Toggle */}
+                  <div className="mt-3">
+                    <label className="flex items-center gap-2 text-sm text-[#EAECEF]">
+                      <input
+                        type="checkbox"
+                        checked={formData.ai_model.endsWith('-browser') || formData.ai_model === 'guardian-ai'}
+                        onChange={(e) => {
+                          // 如果启用了API绕过，切换到对应的-browser模型
+                          if (e.target.checked) {
+                            const browserModelMap: Record<string, string> = {
+                              'deepseek': 'deepseek-browser',
+                              'openai': 'chatgpt-browser',
+                              'claude': 'claude-browser',
+                              'qwen': 'qwen-browser',
+                              'gemini': 'gemini-browser',
+                              'grok': 'grok-browser',
+                              'kimi': 'kimi-browser',
+                              'ollama': 'ollama-browser',
+                              'guardian': 'guardian-ai',
+                              // 如果已经是-browser模型，保持不变
+                              'deepseek-browser': 'deepseek-browser',
+                              'chatgpt-browser': 'chatgpt-browser',
+                              'claude-browser': 'claude-browser',
+                              'qwen-browser': 'qwen-browser',
+                              'gemini-browser': 'gemini-browser',
+                              'grok-browser': 'grok-browser',
+                              'kimi-browser': 'kimi-browser',
+                              'ollama-browser': 'ollama-browser',
+                              'guardian-ai': 'guardian-ai',
+                            };
+                                          
+                            const mappedModel = browserModelMap[formData.ai_model] || formData.ai_model + '-browser';
+                            handleInputChange('ai_model', mappedModel);
+                          } else {
+                            // 如果禁用了API绕过，切换回标准模型
+                            if (formData.ai_model.endsWith('-browser')) {
+                              let standardModel = formData.ai_model.replace('-browser', '');
+                              if (standardModel === 'chatgpt') standardModel = 'openai';
+                              if (standardModel === 'guardian-ai') standardModel = 'guardian';
+                                            
+                              // 确保标准模型存在于可用模型中
+                              const isValidModel = availableModels.some(m => m.id === standardModel);
+                              if (isValidModel) {
+                                handleInputChange('ai_model', standardModel);
+                              }
+                            }
+                          }
+                        }}
+                        className="w-4 h-4 text-blue-600 bg-gray-100 border-gray-300 rounded focus:ring-blue-500 focus:ring-2"
+                      />
+                      <span>绕过API - 使用浏览器自动化</span>
+                    </label>
+                    <p className="text-xs text-[#848E9C] mt-1">
+                      启用后将使用浏览器自动化绕过API调用，节省API费用
+                    </p>
+                                  
+                    {/* Login Status Check and Setup Buttons */}
+                    {(formData.ai_model.endsWith('-browser') || formData.ai_model === 'guardian-ai') && (
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            try {
+                              const providerMap: Record<string, string> = {
+                                'deepseek-browser': 'deepseek-browser',
+                                'chatgpt-browser': 'chatgpt-browser',
+                                'claude-browser': 'claude-browser',
+                                'qwen-browser': 'qwen-browser',
+                                'gemini-browser': 'gemini-browser',
+                                'grok-browser': 'grok-browser',
+                                'kimi-browser': 'kimi-browser',
+                                'ollama-browser': 'ollama-browser',
+                                'guardian-ai': 'guardian-ai',
+                              };
+                                              
+                              const provider = providerMap[formData.ai_model] || formData.ai_model;
+                                              
+                              const result = await import('../api/guardian').then(mod => 
+                                mod.guardianAPI.checkLoginStatus({ provider })
+                              );
+                                              
+                              if (result.isLoggedIn) {
+                                alert('✅ 登录状态：已登录');
+                              } else {
+                                alert('❌ 登录状态：未登录，请先完成登录设置');
+                              }
+                            } catch (error) {
+                              console.error('检查登录状态失败:', error);
+                              alert('检查登录状态失败: ' + (error instanceof Error ? error.message : '未知错误'));
+                            }
+                          }}
+                          className="text-xs bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 rounded"
+                        >
+                          检查登录状态
+                        </button>
+                                        
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            try {
+                              // Import the guardian API and get the target URL
+                              const guardianModule = await import('../api/guardian');
+                              const targetUrl = guardianModule.guardianAPI.getTargetUrl(formData.ai_model);
+                        
+                              // 发起请求打开长时间保持的浏览器窗口，用于登录设置
+                              const response = await fetch('/api/open-guardian-browser', {
+                                method: 'POST',
+                                headers: {
+                                  'Content-Type': 'application/json',
+                                },
+                                body: JSON.stringify({
+                                  url: targetUrl
+                                })
+                              });
+                        
+                              if (!response.ok) {
+                                throw new Error(`HTTP error! status: ${response.status}`);
+                              }
+                        
+                              const data = await response.json();
+                              alert('浏览器窗口已打开，请完成登录设置操作');
+                            } catch (error) {
+                              console.error('打开浏览器失败:', error);
+                              alert('打开浏览器失败: ' + (error instanceof Error ? error.message : '未知错误'));
+                            }
+                          }}
+                          className="text-xs bg-green-600 hover:bg-green-700 text-white px-3 py-1 rounded"
+                        >
+                          设置浏览器
+                        </button>
+                      </div>
+                    )}
+                  </div>
                 </div>
                 <div>
                   <label className="text-sm text-[#EAECEF] block mb-2">

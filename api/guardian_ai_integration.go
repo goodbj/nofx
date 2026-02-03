@@ -14,11 +14,64 @@ func (s *Server) handleCallGuardianAI(c *gin.Context) {
 		Provider     string `json:"provider"` // AI provider (e.g., "deepseek-browser", "guardian-ai")
 		SystemPrompt string `json:"systemPrompt"`
 		UserPrompt   string `json:"userPrompt"`
-		TargetURL    string `json:"targetUrl,omitempty"` // Optional target URL for custom services
+		TargetURL    string `json:"targetUrl,omitempty"`  // Optional target URL for custom services
+		CheckLogin   bool   `json:"checkLogin,omitempty"` // Whether to check login status only
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request format"})
+		return
+	}
+
+	// If only checking login status
+	if req.CheckLogin {
+		// Determine the target URL based on provider if not provided
+		targetURL := req.TargetURL
+		if targetURL == "" {
+			switch req.Provider {
+			case "deepseek-browser", "deepseek":
+				targetURL = "https://chat.deepseek.com"
+			case "chatgpt-browser", "chatgpt":
+				targetURL = "https://chat.openai.com"
+			case "claude-browser", "claude":
+				targetURL = "https://claude.ai"
+			default:
+				targetURL = "https://chat.deepseek.com" // Default
+			}
+		}
+
+		// Create a temporary client to check login status
+		tempClient := mcp.NewGuardianClient()
+		if tempClient == nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create Guardian client"})
+			return
+		}
+
+		// Type assert to GuardianClient to access CheckLoginStatus method
+		guardianClient, ok := tempClient.(*mcp.GuardianClient)
+		if !ok {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to cast client to GuardianClient"})
+			return
+		}
+
+		isLoggedIn, err := guardianClient.CheckLoginStatus(targetURL)
+		if err != nil {
+			s.logger.Errorf("Error checking login status: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"success": false,
+				"error":   "Failed to check login status",
+				"details": err.Error(),
+			})
+			return
+		}
+
+		c.JSON(http.StatusOK, gin.H{
+			"success":     true,
+			"isLoggedIn":  isLoggedIn,
+			"provider":    req.Provider,
+			"targetUrl":   targetURL,
+			"description": "Login status check completed",
+		})
 		return
 	}
 
@@ -69,6 +122,67 @@ func (s *Server) handleCallGuardianAI(c *gin.Context) {
 		"success":  true,
 		"response": response,
 		"provider": req.Provider,
+	})
+}
+
+// handleCheckGuardianLoginStatus checks the login status for a given provider
+func (s *Server) handleCheckGuardianLoginStatus(c *gin.Context) {
+	var req struct {
+		Provider  string `json:"provider"`            // AI provider (e.g., "deepseek-browser", "guardian-ai")
+		TargetURL string `json:"targetUrl,omitempty"` // Optional target URL for custom services
+	}
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request format"})
+		return
+	}
+
+	// Determine the target URL based on provider if not provided
+	targetURL := req.TargetURL
+	if targetURL == "" {
+		switch req.Provider {
+		case "deepseek-browser", "deepseek":
+			targetURL = "https://chat.deepseek.com"
+		case "chatgpt-browser", "chatgpt":
+			targetURL = "https://chat.openai.com"
+		case "claude-browser", "claude":
+			targetURL = "https://claude.ai"
+		default:
+			targetURL = "https://chat.deepseek.com" // Default
+		}
+	}
+
+	// Create a temporary client to check login status
+	tempClient := mcp.NewGuardianClient()
+	if tempClient == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create Guardian client"})
+		return
+	}
+
+	// Type assert to GuardianClient to access CheckLoginStatus method
+	guardianClient, ok := tempClient.(*mcp.GuardianClient)
+	if !ok {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to cast client to GuardianClient"})
+		return
+	}
+
+	isLoggedIn, err := guardianClient.CheckLoginStatus(targetURL)
+	if err != nil {
+		s.logger.Errorf("Error checking login status: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"error":   "Failed to check login status",
+			"details": err.Error(),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success":     true,
+		"isLoggedIn":  isLoggedIn,
+		"provider":    req.Provider,
+		"targetUrl":   targetURL,
+		"description": "Login status check completed",
 	})
 }
 

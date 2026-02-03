@@ -1240,11 +1240,129 @@ func (gc *GuardianClient) SetAPIKey(apiKey string, customURL string, customModel
 	}
 }
 
-// OpenLongLivedBrowser 打开长生命周期的浏览器窗口
+// OpenLongLivedBrowser 打开长生命周期的浏览器窗口，用于首次登录设置
 func (gc *GuardianClient) OpenLongLivedBrowser(targetURL string) error {
 	// 启动浏览器自动化流程，但保持浏览器长时间打开
 	_, err := gc.performBrowserAutomationWithKeepAlive(targetURL)
 	return err
+}
+
+// CheckLoginStatus 检查目标AI服务的登录状态
+func (gc *GuardianClient) CheckLoginStatus(targetURL string) (bool, error) {
+	// 设置Chrome选项，启用用户数据目录以保持登录状态
+	opts := append(chromedp.DefaultExecAllocatorOptions[:],
+		chromedp.Flag("headless", false),             // 非无头模式以便观察
+		chromedp.Flag("disable-web-security", false), // 启用网络安全以支持正常网站功能
+		chromedp.Flag("disable-features", "VizDisplayCompositor"),
+		chromedp.Flag("no-sandbox", true),
+		chromedp.Flag("disable-dev-shm-usage", true),
+		chromedp.Flag("disable-gpu", false),                    // 启用GPU加速
+		chromedp.Flag("blink-settings", "imagesEnabled=true"),  // 启用图片加载以支持验证码等功能
+		chromedp.Flag("enable-automation", false),              // 防止被网站检测为自动化
+		chromedp.Flag("exclude-switches", "enable-automation"), // 排除自动化开关
+		chromedp.Flag("disable-extensions", false),             // 启用扩展
+		chromedp.Flag("disable-plugins-discovery", false),      // 启用插件发现
+		chromedp.Flag("incognito", false),                      // 不使用隐身模式
+		chromedp.Flag("user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"), // 设置正常用户代理
+		chromedp.Flag("disable-blink-features", "AutomationControlled"),                                                                                // 禁用自动化控制特征
+		chromedp.Flag("renderer-process-limit", "1"),
+		chromedp.Flag("max_old_space_size", "4096"),
+		chromedp.Flag("no-first-run", "true"),
+		chromedp.Flag("no-default-browser-check", "true"),
+		chromedp.Flag("window-size", "1000,850"),                  // 设置浏览器窗口尺寸为1000x850
+		chromedp.Flag("user-data-dir", "./guardian_browser_data"), // 设置用户数据目录以保存登录状态
+		chromedp.Flag("profile-directory", "Default"),             // 使用默认配置文件
+	)
+
+	allocCtx, cancel := chromedp.NewExecAllocator(context.Background(), opts...)
+	defer cancel()
+
+	// 创建chrome实例上下文
+	ctx, cancel := chromedp.NewContext(allocCtx)
+	defer cancel()
+
+	// 设置较短的超时时间用于登录检查
+	ctx, timeoutCancel := context.WithTimeout(ctx, 10*time.Second)
+	defer timeoutCancel()
+
+	// 访问目标URL
+	if !strings.HasPrefix(targetURL, "http") {
+		targetURL = "https://" + targetURL
+	}
+
+	gc.logger.Printf("🌐 Checking login status at URL: %s", targetURL)
+
+	// 导航到目标页面并检查登录状态
+	var isLoggedIn bool
+	err := chromedp.Run(ctx,
+		network.Enable(),
+		chromedp.Navigate(targetURL),
+		chromedp.Sleep(3*time.Second), // 等待页面加载
+		chromedp.Evaluate(`(() => {
+			// 检查是否存在登录相关的元素（如登录按钮、用户名显示等）
+			const loginIndicators = [
+				'button:contains("Login")',
+				'button:contains("Sign in")',
+				'a:contains("Login")',
+				'a:contains("Sign in")',
+				'[href*="login"]',
+				'[href*="signin"]',
+				'#login',
+				'.login-form',
+				'.auth-form'
+			];
+			
+			// 检查是否已登录（通常表现为用户头像、用户名等元素）
+			const loggedInIndicators = [
+				'[data-testid="user-menu"]',
+				'.user-avatar',
+				'.username',
+				'.account-menu',
+				'#avatar',
+				'.profile-image',
+				'[title="Logout"]',
+				'[aria-label="User menu"]'
+			];
+			
+			// 检查登录指示器
+			for (let selector of loggedInIndicators) {
+				if (document.querySelector(selector)) {
+					return true; // 发现已登录指示器
+				}
+			}
+			
+			// 检查未登录指示器
+			for (let selector of loginIndicators) {
+				if (document.querySelector(selector)) {
+					return false; // 发现未登录指示器
+				}
+			}
+			
+			// 如果没有明确的登录/未登录指示器，检查是否有输入框（通常未登录页面不会有主要输入框）
+			const inputBox = document.querySelector('textarea[placeholder*="message"], textarea[placeholder*="input"], input[type="text"]');
+			if (inputBox) {
+				// 如果有输入框，可能是已登录状态
+				return true;
+			}
+			
+			// 默认返回假定未登录
+			return false;
+		})()`, &isLoggedIn),
+	)
+
+	if err != nil {
+		// 如果评估失败，假设未登录
+		gc.logger.Printf("⚠️ Error checking login status: %v, assuming not logged in", err)
+		return false, nil
+	}
+
+	if isLoggedIn {
+		gc.logger.Println("✅ User appears to be logged in")
+	} else {
+		gc.logger.Println("❌ User appears to be not logged in")
+	}
+
+	return isLoggedIn, nil
 }
 
 // performBrowserAutomationWithKeepAlive 类似于performBrowserAutomation，但保持浏览器长时间打开
@@ -1619,6 +1737,7 @@ func (gc *GuardianClient) cleanAndDecodeContent(content string) string {
 	// 保护特殊的非HTML标签：reasoning 和 decision（这些是AI输出的结构化标记）
 	reasoningRegex := regexp.MustCompile(`(?s)<reasoning>(.*?)</reasoning>`)
 	decisionRegex := regexp.MustCompile(`(?s)<decision>(.*?)</decision>`)
+	jsonArrayRegex := regexp.MustCompile(`\[(\s*\{[^}]+\}\s*,?)+\s*\]`) // 匹配JSON数组格式
 
 	placeholderMap := make(map[string]string)
 
@@ -1635,6 +1754,14 @@ func (gc *GuardianClient) cleanAndDecodeContent(content string) string {
 	decisionMatches := decisionRegex.FindAllString(protectedContent, -1)
 	for i, match := range decisionMatches {
 		placeholder := fmt.Sprintf("<<DECISION_PLACEHOLDER_%d>>", i)
+		placeholderMap[placeholder] = match
+		protectedContent = strings.Replace(protectedContent, match, placeholder, 1)
+	}
+
+	// 保护JSON数组格式
+	jsonMatches := jsonArrayRegex.FindAllString(protectedContent, -1)
+	for i, match := range jsonMatches {
+		placeholder := fmt.Sprintf("<<JSON_ARRAY_PLACEHOLDER_%d>>", i)
 		placeholderMap[placeholder] = match
 		protectedContent = strings.Replace(protectedContent, match, placeholder, 1)
 	}
@@ -1657,6 +1784,8 @@ func (gc *GuardianClient) cleanAndDecodeContent(content string) string {
 	cleaned = strings.ReplaceAll(cleaned, "&amp;", "&")
 	cleaned = strings.ReplaceAll(cleaned, "&quot;", "\"")
 	cleaned = strings.ReplaceAll(cleaned, "&#39;", "'")
+	cleaned = strings.ReplaceAll(cleaned, "&#x27;", "'")
+	cleaned = strings.ReplaceAll(cleaned, "&#x2F;", "/")
 
 	// 恢复受保护的内容
 	for placeholder, original := range placeholderMap {

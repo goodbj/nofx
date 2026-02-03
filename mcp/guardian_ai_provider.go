@@ -100,6 +100,7 @@ func (g *GuardianAIProvider) SetDynamicService(serviceType string, targetURL str
 			"textarea[aria-label='Chat text input']",
 			"#chat-input",
 			"[data-testid='chat-input']",
+			"div[contenteditable='true'][tabindex='0']",
 		}
 
 		g.SubmitSelectors = []string{
@@ -107,6 +108,7 @@ func (g *GuardianAIProvider) SetDynamicService(serviceType string, targetURL str
 			"button.send-button",
 			"button[aria-label='Send']",
 			".send-btn",
+			"button[data-testid='send-button'] div",
 		}
 
 		g.ResponseSelectors = []string{
@@ -114,7 +116,39 @@ func (g *GuardianAIProvider) SetDynamicService(serviceType string, targetURL str
 			"div[data-testid='response-container']",
 			"div.message-response",
 			".chat-message-content",
-			"div.markdown-body",
+			"div.markdown.prose",
+			"pre",
+			"code",
+		}
+	case "claude":
+		g.InputSelectors = []string{
+			"div[data-testid='composer']",
+			"textarea[placeholder*='Message']",
+			"textarea[aria-label='Message']",
+			"div.ProseMirror[contenteditable='true']",
+			"div[role='textbox']",
+			"textarea[placeholder='Message']",
+			"div[contenteditable='true'][data-placeholder]",
+		}
+
+		g.SubmitSelectors = []string{
+			"button[data-testid='send-button']",
+			"button[aria-label='Send message']",
+			"button[type='submit']",
+			"div[data-testid='send-button']",
+			"button.send-button",
+			"button[data-action-button='true']",
+			"button[aria-label='Send']",
+		}
+
+		g.ResponseSelectors = []string{
+			"div[data-testid='message-content']",
+			"div[data-is-streaming='false']",
+			"div.markdown.prose",
+			"pre",
+			"code",
+			"div.group.flex",
+			"div.ml-composer-response",
 		}
 		// Add more cases for other services as needed
 	}

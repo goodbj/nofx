@@ -18,6 +18,7 @@ type Page =
   | 'test'
   | 'tools'
   | 'guardian-test'
+  | 'guardian-setup'
   | 'login'
   | 'register'
 
@@ -344,6 +345,7 @@ export default function HeaderBar({
                     { page: 'faq', path: '/faq', label: t('faqNav', language), requiresAuth: false },
                     { page: 'test', path: '/test', label: t('testCodeNav', language), requiresAuth: true },
                     { page: 'guardian-test', path: '/guardian-test', label: 'Guardian测试', requiresAuth: true },
+                    { page: 'guardian-setup', path: '/guardian-setup', label: 'Guardian设置', requiresAuth: true },
                   ]
 
                   const handleMobileNavClick = (tab: typeof navTabs[0]) => {

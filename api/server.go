@@ -273,14 +273,8 @@ func (s *Server) setupRoutes() {
 			protected.POST("/test/submit-ai-decision", s.handleSubmitAIDecision)     // 🔥 提交AI决策JSON（手动粘贴）
 			protected.POST("/test/get-scan-data", s.handleGetScanData)               // 🔥 获取手动扫描数据（在AI调用前截断）
 
-			// Guardian test endpoints
-			api.POST("/test-guardian", s.handleTestGuardian)
-			api.POST("/test-guardian-analysis", s.handleTestGuardianAnalysis)
-			api.POST("/open-guardian-browser", s.handleOpenGuardianBrowser)
-
-			// Guardian AI endpoints for traders page integration
-			api.GET("/guardian/providers", s.handleListGuardianProviders)
-			api.POST("/guardian/call", s.handleCallGuardianAI)
+			// Register Guardian-related routes
+			s.registerGuardianRoutes(api)
 
 			// Backtest routes
 			backtest := protected.Group("/backtest")

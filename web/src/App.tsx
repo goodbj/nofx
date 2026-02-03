@@ -27,6 +27,7 @@ import { OFFICIAL_LINKS } from './constants/branding'
 import { BacktestPage } from './components/BacktestPage'
 import { ToolsPage } from './pages/ToolsPage';
 import GuardianTestPage from './pages/GuardianTestPage';
+import GuardianSetupPage from './pages/GuardianSetupPage';
 import type {
   SystemStatus,
   AccountInfo,
@@ -49,6 +50,7 @@ type Page =
   | 'test'
   | 'tools'
   | 'guardian-test'
+  | 'guardian-setup'
   | 'login'
   | 'register'
 
@@ -104,6 +106,7 @@ function App() {
       'test': '/test',
       'tools': '/tools',
       'guardian-test': '/guardian-test',
+      'guardian-setup': '/guardian-setup',
       'login': '/login',
       'register': '/register',
     }
@@ -180,6 +183,8 @@ function App() {
         setCurrentPage('tools')
       } else if (path === '/guardian-test') {
         setCurrentPage('guardian-test')
+      } else if (path === '/guardian-setup') {
+        setCurrentPage('guardian-setup')
       } else if (
         path === '/competition' ||
         hash === 'competition' ||
@@ -497,6 +502,8 @@ function App() {
               <ToolsPage />
             ) : currentPage === 'guardian-test' ? (
               <GuardianTestPage />
+            ) : currentPage === 'guardian-setup' ? (
+              <GuardianSetupPage />
             ) : (
               <TraderDashboardPage
                 selectedTrader={selectedTrader}

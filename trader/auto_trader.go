@@ -211,62 +211,166 @@ func NewAutoTrader(config AutoTraderConfig, st *store.Store, userID string) (*Au
 
 	switch aiModel {
 	case "claude":
+		// Check if bypass is enabled via custom configuration
+		bypassEnabled := config.CustomModelName == "bypass" || strings.Contains(strings.ToLower(config.CustomAPIURL), "bypass")
 		mcpClient = mcp.NewClaudeClient()
-		mcpClient.SetAPIKey(config.CustomAPIKey, config.CustomAPIURL, config.CustomModelName)
-		logger.Infof("🤖 [%s] Using Claude AI", config.Name)
+		if bypassEnabled {
+			mcpClient = mcp.NewBypassClient(mcpClient, true, "claude-browser")
+			logger.Infof("🤖 [%s] Using CLAUDE with Browser Automation Bypass", config.Name)
+		} else {
+			mcpClient.SetAPIKey(config.CustomAPIKey, config.CustomAPIURL, config.CustomModelName)
+			logger.Infof("🤖 [%s] Using Claude AI", config.Name)
+		}
 
 	case "kimi":
+		// Check if bypass is enabled via custom configuration
+		bypassEnabled := config.CustomModelName == "bypass" || strings.Contains(strings.ToLower(config.CustomAPIURL), "bypass")
 		mcpClient = mcp.NewKimiClient()
-		mcpClient.SetAPIKey(config.CustomAPIKey, config.CustomAPIURL, config.CustomModelName)
-		logger.Infof("🤖 [%s] Using Kimi (Moonshot) AI", config.Name)
+		if bypassEnabled {
+			mcpClient = mcp.NewBypassClient(mcpClient, true, "kimi-browser") // Assuming we'd create this provider
+			logger.Infof("🤖 [%s] Using KIMI with Browser Automation Bypass", config.Name)
+		} else {
+			mcpClient.SetAPIKey(config.CustomAPIKey, config.CustomAPIURL, config.CustomModelName)
+			logger.Infof("🤖 [%s] Using Kimi (Moonshot) AI", config.Name)
+		}
 
 	case "gemini":
+		// Check if bypass is enabled via custom configuration
+		bypassEnabled := config.CustomModelName == "bypass" || strings.Contains(strings.ToLower(config.CustomAPIURL), "bypass")
 		mcpClient = mcp.NewGeminiClient()
-		mcpClient.SetAPIKey(config.CustomAPIKey, config.CustomAPIURL, config.CustomModelName)
-		logger.Infof("🤖 [%s] Using Google Gemini AI", config.Name)
+		if bypassEnabled {
+			mcpClient = mcp.NewBypassClient(mcpClient, true, "gemini-browser") // Assuming we'd create this provider
+			logger.Infof("🤖 [%s] Using GEMINI with Browser Automation Bypass", config.Name)
+		} else {
+			mcpClient.SetAPIKey(config.CustomAPIKey, config.CustomAPIURL, config.CustomModelName)
+			logger.Infof("🤖 [%s] Using Google Gemini AI", config.Name)
+		}
 
 	case "grok":
+		// Check if bypass is enabled via custom configuration
+		bypassEnabled := config.CustomModelName == "bypass" || strings.Contains(strings.ToLower(config.CustomAPIURL), "bypass")
 		mcpClient = mcp.NewGrokClient()
-		mcpClient.SetAPIKey(config.CustomAPIKey, config.CustomAPIURL, config.CustomModelName)
-		logger.Infof("🤖 [%s] Using xAI Grok AI", config.Name)
+		if bypassEnabled {
+			mcpClient = mcp.NewBypassClient(mcpClient, true, "grok-browser") // Assuming we'd create this provider
+			logger.Infof("🤖 [%s] Using GROK with Browser Automation Bypass", config.Name)
+		} else {
+			mcpClient.SetAPIKey(config.CustomAPIKey, config.CustomAPIURL, config.CustomModelName)
+			logger.Infof("🤖 [%s] Using xAI Grok AI", config.Name)
+		}
 
 	case "openai":
+		// Check if bypass is enabled via custom configuration
+		bypassEnabled := config.CustomModelName == "bypass" || strings.Contains(strings.ToLower(config.CustomAPIURL), "bypass")
 		mcpClient = mcp.NewOpenAIClient()
-		mcpClient.SetAPIKey(config.CustomAPIKey, config.CustomAPIURL, config.CustomModelName)
-		logger.Infof("🤖 [%s] Using OpenAI", config.Name)
+		if bypassEnabled {
+			mcpClient = mcp.NewBypassClient(mcpClient, true, "chatgpt-browser")
+			logger.Infof("🤖 [%s] Using OPENAI with Browser Automation Bypass", config.Name)
+		} else {
+			mcpClient.SetAPIKey(config.CustomAPIKey, config.CustomAPIURL, config.CustomModelName)
+			logger.Infof("🤖 [%s] Using OpenAI", config.Name)
+		}
 
 	case "qwen":
+		// Check if bypass is enabled via custom configuration
+		bypassEnabled := config.CustomModelName == "bypass" || strings.Contains(strings.ToLower(config.CustomAPIURL), "bypass")
 		mcpClient = mcp.NewQwenClient()
-		apiKey := config.QwenKey
-		if apiKey == "" {
-			apiKey = config.CustomAPIKey
+		if bypassEnabled {
+			mcpClient = mcp.NewBypassClient(mcpClient, true, "qwen-browser") // Assuming we'd create this provider
+			logger.Infof("🤖 [%s] Using QWEN with Browser Automation Bypass", config.Name)
+		} else {
+			apiKey := config.QwenKey
+			if apiKey == "" {
+				apiKey = config.CustomAPIKey
+			}
+			mcpClient.SetAPIKey(apiKey, config.CustomAPIURL, config.CustomModelName)
+			logger.Infof("🤖 [%s] Using Alibaba Cloud Qwen AI", config.Name)
 		}
-		mcpClient.SetAPIKey(apiKey, config.CustomAPIURL, config.CustomModelName)
-		logger.Infof("🤖 [%s] Using Alibaba Cloud Qwen AI", config.Name)
 
 	case "custom":
+		// Check if bypass is enabled via custom configuration
+		bypassEnabled := config.CustomModelName == "bypass" || strings.Contains(strings.ToLower(config.CustomAPIURL), "bypass")
 		mcpClient = mcp.New()
-		mcpClient.SetAPIKey(config.CustomAPIKey, config.CustomAPIURL, config.CustomModelName)
-		logger.Infof("🤖 [%s] Using custom AI API: %s (model: %s)", config.Name, config.CustomAPIURL, config.CustomModelName)
+		if bypassEnabled {
+			// For custom models, we'll use guardian-ai as the default browser provider
+			mcpClient = mcp.NewBypassClient(mcpClient, true, "guardian-ai")
+			logger.Infof("🤖 [%s] Using CUSTOM with Browser Automation Bypass", config.Name)
+		} else {
+			mcpClient.SetAPIKey(config.CustomAPIKey, config.CustomAPIURL, config.CustomModelName)
+			logger.Infof("🤖 [%s] Using custom AI API: %s (model: %s)", config.Name, config.CustomAPIURL, config.CustomModelName)
+		}
 
 	case "ollama":
+		// Check if bypass is enabled via custom configuration
+		bypassEnabled := config.CustomModelName == "bypass" || strings.Contains(strings.ToLower(config.CustomAPIURL), "bypass")
 		mcpClient = mcp.NewOllamaClient()
-		// Ollama typically doesn't need an API key, but we'll use it if provided
-		apiKey := config.CustomAPIKey
-		if apiKey == "" {
-			apiKey = "ollama" // Default API key for Ollama if not provided
+		if bypassEnabled {
+			mcpClient = mcp.NewBypassClient(mcpClient, true, "ollama-browser") // Assuming we'd create this provider
+			logger.Infof("🤖 [%s] Using OLLAMA with Browser Automation Bypass", config.Name)
+		} else {
+			// Ollama typically doesn't need an API key, but we'll use it if provided
+			apiKey := config.CustomAPIKey
+			if apiKey == "" {
+				apiKey = "ollama" // Default API key for Ollama if not provided
+			}
+			mcpClient.SetAPIKey(apiKey, config.CustomAPIURL, config.CustomModelName)
+			logger.Infof("🤖 [%s] Using Ollama AI: %s (model: %s)", config.Name, config.CustomAPIURL, config.CustomModelName)
 		}
-		mcpClient.SetAPIKey(apiKey, config.CustomAPIURL, config.CustomModelName)
-		logger.Infof("🤖 [%s] Using Ollama AI: %s (model: %s)", config.Name, config.CustomAPIURL, config.CustomModelName)
 
 	case "guardian":
+		// Check if bypass is enabled via custom configuration
+		bypassEnabled := config.CustomModelName == "bypass" || strings.Contains(strings.ToLower(config.CustomAPIURL), "bypass")
 		mcpClient = mcp.NewGuardianClient()
-		if config.CustomAPIURL != "" {
-			if guardianClient, ok := mcpClient.(*mcp.GuardianClient); ok {
-				guardianClient.SetDynamicConfig(config.CustomAPIURL)
+		if bypassEnabled {
+			mcpClient = mcp.NewBypassClient(mcpClient, true, "guardian-ai")
+			logger.Infof("🤖 [%s] Using GUARDIAN with Browser Automation Bypass", config.Name)
+		} else {
+			if config.CustomAPIURL != "" {
+				if guardianClient, ok := mcpClient.(*mcp.GuardianClient); ok {
+					guardianClient.SetDynamicConfig(config.CustomAPIURL)
+				}
 			}
+			logger.Infof("🤖 [%s] Using Guardian AI", config.Name)
 		}
-		logger.Infof("🤖 [%s] Using Guardian AI", config.Name)
+
+	case "deepseek-browser":
+		// Create DeepSeek client with browser automation bypass
+		baseClient := mcp.NewDeepSeekClient()
+		mcpClient = mcp.NewBypassClient(baseClient, true, "deepseek-browser")
+		logger.Infof("🤖 [%s] Using DeepSeek with Browser Automation Bypass", config.Name)
+
+	case "chatgpt-browser":
+		// Create OpenAI client with browser automation bypass
+		baseClient := mcp.NewOpenAIClient()
+		mcpClient = mcp.NewBypassClient(baseClient, true, "chatgpt-browser")
+		logger.Infof("🤖 [%s] Using ChatGPT with Browser Automation Bypass", config.Name)
+
+	case "claude-browser":
+		// Create Claude client with browser automation bypass
+		baseClient := mcp.NewClaudeClient()
+		mcpClient = mcp.NewBypassClient(baseClient, true, "claude-browser")
+		logger.Infof("🤖 [%s] Using Claude with Browser Automation Bypass", config.Name)
+
+	case "guardian-ai":
+		// Create Guardian client with browser automation bypass
+		baseClient := mcp.NewGuardianClient()
+		mcpClient = mcp.NewBypassClient(baseClient, true, "guardian-ai")
+		logger.Infof("🤖 [%s] Using Guardian AI with Browser Automation Bypass", config.Name)
+
+	case "deepseek":
+		// Check if bypass is enabled via custom configuration
+		bypassEnabled := config.CustomModelName == "bypass" || strings.Contains(strings.ToLower(config.CustomAPIURL), "bypass")
+		mcpClient = mcp.NewDeepSeekClient()
+		if bypassEnabled {
+			mcpClient = mcp.NewBypassClient(mcpClient, true, "deepseek-browser")
+			logger.Infof("🤖 [%s] Using DEEPSEEK with Browser Automation Bypass", config.Name)
+		} else {
+			apiKey := config.DeepSeekKey
+			if apiKey == "" {
+				apiKey = config.CustomAPIKey
+			}
+			mcpClient.SetAPIKey(apiKey, config.CustomAPIURL, config.CustomModelName)
+			logger.Infof("🤖 [%s] Using DEEPSEEK with Standard API", config.Name)
+		}
 
 	default: // deepseek or empty
 		mcpClient = mcp.NewDeepSeekClient()

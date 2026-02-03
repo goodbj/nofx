@@ -210,6 +210,7 @@ func (gc *GuardianClient) cleanAndDecodeContent(content string) string {
 	// 保护特殊的非HTML标签：reasoning 和 decision（这些是AI输出的结构化标记）
 	reasoningRegex := regexp.MustCompile(`(?s)<reasoning>(.*?)</reasoning>`)
 	decisionRegex := regexp.MustCompile(`(?s)<decision>(.*?)</decision>`)
+	jsonArrayRegex := regexp.MustCompile(`\[(\s*\{[^}]+\}\s*,?)+\s*\]`) // 匹配JSON数组格式
 
 	placeholderMap := make(map[string]string)
 
@@ -226,6 +227,14 @@ func (gc *GuardianClient) cleanAndDecodeContent(content string) string {
 	decisionMatches := decisionRegex.FindAllString(protectedContent, -1)
 	for i, match := range decisionMatches {
 		placeholder := fmt.Sprintf("<<DECISION_PLACEHOLDER_%d>>", i)
+		placeholderMap[placeholder] = match
+		protectedContent = strings.Replace(protectedContent, match, placeholder, 1)
+	}
+
+	// 保护JSON数组格式
+	jsonMatches := jsonArrayRegex.FindAllString(protectedContent, -1)
+	for i, match := range jsonMatches {
+		placeholder := fmt.Sprintf("<<JSON_ARRAY_PLACEHOLDER_%d>>", i)
 		placeholderMap[placeholder] = match
 		protectedContent = strings.Replace(protectedContent, match, placeholder, 1)
 	}
@@ -248,6 +257,8 @@ func (gc *GuardianClient) cleanAndDecodeContent(content string) string {
 	cleaned = strings.ReplaceAll(cleaned, "&amp;", "&")
 	cleaned = strings.ReplaceAll(cleaned, "&quot;", "\"")
 	cleaned = strings.ReplaceAll(cleaned, "&#39;", "'")
+	cleaned = strings.ReplaceAll(cleaned, "&#x27;", "'")
+	cleaned = strings.ReplaceAll(cleaned, "&#x2F;", "/")
 
 	// 恢复受保护的内容
 	for placeholder, original := range placeholderMap {

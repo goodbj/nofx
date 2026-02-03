@@ -684,9 +684,18 @@ export function AITradersPage({ onTraderSelect }: AITradersPageProps) {
               : m
           ) || []
       } else {
-        // 添加新配置
+        // 添加新配置 - 如果ID已存在，生成唯一ID
+        let newModelId = modelId;
+        let counter = 1;
+        // 检查ID是否已存在，如果存在则生成唯一ID
+        while (allModels?.some(m => m.id === newModelId)) {
+          newModelId = `${modelId}_${counter}`;
+          counter++;
+        }
+        
         const newModel = {
           ...modelToUpdate,
+          id: newModelId, // 使用唯一ID
           apiKey,
           customApiUrl: customApiUrl || '',
           customModelName: customModelName || '',
@@ -698,7 +707,7 @@ export function AITradersPage({ onTraderSelect }: AITradersPageProps) {
       const request = {
         models: Object.fromEntries(
           updatedModels.map((model) => [
-            model.provider, // 使用 provider 而不是 id
+            model.id, // 使用模型ID作为键，而不是provider
             {
               enabled: model.enabled,
               api_key: model.apiKey || '',
