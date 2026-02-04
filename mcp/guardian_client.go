@@ -1590,11 +1590,10 @@ func (gc *GuardianClient) waitForAndValidateOutput(ctx context.Context) (string,
 					// 复制AI输出内容后输出日志
 					gc.logger.Printf("📋 AI output copied, content length: %d", len(extractedContent))
 
-					// 清理和解码内容
-					cleanedContent := gc.cleanAndDecodeContent(extractedContent)
-					gc.logger.Printf("🧹 Content cleaned and decoded, final length: %d", len(cleanedContent))
+					// 现在extractAIOutputContent已经返回纯净内容，不需要再次清理
+					gc.logger.Printf("📋 Content extracted, final length: %d", len(extractedContent))
 
-					return cleanedContent, nil // 找到关键字并提取内容，返回成功
+					return extractedContent, nil // 找到关键字并提取内容，返回成功
 				} else if containsAIMessage {
 					// 发现AI消息内容，但尚未完成，继续等待完成标志
 					gc.logger.Println("💬 ds-message _63c77b1 detected, AI is generating content...")
@@ -1610,7 +1609,77 @@ func (gc *GuardianClient) waitForAndValidateOutput(ctx context.Context) (string,
 }
 
 // 从包含 ds-flex _0a3d93b 或 ds-message _63c77b1 的HTML容器中提取AI输出内容
+// clickCopyButton 尝试点击AI输出区域的复制按钮
+func (gc *GuardianClient) clickCopyButton(ctx context.Context) error {
+	// 尝试查找并点击复制按钮
+	selectors := []string{
+		"div.db183363.ds-icon-button.ds-icon-button--m.ds-icon-button--sizing-container", // 使用您提供的具体类名组合（实际是div）
+		"div.ds-icon-button.db183363",                                              // 您提供的具体类名
+		"div.ds-icon-button.ds-icon-button--m.ds-icon-button--sizing-container",    // 通用复制按钮类名
+		"button.ds-icon-button.db183363",                                           // 备选：button形式的复制按钮
+		"button.ds-icon-button.ds-icon-button--m.ds-icon-button--sizing-container", // 备选：button形式的通用复制按钮
+		"[class*='ds-icon-button'][class*='copy']",                                 // 包含copy的按钮
+		"svg[class*='copy']",                                                       // 复制图标
+		"[aria-label*='copy'], [title*='copy']",                                    // 带有复制标签的元素
+	}
+
+	for _, selector := range selectors {
+		gc.logger.Printf("🔍 Attempting to click copy button with selector: %s", selector)
+
+		err := chromedp.Run(ctx,
+			chromedp.Click(selector, chromedp.ByQuery),
+		)
+		if err == nil {
+			gc.logger.Printf("✅ Successfully clicked copy button with selector: %s", selector)
+			time.Sleep(500 * time.Millisecond) // 等待复制操作完成
+			return nil
+		} else {
+			gc.logger.Printf("⚠️  Copy button click failed for selector '%s': %v", selector, err)
+		}
+	}
+
+	// 如果按选择器查找失败，尝试使用JavaScript查找
+	var buttonFound bool
+	err := chromedp.Run(ctx,
+		chromedp.Evaluate(`(() => {
+			// 查找具有特定类名的复制按钮
+			const buttons = document.querySelectorAll('div.ds-icon-button, button.ds-icon-button, .ds-icon-button--m, .ds-icon-button--sizing-container, .db183363');
+			for (let button of buttons) {
+				// 检查按钮是否看起来像复制按钮
+				if (button.classList.contains('ds-icon-button') && 
+				    (button.querySelector('svg') || button.classList.contains('db183363') || button.innerHTML.toLowerCase().includes('copy'))) {
+					button.click();
+					return true; // 成功点击
+				}
+			}
+			return false; // 没有找到合适的按钮
+		})()`, &buttonFound),
+	)
+
+	if err == nil && buttonFound {
+		gc.logger.Printf("✅ Successfully clicked copy button via JavaScript")
+		time.Sleep(500 * time.Millisecond) // 等待复制操作完成
+		return nil
+	}
+
+	gc.logger.Printf("❌ Failed to click copy button via any method")
+	return fmt.Errorf("failed to click copy button")
+}
+
 func (gc *GuardianClient) extractAIOutputContent(ctx context.Context) (string, error) {
+	// 首先尝试点击复制按钮
+	copyErr := gc.clickCopyButton(ctx)
+	if copyErr == nil {
+		gc.logger.Printf("✅ Copy button clicked successfully, waiting for content to be ready")
+		// 点击复制按钮后等待一点时间，让页面响应
+		time.Sleep(1 * time.Second)
+		// 即使点击了复制按钮，我们仍然需要获取页面上的内容
+		// 复制按钮通常不会改变页面上的内容，只是将内容放入剪贴板
+	}
+
+	// 无论复制按钮是否成功，我们都继续获取页面内容
+	gc.logger.Printf("ℹ️  Proceeding to extract content from page")
+
 	var aiContent string
 
 	// 优先尝试获取完整的 ds-message _63c77b1 元素的HTML内容
@@ -1634,11 +1703,11 @@ func (gc *GuardianClient) extractAIOutputContent(ctx context.Context) (string, e
 				chromedp.Evaluate(`(() => {
 					const elements = document.querySelectorAll('div.ds-message._63c77b1');
 					if (elements.length >= 2) {
-						// 获取第二个元素的内容
-						return elements[1].innerHTML || elements[1].outerHTML || elements[1].innerText || elements[1].textContent || '';
+						// 获取第二个元素的内容，优先使用 textContent 获取纯净文本
+						return elements[1].textContent || elements[1].innerText || elements[1].innerHTML || elements[1].outerHTML || '';
 					} else if (elements.length == 1) {
 						// 如果只有一个元素，返回它
-						return elements[0].innerHTML || elements[0].outerHTML || elements[0].innerText || elements[0].textContent || '';
+						return elements[0].textContent || elements[0].innerText || elements[0].innerHTML || elements[0].outerHTML || '';
 					}
 					return '';
 				})()`, &elementContent),
@@ -1646,7 +1715,8 @@ func (gc *GuardianClient) extractAIOutputContent(ctx context.Context) (string, e
 			if err == nil && strings.TrimSpace(elementContent) != "" {
 				aiContent = strings.TrimSpace(elementContent)
 				gc.logger.Printf("✅ Extracted content from second ds-message._63c77b1 element, length: %d", len(aiContent))
-				return gc.cleanAndDecodeContent(aiContent), nil
+				// 不再使用cleanAndDecodeContent，直接返回纯净内容
+				return elementContent, nil
 			}
 		}
 
@@ -1685,7 +1755,8 @@ func (gc *GuardianClient) extractAIOutputContent(ctx context.Context) (string, e
 		)
 
 		if err == nil && aiContent != "" {
-			return gc.cleanAndDecodeContent(aiContent), nil
+			// 不再使用cleanAndDecodeContent，直接返回纯净内容
+			return aiContent, nil
 		}
 	}
 
@@ -1723,7 +1794,8 @@ func (gc *GuardianClient) extractAIOutputContent(ctx context.Context) (string, e
 
 	if aiContent != "" {
 		gc.logger.Printf("✅ Extracted content using JavaScript evaluation, length: %d", len(aiContent))
-		return gc.cleanAndDecodeContent(aiContent), nil
+		// 不再使用cleanAndDecodeContent，直接返回纯净内容
+		return aiContent, nil
 	}
 
 	return "", fmt.Errorf("no AI output content found in ds-message _63c77b1 or ds-flex _0a3d93b container")
