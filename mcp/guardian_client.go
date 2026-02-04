@@ -1731,76 +1731,10 @@ func (gc *GuardianClient) extractAIOutputContent(ctx context.Context) (string, e
 
 // cleanAndDecodeContent 清理和解码AI输出内容，处理HTML实体编码和其他特殊字符
 func (gc *GuardianClient) cleanAndDecodeContent(content string) string {
-	// 使用与cleanHTMLContent类似的方法来清理内容，但保留重要的非HTML标签
-	cleaned := content
-
-	// 保护特殊的非HTML标签：reasoning 和 decision（这些是AI输出的结构化标记）
-	reasoningRegex := regexp.MustCompile(`(?s)<reasoning>(.*?)</reasoning>`)
-	decisionRegex := regexp.MustCompile(`(?s)<decision>(.*?)</decision>`)
-	jsonArrayRegex := regexp.MustCompile(`\[(\s*\{[^}]+\}\s*,?)+\s*\]`) // 匹配JSON数组格式
-
-	placeholderMap := make(map[string]string)
-
-	// 保护reasoning标签内容
-	reasoningMatches := reasoningRegex.FindAllString(content, -1)
-	protectedContent := content
-	for i, match := range reasoningMatches {
-		placeholder := fmt.Sprintf("<<REASONING_PLACEHOLDER_%d>>", i)
-		placeholderMap[placeholder] = match
-		protectedContent = strings.Replace(protectedContent, match, placeholder, 1)
-	}
-
-	// 保护decision标签内容
-	decisionMatches := decisionRegex.FindAllString(protectedContent, -1)
-	for i, match := range decisionMatches {
-		placeholder := fmt.Sprintf("<<DECISION_PLACEHOLDER_%d>>", i)
-		placeholderMap[placeholder] = match
-		protectedContent = strings.Replace(protectedContent, match, placeholder, 1)
-	}
-
-	// 保护JSON数组格式
-	jsonMatches := jsonArrayRegex.FindAllString(protectedContent, -1)
-	for i, match := range jsonMatches {
-		placeholder := fmt.Sprintf("<<JSON_ARRAY_PLACEHOLDER_%d>>", i)
-		placeholderMap[placeholder] = match
-		protectedContent = strings.Replace(protectedContent, match, placeholder, 1)
-	}
-
-	// 对剩余内容使用类似cleanHTMLContent的方法处理
-	cleaned = protectedContent
-
-	// 移除其他HTML标签（保留标签间的内容）
-	re := regexp.MustCompile(`<[^>]*>`)
-	cleaned = re.ReplaceAllString(cleaned, " ")
-
-	// 替换多个空白字符为单个空格
-	space := regexp.MustCompile(`\s+`)
-	cleaned = space.ReplaceAllString(cleaned, " ")
-
-	// 处理常见的HTML实体编码
-	cleaned = strings.ReplaceAll(cleaned, "&nbsp;", " ")
-	cleaned = strings.ReplaceAll(cleaned, "&lt;", "<")
-	cleaned = strings.ReplaceAll(cleaned, "&gt;", ">")
-	cleaned = strings.ReplaceAll(cleaned, "&amp;", "&")
-	cleaned = strings.ReplaceAll(cleaned, "&quot;", "\"")
-	cleaned = strings.ReplaceAll(cleaned, "&#39;", "'")
-	cleaned = strings.ReplaceAll(cleaned, "&#x27;", "'")
-	cleaned = strings.ReplaceAll(cleaned, "&#x2F;", "/")
-
-	// 恢复受保护的内容
-	for placeholder, original := range placeholderMap {
-		cleaned = strings.Replace(cleaned, placeholder, original, 1)
-	}
-
-	// 移除多余的空格和换行
-	cleaned = strings.TrimSpace(cleaned)
-
-	// 记录清理前后的长度变化
-	if len(content) != len(cleaned) {
-		gc.logger.Printf("🧹 Content cleaned: original length %d, cleaned length %d", len(content), len(cleaned))
-	}
-
-	return cleaned
+	// 直接返回原始内容，让nofx原生解析逻辑处理
+	// 这样确保nofx的extractDecisions函数能使用其完整的解析链
+	gc.logger.Printf("📥 Raw AI response received, length: %d", len(content))
+	return content
 }
 
 // 清理HTML内容，移除多余的HTML标签，保留文本内容

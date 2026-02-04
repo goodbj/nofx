@@ -1323,7 +1323,7 @@ ${promptPreview.user_prompt}`
 
           {/* Right Column: Recent Decisions */}
           <div
-            className="nofx-glass p-6 animate-slide-in h-fit lg:sticky lg:top-24 lg:max-h-[calc(100vh-120px)] flex flex-col"
+            className="nofx-glass p-6 animate-slide-in h-fit lg:sticky lg:top-24 lg:max-h-[calc(400vh-120px)] flex flex-col"
             style={{ animationDelay: '0.2s' }}
           >
             {/* Header */}
@@ -1739,7 +1739,7 @@ ${promptPreview.user_prompt}`
             {/* Decisions List - Scrollable */}
             <div
               className="space-y-4 overflow-y-auto pr-2 custom-scrollbar"
-              style={{ maxHeight: 'calc(160vh - 280px)' }}
+              style={{ maxHeight: 'calc(360vh - 280px)' }}
             >
               {decisions && decisions.length > 0 ? (
                 decisions.map((decision, i) => (
