@@ -133,6 +133,7 @@ export interface AIModel {
   apiKey?: string
   customApiUrl?: string
   customModelName?: string
+  useBrowserAutomation?: boolean
 }
 
 export interface Exchange {
@@ -206,6 +207,7 @@ export interface UpdateModelConfigRequest {
       api_key: string
       custom_api_url?: string
       custom_model_name?: string
+      use_browser_automation?: boolean
     }
   }
 }

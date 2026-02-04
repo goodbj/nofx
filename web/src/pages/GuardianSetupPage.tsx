@@ -64,14 +64,14 @@ const GuardianSetupPage: React.FC = () => {
   };
 
   const providers = [
-    { value: 'deepseek-browser', label: 'DeepSeek' },
-    { value: 'chatgpt-browser', label: 'ChatGPT' },
-    { value: 'claude-browser', label: 'Claude' },
-    { value: 'qwen-browser', label: '通义千问' },
-    { value: 'gemini-browser', label: 'Gemini' },
-    { value: 'grok-browser', label: 'Grok' },
-    { value: 'kimi-browser', label: 'Kimi' },
-    { value: 'ollama-browser', label: 'Ollama' },
+    { value: 'deepseek', label: 'DeepSeek' },
+    { value: 'openai', label: 'ChatGPT' },
+    { value: 'claude', label: 'Claude' },
+    { value: 'qwen', label: '通义千问' },
+    { value: 'gemini', label: 'Gemini' },
+    { value: 'grok', label: 'Grok' },
+    { value: 'kimi', label: 'Kimi' },
+    { value: 'ollama', label: 'Ollama' },
     { value: 'guardian-ai', label: 'Guardian AI' },
   ];
 

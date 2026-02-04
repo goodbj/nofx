@@ -71,21 +71,6 @@ const AI_PROVIDER_CONFIG: Record<string, {
     apiUrl: '/dashboard', // Local endpoint, no API key needed
     apiName: 'Guardian AI',
   },
-  'deepseek-browser': {
-    defaultModel: 'deepseek-browser-automation',
-    apiUrl: '/dashboard', // Local endpoint, no API key needed
-    apiName: 'DeepSeek Browser',
-  },
-  'chatgpt-browser': {
-    defaultModel: 'chatgpt-browser-automation',
-    apiUrl: '/dashboard', // Local endpoint, no API key needed
-    apiName: 'ChatGPT Browser',
-  },
-  'claude-browser': {
-    defaultModel: 'claude-browser-automation',
-    apiUrl: '/dashboard', // Local endpoint, no API key needed
-    apiName: 'Claude Browser',
-  },
   qwen: {
     defaultModel: 'qwen3-max',
     apiUrl: 'https://dashscope.console.aliyun.com/apiKey',
@@ -654,7 +639,9 @@ export function AITradersPage({ onTraderSelect }: AITradersPageProps) {
     modelId: string,
     apiKey: string,
     customApiUrl?: string,
-    customModelName?: string
+    customModelName?: string,
+    originalEditingModelId?: string | null,  // 新增参数：原始编辑的模型ID
+    useBrowserAutomation?: boolean          // 新增参数：是否使用浏览器自动化
   ) => {
     try {
       // 创建或更新用户的模型配置
@@ -662,15 +649,27 @@ export function AITradersPage({ onTraderSelect }: AITradersPageProps) {
       let updatedModels
 
       // 找到要配置的模型（优先从已配置列表，其次从支持列表）
-      const modelToUpdate =
-        existingModel || supportedModels?.find((m) => m.id === modelId)
+      const modelToUpdate = supportedModels?.find((m) => {
+        // 如果能找到完全匹配的模型，直接使用
+        if (supportedModels?.some(sup => sup.id === modelId)) {
+          return supportedModels.find(sup => sup.id === modelId);
+        }
+        // 否则尝试从现有的配置模型中查找
+        return allModels?.find(config => config.id === modelId) || 
+               supportedModels?.find(sup => sup.id === modelId.replace('-browser', ''));
+      });
+      
       if (!modelToUpdate) {
         toast.error(t('modelNotExist', language))
         return
       }
 
-      if (existingModel) {
-        // 更新现有配置
+      // 检查是否是从编辑模式切换了模型类型
+      const isEditingMode = !!originalEditingModelId;
+      const isModelTypeChanged = isEditingMode && originalEditingModelId !== modelId;
+
+      if (existingModel && !isModelTypeChanged) {
+        // 更新现有配置（真正的编辑模式，没有切换模型类型）
         updatedModels =
           allModels?.map((m) =>
             m.id === modelId
@@ -679,11 +678,13 @@ export function AITradersPage({ onTraderSelect }: AITradersPageProps) {
                 apiKey,
                 customApiUrl: customApiUrl || '',
                 customModelName: customModelName || '',
+                useBrowserAutomation: useBrowserAutomation || false,  // 添加或更新浏览器自动化状态
                 enabled: true,
               }
               : m
           ) || []
       } else {
+        // 添加新配置或在编辑模式下切换了模型类型
         // 添加新配置 - 如果ID已存在，生成唯一ID
         let newModelId = modelId;
         let counter = 1;
@@ -699,6 +700,7 @@ export function AITradersPage({ onTraderSelect }: AITradersPageProps) {
           apiKey,
           customApiUrl: customApiUrl || '',
           customModelName: customModelName || '',
+          useBrowserAutomation: useBrowserAutomation || false,  // 添加浏览器自动化状态
           enabled: true,
         }
         updatedModels = [...(allModels || []), newModel]
@@ -713,6 +715,7 @@ export function AITradersPage({ onTraderSelect }: AITradersPageProps) {
               api_key: model.apiKey || '',
               custom_api_url: model.customApiUrl || '',
               custom_model_name: model.customModelName || '',
+              use_browser_automation: model.useBrowserAutomation || false,
             },
           ])
         ),
@@ -1471,7 +1474,9 @@ function ModelConfigModal({
     modelId: string,
     apiKey: string,
     baseUrl?: string,
-    modelName?: string
+    modelName?: string,
+    originalEditingModelId?: string | null,
+    useBrowserAutomation?: boolean
   ) => void
   onDelete: (modelId: string) => void
   onClose: () => void
@@ -1481,6 +1486,7 @@ function ModelConfigModal({
   const [apiKey, setApiKey] = useState('')
   const [baseUrl, setBaseUrl] = useState('')
   const [modelName, setModelName] = useState('')
+  const [useBrowserAutomation, setUseBrowserAutomation] = useState(false)
 
   // 获取当前编辑的模型信息 - 编辑时从已配置的模型中查找，新建时从所有支持的模型中查找
   const selectedModel = editingModelId
@@ -1493,18 +1499,22 @@ function ModelConfigModal({
       setApiKey(selectedModel.apiKey || '')
       setBaseUrl(selectedModel.customApiUrl || '')
       setModelName(selectedModel.customModelName || '')
+      setUseBrowserAutomation(selectedModel.useBrowserAutomation || false)
     }
   }, [editingModelId, selectedModel])
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
-    if (!selectedModelId || !apiKey.trim()) return
+    if (!selectedModelId || (!apiKey.trim() && !useBrowserAutomation)) return
 
+    // 将useBrowserAutomation状态合并到模型配置中
     onSave(
       selectedModelId,
       apiKey.trim(),
       baseUrl.trim() || undefined,
-      modelName.trim() || undefined
+      modelName.trim() || undefined,
+      editingModelId,  // 传递原始编辑模型ID
+      useBrowserAutomation         // 传递浏览器自动化状态
     )
   }
 
@@ -1708,6 +1718,42 @@ function ModelConfigModal({
                   </div>
                 </div>
 
+                {/* 浏览器自动化复选框 - 在添加或编辑模型时都显示 */}
+                {selectedModel && (
+                  <div
+                    className="p-4 rounded border"
+                    style={{
+                      background: 'rgba(99, 102, 241, 0.1)',
+                      border: '1px solid rgba(99, 102, 241, 0.2)',
+                    }}
+                  >
+                    <div className="flex items-center gap-3">
+                      <input
+                        type="checkbox"
+                        id="bypass-api-checkbox"
+                        className="w-4 h-4 rounded"
+                        style={{ accentColor: '#6366F1' }}
+                        checked={useBrowserAutomation}
+                        onChange={(e) => {
+                          setUseBrowserAutomation(e.target.checked);
+                        }}
+                      />
+                      <label
+                        htmlFor="bypass-api-checkbox"
+                        className="flex-1 text-sm font-semibold"
+                        style={{ color: '#6366F1' }}
+                      >
+                        {t('bypassApiUseBrowserAutomation', language)}
+                      </label>
+                    </div>
+                    <div className="mt-2 text-xs space-y-1" style={{ color: '#848E9C' }}>
+                      <div>• {t('bypassApiInfo1', language)}</div>
+                      <div>• {t('bypassApiInfo2', language)}</div>
+                      <div>• {t('bypassApiInfo3', language)}</div>
+                    </div>
+                  </div>
+                )}
+
                 <div
                   className="p-4 rounded"
                   style={{
@@ -1748,7 +1794,7 @@ function ModelConfigModal({
             </button>
             <button
               type="submit"
-              disabled={!selectedModel || !apiKey.trim()}
+              disabled={!selectedModel || (!apiKey.trim() && !useBrowserAutomation)}
               className="flex-1 px-4 py-2 rounded text-sm font-semibold disabled:opacity-50"
               style={{ background: '#F0B90B', color: '#000' }}
             >

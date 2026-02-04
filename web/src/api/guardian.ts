@@ -84,14 +84,14 @@ export const guardianAPI = {
   // Get target URL for a provider
   getTargetUrl: (provider: string): string => {
     const urls: Record<string, string> = {
-      'deepseek-browser': 'https://chat.deepseek.com',
-      'chatgpt-browser': 'https://chat.openai.com',
-      'claude-browser': 'https://claude.ai',
-      'qwen-browser': 'https://tongyi.aliyun.com/qwen/',
-      'gemini-browser': 'https://gemini.google.com',
-      'grok-browser': 'https://grok.x.ai',
-      'kimi-browser': 'https://kimi.moonshot.cn',
-      'ollama-browser': 'http://localhost:11434',
+      'deepseek': 'https://chat.deepseek.com',
+      'openai': 'https://chat.openai.com',
+      'claude': 'https://claude.ai',
+      'qwen': 'https://tongyi.aliyun.com/qwen/',
+      'gemini': 'https://gemini.google.com',
+      'grok': 'https://grok.x.ai',
+      'kimi': 'https://kimi.moonshot.cn',
+      'ollama': 'http://localhost:11434',
       'guardian-ai': 'https://chat.deepseek.com'
     };
     return urls[provider] || 'https://chat.deepseek.com';

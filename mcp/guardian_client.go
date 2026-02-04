@@ -19,7 +19,7 @@ import (
 const (
 	ProviderGuardian       = "guardian"
 	DefaultGuardianBaseURL = "https://chat.deepseek.com"
-	DefaultGuardianModel   = "guardian-browser-automation"
+	DefaultGuardianModel   = "guardian-ai"
 )
 
 // GuardianClient represents a client for Guardian AI service
@@ -51,7 +51,7 @@ func NewGuardianClientFromConfig(config Config) *GuardianClient {
 
 	client := &GuardianClient{
 		Name:           "Guardian",
-		ModelID:        "guardian-browser-automation",
+		ModelID:        "guardian-ai",
 		APIKey:         config.APIKey,
 		BaseURL:        config.BaseURL,
 		Model:          config.Model,
@@ -86,11 +86,11 @@ func NewGuardianClientWithService(serviceType string) AIClient {
 	case "chatgpt":
 		gc.ProviderConfig.Provider = "chatgpt"
 		gc.BaseURL = "https://chat.openai.com"
-		gc.Model = "chatgpt-browser"
+		gc.Model = "chatgpt"
 	case "claude":
 		gc.ProviderConfig.Provider = "claude"
 		gc.BaseURL = "https://claude.ai/chat"
-		gc.Model = "claude-browser"
+		gc.Model = "claude"
 		// Add more services as needed
 	}
 

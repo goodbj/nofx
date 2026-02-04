@@ -495,12 +495,13 @@ type ModelConfig struct {
 
 // SafeModelConfig Safe model configuration structure (does not contain sensitive information)
 type SafeModelConfig struct {
-	ID              string `json:"id"`
-	Name            string `json:"name"`
-	Provider        string `json:"provider"`
-	Enabled         bool   `json:"enabled"`
-	CustomAPIURL    string `json:"customApiUrl"`    // Custom API URL (usually not sensitive)
-	CustomModelName string `json:"customModelName"` // Custom model name (not sensitive)
+	ID                   string `json:"id"`
+	Name                 string `json:"name"`
+	Provider             string `json:"provider"`
+	Enabled              bool   `json:"enabled"`
+	CustomAPIURL         string `json:"customApiUrl"`         // Custom API URL (usually not sensitive)
+	CustomModelName      string `json:"customModelName"`      // Custom model name (not sensitive)
+	UseBrowserAutomation bool   `json:"useBrowserAutomation"` // Whether to use browser automation instead of API
 }
 
 type ExchangeConfig struct {
@@ -531,10 +532,11 @@ type SafeExchangeConfig struct {
 
 type UpdateModelConfigRequest struct {
 	Models map[string]struct {
-		Enabled         bool   `json:"enabled"`
-		APIKey          string `json:"api_key"`
-		CustomAPIURL    string `json:"custom_api_url"`
-		CustomModelName string `json:"custom_model_name"`
+		Enabled              bool   `json:"enabled"`
+		APIKey               string `json:"api_key"`
+		CustomAPIURL         string `json:"custom_api_url"`
+		CustomModelName      string `json:"custom_model_name"`
+		UseBrowserAutomation bool   `json:"use_browser_automation,omitempty"`
 	} `json:"models"`
 }
 
@@ -1939,14 +1941,14 @@ func (s *Server) handleGetModelConfigs(c *gin.Context) {
 	if len(models) == 0 {
 		logger.Infof("?? No AI models in database, returning defaults")
 		defaultModels := []SafeModelConfig{
-			{ID: "deepseek", Name: "DeepSeek AI", Provider: "deepseek", Enabled: false},
-			{ID: "qwen", Name: "Qwen AI", Provider: "qwen", Enabled: false},
-			{ID: "openai", Name: "OpenAI", Provider: "openai", Enabled: false},
-			{ID: "claude", Name: "Claude AI", Provider: "claude", Enabled: false},
-			{ID: "gemini", Name: "Gemini AI", Provider: "gemini", Enabled: false},
-			{ID: "grok", Name: "Grok AI", Provider: "grok", Enabled: false},
-			{ID: "kimi", Name: "Kimi AI", Provider: "kimi", Enabled: false},
-			{ID: "ollama", Name: "Ollama", Provider: "ollama", Enabled: false},
+			{ID: "deepseek", Name: "DeepSeek AI", Provider: "deepseek", Enabled: false, UseBrowserAutomation: false},
+			{ID: "qwen", Name: "Qwen AI", Provider: "qwen", Enabled: false, UseBrowserAutomation: false},
+			{ID: "openai", Name: "OpenAI", Provider: "openai", Enabled: false, UseBrowserAutomation: false},
+			{ID: "claude", Name: "Claude AI", Provider: "claude", Enabled: false, UseBrowserAutomation: false},
+			{ID: "gemini", Name: "Gemini AI", Provider: "gemini", Enabled: false, UseBrowserAutomation: false},
+			{ID: "grok", Name: "Grok AI", Provider: "grok", Enabled: false, UseBrowserAutomation: false},
+			{ID: "kimi", Name: "Kimi AI", Provider: "kimi", Enabled: false, UseBrowserAutomation: false},
+			{ID: "ollama", Name: "Ollama", Provider: "ollama", Enabled: false, UseBrowserAutomation: false},
 		}
 		c.JSON(http.StatusOK, defaultModels)
 		return
@@ -1958,12 +1960,13 @@ func (s *Server) handleGetModelConfigs(c *gin.Context) {
 	safeModels := make([]SafeModelConfig, len(models))
 	for i, model := range models {
 		safeModels[i] = SafeModelConfig{
-			ID:              model.ID,
-			Name:            model.Name,
-			Provider:        model.Provider,
-			Enabled:         model.Enabled,
-			CustomAPIURL:    model.CustomAPIURL,
-			CustomModelName: model.CustomModelName,
+			ID:                   model.ID,
+			Name:                 model.Name,
+			Provider:             model.Provider,
+			Enabled:              model.Enabled,
+			CustomAPIURL:         model.CustomAPIURL,
+			CustomModelName:      model.CustomModelName,
+			UseBrowserAutomation: model.UseBrowserAutomation,
 		}
 	}
 
@@ -2032,7 +2035,7 @@ func (s *Server) handleUpdateModelConfigs(c *gin.Context) {
 
 	// Update each model's configuration
 	for modelID, modelData := range req.Models {
-		err := s.store.AIModel().Update(userID, modelID, modelData.Enabled, modelData.APIKey, modelData.CustomAPIURL, modelData.CustomModelName)
+		err := s.store.AIModel().Update(userID, modelID, modelData.Enabled, modelData.APIKey, modelData.CustomAPIURL, modelData.CustomModelName, modelData.UseBrowserAutomation)
 		if err != nil {
 			SafeInternalError(c, fmt.Sprintf("Update model %s", modelID), err)
 			return

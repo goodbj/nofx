@@ -39,7 +39,7 @@ type AIClient interface {
 const (
 	ProviderGuardian       = "guardian"
 	DefaultGuardianBaseURL = "https://chat.deepseek.com"
-	DefaultGuardianModel   = "guardian-browser-automation"
+	DefaultGuardianModel   = "guardian-ai"
 )
 
 // NewGuardianClient creates a new instance of GuardianClient
@@ -55,7 +55,7 @@ func NewGuardianClientFromConfig(config Config) *GuardianClient {
 
 	client := &GuardianClient{
 		Name:           "Guardian",
-		ModelID:        "guardian-browser-automation",
+		ModelID:        "guardian-ai",
 		APIKey:         config.APIKey,
 		BaseURL:        config.BaseURL,
 		Model:          config.Model,

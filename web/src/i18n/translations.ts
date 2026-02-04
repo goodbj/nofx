@@ -634,6 +634,10 @@ export const translations = {
     modelConfigInfo2:
       '• Custom Base URL and Model Name only needed for third-party proxies',
     modelConfigInfo3: '• API Key is encrypted and stored securely',
+    bypassApiUseBrowserAutomation: 'Bypass API - Use Browser Automation',
+    bypassApiInfo1: '• Use browser automation instead of direct API calls',
+    bypassApiInfo2: '• Works when API access is restricted or blocked',
+    bypassApiInfo3: '• May be slower but more reliable in some environments',
     defaultModel: 'Default model',
     applyApiKey: 'Apply API Key',
     kimiApiNote:
@@ -1935,6 +1939,10 @@ export const translations = {
     modelConfigInfo2:
       '• 自定义 Base URL 和 Model Name 仅在使用第三方代理时需要填写',
     modelConfigInfo3: '• API Key 加密存储，不会明文展示',
+    bypassApiUseBrowserAutomation: '绕过API - 使用浏览器自动化',
+    bypassApiInfo1: '• 使用浏览器自动化替代直接API调用',
+    bypassApiInfo2: '• 在API访问受限或被阻止时可用',
+    bypassApiInfo3: '• 可能较慢但某些环境中更可靠',
     defaultModel: '默认模型',
     applyApiKey: '申请 API Key',
     kimiApiNote:

@@ -17,9 +17,9 @@ type ChatGPTGuardianProvider struct {
 // NewChatGPTGuardianProvider creates a new ChatGPT Guardian provider
 func NewChatGPTGuardianProvider() BrowserAIProvider {
 	config := DefaultConfig()
-	config.Provider = "chatgpt-browser"
+	config.Provider = "chatgpt"
 	config.BaseURL = "https://chat.openai.com"
-	config.Model = "chatgpt-browser-automation"
+	config.Model = "chatgpt-automation"
 
 	client := NewGuardianClientFromConfig(*config)
 	provider := &ChatGPTGuardianProvider{
@@ -31,7 +31,7 @@ func NewChatGPTGuardianProvider() BrowserAIProvider {
 
 // GetServiceName returns the service name
 func (p *ChatGPTGuardianProvider) GetServiceName() string {
-	return "chatgpt-browser"
+	return "chatgpt"
 }
 
 // GetDefaultURL returns the default URL
@@ -365,7 +365,7 @@ func (p *ChatGPTGuardianProvider) waitForAndExtractChatGPTResponse(ctx context.C
 
 // init registers the ChatGPT Guardian provider
 func init() {
-	RegisterBrowserAIProvider("chatgpt-browser", func() BrowserAIProvider {
+	RegisterBrowserAIProvider("chatgpt", func() BrowserAIProvider {
 		return NewChatGPTGuardianProvider()
 	})
 }

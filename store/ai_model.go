@@ -18,16 +18,17 @@ type AIModelStore struct {
 
 // AIModel AI model configuration
 type AIModel struct {
-	ID              string                 `gorm:"primaryKey" json:"id"`
-	UserID          string                 `gorm:"column:user_id;not null;default:default;index" json:"user_id"`
-	Name            string                 `gorm:"not null" json:"name"`
-	Provider        string                 `gorm:"not null" json:"provider"`
-	Enabled         bool                   `gorm:"default:false" json:"enabled"`
-	APIKey          crypto.EncryptedString `gorm:"column:api_key;default:''" json:"apiKey"`
-	CustomAPIURL    string                 `gorm:"column:custom_api_url;default:''" json:"customApiUrl"`
-	CustomModelName string                 `gorm:"column:custom_model_name;default:''" json:"customModelName"`
-	CreatedAt       time.Time              `json:"created_at"`
-	UpdatedAt       time.Time              `json:"updated_at"`
+	ID                   string                 `gorm:"primaryKey" json:"id"`
+	UserID               string                 `gorm:"column:user_id;not null;default:default;index" json:"user_id"`
+	Name                 string                 `gorm:"not null" json:"name"`
+	Provider             string                 `gorm:"not null" json:"provider"`
+	Enabled              bool                   `gorm:"default:false" json:"enabled"`
+	APIKey               crypto.EncryptedString `gorm:"column:api_key;default:''" json:"apiKey"`
+	CustomAPIURL         string                 `gorm:"column:custom_api_url;default:''" json:"customApiUrl"`
+	CustomModelName      string                 `gorm:"column:custom_model_name;default:''" json:"customModelName"`
+	UseBrowserAutomation bool                   `gorm:"column:use_browser_automation;default:false" json:"useBrowserAutomation"`
+	CreatedAt            time.Time              `json:"created_at"`
+	UpdatedAt            time.Time              `json:"updated_at"`
 }
 
 func (AIModel) TableName() string { return "ai_models" }
@@ -38,11 +39,22 @@ func NewAIModelStore(db *gorm.DB) *AIModelStore {
 }
 
 func (s *AIModelStore) initTables() error {
-	// For PostgreSQL with existing table, skip AutoMigrate
+	// For PostgreSQL with existing table, we need to ensure the new column is added
 	if s.db.Dialector.Name() == "postgres" {
+		// Check if table exists
 		var tableExists int64
 		s.db.Raw(`SELECT COUNT(*) FROM information_schema.tables WHERE table_name = 'ai_models'`).Scan(&tableExists)
 		if tableExists > 0 {
+			// Check if the use_browser_automation column exists
+			var columnExists int64
+			s.db.Raw(`SELECT COUNT(*) FROM information_schema.columns WHERE table_name = 'ai_models' AND column_name = 'use_browser_automation'`).Scan(&columnExists)
+			if columnExists == 0 {
+				// Add the new column if it doesn't exist
+				if err := s.db.Exec("ALTER TABLE ai_models ADD COLUMN use_browser_automation BOOLEAN DEFAULT FALSE").Error; err != nil {
+					logger.Errorf("Failed to add use_browser_automation column: %v", err)
+					return err
+				}
+			}
 			return nil
 		}
 	}
@@ -139,17 +151,18 @@ func (s *AIModelStore) firstEnabled(userID string) (*AIModel, error) {
 
 // Update updates AI model, creates if not exists
 // IMPORTANT: If apiKey is empty string, the existing API key will be preserved (not overwritten)
-func (s *AIModelStore) Update(userID, id string, enabled bool, apiKey, customAPIURL, customModelName string) error {
+func (s *AIModelStore) Update(userID, id string, enabled bool, apiKey, customAPIURL, customModelName string, useBrowserAutomation bool) error {
 	// Try exact ID match first
 	var existingModel AIModel
 	err := s.db.Where("user_id = ? AND id = ?", userID, id).First(&existingModel).Error
 	if err == nil {
 		// Update existing model
 		updates := map[string]interface{}{
-			"enabled":           enabled,
-			"custom_api_url":    customAPIURL,
-			"custom_model_name": customModelName,
-			"updated_at":        time.Now().UTC(),
+			"enabled":                enabled,
+			"custom_api_url":         customAPIURL,
+			"custom_model_name":      customModelName,
+			"use_browser_automation": useBrowserAutomation,
+			"updated_at":             time.Now().UTC(),
 		}
 		// If apiKey is not empty, update it (encryption handled by crypto.EncryptedString)
 		if apiKey != "" {
@@ -199,14 +212,15 @@ func (s *AIModelStore) Update(userID, id string, enabled bool, apiKey, customAPI
 
 	logger.Infof("✓ Creating new AI model configuration: ID=%s, Provider=%s, Name=%s", id, provider, name)
 	newModel := &AIModel{
-		ID:              id,
-		UserID:          userID,
-		Name:            name,
-		Provider:        provider,
-		Enabled:         enabled,
-		APIKey:          crypto.EncryptedString(apiKey),
-		CustomAPIURL:    customAPIURL,
-		CustomModelName: customModelName,
+		ID:                   id,
+		UserID:               userID,
+		Name:                 name,
+		Provider:             provider,
+		Enabled:              enabled,
+		APIKey:               crypto.EncryptedString(apiKey),
+		CustomAPIURL:         customAPIURL,
+		CustomModelName:      customModelName,
+		UseBrowserAutomation: useBrowserAutomation,
 	}
 	return s.db.Create(newModel).Error
 }

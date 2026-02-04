@@ -14,11 +14,27 @@ type BypassClient struct {
 
 // NewBypassClient creates a new client with optional API bypass capability
 func NewBypassClient(baseClient AIClient, enableBypass bool, browserProviderType string) AIClient {
-	// Create base client
-	base, ok := baseClient.(*Client)
-	if !ok {
-		// If not a base client, create a new one
+	// Create base client - preserve original client configuration if possible
+	var base *Client
+	if client, ok := baseClient.(*Client); ok {
+		// If it's already a base client, use it directly
+		base = client
+	} else {
+		// If not a base client, create a new one but try to preserve key configuration
 		base = NewClient().(*Client)
+		// Copy essential configuration from the original client if it has those methods
+		if origClient, ok := baseClient.(interface{ GetProvider() string }); ok {
+			base.Provider = origClient.GetProvider()
+		}
+		if origClient, ok := baseClient.(interface{ GetModel() string }); ok {
+			base.Model = origClient.GetModel()
+		}
+		if origClient, ok := baseClient.(interface{ GetBaseURL() string }); ok {
+			base.BaseURL = origClient.GetBaseURL()
+		}
+		if origClient, ok := baseClient.(interface{ GetAPIKey() string }); ok {
+			base.APIKey = origClient.GetAPIKey()
+		}
 	}
 
 	client := &BypassClient{

@@ -53,27 +53,7 @@ func (s *Server) handleGetBypassSupport(c *gin.Context) {
 			DefaultBypass:  false,
 			Description:    "Google Gemini models with optional API bypass via browser automation",
 		},
-		{
-			ModelID:        "deepseek-browser",
-			ModelName:      "DeepSeek (Browser Automation)",
-			SupportsBypass: true,
-			DefaultBypass:  true,
-			Description:    "DeepSeek via browser automation - bypasses API entirely",
-		},
-		{
-			ModelID:        "chatgpt-browser",
-			ModelName:      "ChatGPT (Browser Automation)",
-			SupportsBypass: true,
-			DefaultBypass:  true,
-			Description:    "ChatGPT via browser automation - bypasses API entirely",
-		},
-		{
-			ModelID:        "claude-browser",
-			ModelName:      "Claude (Browser Automation)",
-			SupportsBypass: true,
-			DefaultBypass:  true,
-			Description:    "Claude via browser automation - bypasses API entirely",
-		},
+
 		{
 			ModelID:        "guardian-ai",
 			ModelName:      "Guardian AI (Browser Automation)",

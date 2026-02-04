@@ -49,11 +49,8 @@ All nofx AI models support the bypass functionality:
 - Custom (`custom`)
 
 ## Browser Automation Providers
-When bypass is enabled, the system uses appropriate browser automation providers:
-- `deepseek-browser` for DeepSeek
-- `chatgpt-browser` for OpenAI/ChatGPT
-- `claude-browser` for Claude
-- `guardian-ai` for other models (as fallback)
+When bypass is enabled via the `useBrowserAutomation` flag, the system uses the `guardian-ai` browser automation provider for all models:
+- `guardian-ai` for all models when browser automation is enabled
 
 ## Implementation Details
 - The `BypassClient` wraps the original AI client

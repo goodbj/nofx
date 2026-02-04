@@ -29,11 +29,11 @@ func (s *Server) handleCallGuardianAI(c *gin.Context) {
 		targetURL := req.TargetURL
 		if targetURL == "" {
 			switch req.Provider {
-			case "deepseek-browser", "deepseek":
+			case "deepseek":
 				targetURL = "https://chat.deepseek.com"
-			case "chatgpt-browser", "chatgpt":
+			case "chatgpt":
 				targetURL = "https://chat.openai.com"
-			case "claude-browser", "claude":
+			case "claude":
 				targetURL = "https://claude.ai"
 			default:
 				targetURL = "https://chat.deepseek.com" // Default
@@ -93,11 +93,11 @@ func (s *Server) handleCallGuardianAI(c *gin.Context) {
 	} else {
 		// If not found in registry, try to create a standard Guardian client
 		switch req.Provider {
-		case "deepseek", "deepseek-browser":
+		case "deepseek":
 			aiClient = mcp.NewGuardianClientWithService("deepseek")
-		case "chatgpt", "chatgpt-browser":
+		case "chatgpt":
 			aiClient = mcp.NewGuardianClientWithService("chatgpt")
-		case "claude", "claude-browser":
+		case "claude":
 			aiClient = mcp.NewGuardianClientWithService("claude")
 		default:
 			// Default to general guardian-ai
@@ -141,11 +141,11 @@ func (s *Server) handleCheckGuardianLoginStatus(c *gin.Context) {
 	targetURL := req.TargetURL
 	if targetURL == "" {
 		switch req.Provider {
-		case "deepseek-browser", "deepseek":
+		case "deepseek":
 			targetURL = "https://chat.deepseek.com"
-		case "chatgpt-browser", "chatgpt":
+		case "chatgpt":
 			targetURL = "https://chat.openai.com"
-		case "claude-browser", "claude":
+		case "claude":
 			targetURL = "https://claude.ai"
 		default:
 			targetURL = "https://chat.deepseek.com" // Default
