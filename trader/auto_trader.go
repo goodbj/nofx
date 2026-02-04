@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"math/rand"
 	"nofx/experience"
 	"nofx/kernel"
 	"nofx/logger"
@@ -582,6 +583,9 @@ func NewAutoTrader(config AutoTraderConfig, st *store.Store, userID string) (*Au
 
 // Run runs the automatic trading main loop
 func (at *AutoTrader) Run() error {
+	// 初始化随机种子以确保随机数真正随机
+	rand.Seed(time.Now().UnixNano())
+
 	at.isRunningMutex.Lock()
 	at.isRunning = true
 	at.isRunningMutex.Unlock()
@@ -693,7 +697,13 @@ func (at *AutoTrader) Run() error {
 					logger.Infof("❌ Execution failed: %v", err)
 				}
 			}
-			// 🔥 更新下次扫描时间
+
+			// 添加随机延迟以避免人机检测
+			randomDelay := time.Duration(rand.Intn(30)) * time.Second // 随机0-30秒延迟
+			logger.Infof("🎲 [%s] Adding random delay: %.0f seconds to avoid bot detection", at.name, randomDelay.Seconds())
+			time.Sleep(randomDelay)
+
+			// 🔥 更新下次扫描时间（加上随机延迟）
 			at.nextSystemScanTime = time.Now().Add(at.config.ScanInterval)
 		case <-at.stopMonitorCh:
 			logger.Infof("[%s] ⏹ Stop signal received, exiting automatic trading main loop", at.name)
