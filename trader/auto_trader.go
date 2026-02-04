@@ -218,6 +218,8 @@ func NewAutoTrader(config AutoTraderConfig, st *store.Store, userID string) (*Au
 		bypassEnabled := config.UseBrowserAutomation
 		mcpClient = mcp.NewClaudeClient()
 		if bypassEnabled {
+			// Even when using browser automation, we need to set API key for base client validation
+			mcpClient.SetAPIKey("dummy-key-for-browser-automation", config.CustomAPIURL, config.CustomModelName)
 			mcpClient = mcp.NewBypassClient(mcpClient, true, "guardian-ai")
 			logger.Infof("🤖 [%s] Using CLAUDE with Browser Automation Bypass", config.Name)
 		} else {
@@ -230,6 +232,8 @@ func NewAutoTrader(config AutoTraderConfig, st *store.Store, userID string) (*Au
 		bypassEnabled := config.UseBrowserAutomation
 		mcpClient = mcp.NewKimiClient()
 		if bypassEnabled {
+			// Even when using browser automation, we need to set API key for base client validation
+			mcpClient.SetAPIKey("dummy-key-for-browser-automation", config.CustomAPIURL, config.CustomModelName)
 			mcpClient = mcp.NewBypassClient(mcpClient, true, "guardian-ai") // Using unified guardian provider
 			logger.Infof("🤖 [%s] Using KIMI with Browser Automation Bypass", config.Name)
 		} else {
@@ -242,6 +246,8 @@ func NewAutoTrader(config AutoTraderConfig, st *store.Store, userID string) (*Au
 		bypassEnabled := config.UseBrowserAutomation
 		mcpClient = mcp.NewGeminiClient()
 		if bypassEnabled {
+			// Even when using browser automation, we need to set API key for base client validation
+			mcpClient.SetAPIKey("dummy-key-for-browser-automation", config.CustomAPIURL, config.CustomModelName)
 			mcpClient = mcp.NewBypassClient(mcpClient, true, "guardian-ai") // Using unified guardian provider
 			logger.Infof("🤖 [%s] Using GEMINI with Browser Automation Bypass", config.Name)
 		} else {
@@ -254,6 +260,8 @@ func NewAutoTrader(config AutoTraderConfig, st *store.Store, userID string) (*Au
 		bypassEnabled := config.UseBrowserAutomation
 		mcpClient = mcp.NewGrokClient()
 		if bypassEnabled {
+			// Even when using browser automation, we need to set API key for base client validation
+			mcpClient.SetAPIKey("dummy-key-for-browser-automation", config.CustomAPIURL, config.CustomModelName)
 			mcpClient = mcp.NewBypassClient(mcpClient, true, "guardian-ai") // Using unified guardian provider
 			logger.Infof("🤖 [%s] Using GROK with Browser Automation Bypass", config.Name)
 		} else {
@@ -266,6 +274,8 @@ func NewAutoTrader(config AutoTraderConfig, st *store.Store, userID string) (*Au
 		bypassEnabled := config.UseBrowserAutomation
 		mcpClient = mcp.NewOpenAIClient()
 		if bypassEnabled {
+			// Even when using browser automation, we need to set API key for base client validation
+			mcpClient.SetAPIKey("dummy-key-for-browser-automation", config.CustomAPIURL, config.CustomModelName)
 			mcpClient = mcp.NewBypassClient(mcpClient, true, "guardian-ai")
 			logger.Infof("🤖 [%s] Using OPENAI with Browser Automation Bypass", config.Name)
 		} else {
@@ -278,6 +288,8 @@ func NewAutoTrader(config AutoTraderConfig, st *store.Store, userID string) (*Au
 		bypassEnabled := config.UseBrowserAutomation
 		mcpClient = mcp.NewQwenClient()
 		if bypassEnabled {
+			// Even when using browser automation, we need to set API key for base client validation
+			mcpClient.SetAPIKey("dummy-key-for-browser-automation", config.CustomAPIURL, config.CustomModelName)
 			mcpClient = mcp.NewBypassClient(mcpClient, true, "guardian-ai") // Using unified guardian provider
 			logger.Infof("🤖 [%s] Using QWEN with Browser Automation Bypass", config.Name)
 		} else {
@@ -294,6 +306,8 @@ func NewAutoTrader(config AutoTraderConfig, st *store.Store, userID string) (*Au
 		bypassEnabled := config.CustomModelName == "bypass" || strings.Contains(strings.ToLower(config.CustomAPIURL), "bypass")
 		mcpClient = mcp.New()
 		if bypassEnabled {
+			// Even when using browser automation, we need to set API key for base client validation
+			mcpClient.SetAPIKey("dummy-key-for-browser-automation", config.CustomAPIURL, config.CustomModelName)
 			// For custom models, we'll use guardian-ai as the default browser provider
 			mcpClient = mcp.NewBypassClient(mcpClient, true, "guardian-ai")
 			logger.Infof("🤖 [%s] Using CUSTOM with Browser Automation Bypass", config.Name)
@@ -307,6 +321,8 @@ func NewAutoTrader(config AutoTraderConfig, st *store.Store, userID string) (*Au
 		bypassEnabled := config.CustomModelName == "bypass" || strings.Contains(strings.ToLower(config.CustomAPIURL), "bypass")
 		mcpClient = mcp.NewOllamaClient()
 		if bypassEnabled {
+			// Even when using browser automation, we need to set API key for base client validation
+			mcpClient.SetAPIKey("dummy-key-for-browser-automation", config.CustomAPIURL, config.CustomModelName)
 			mcpClient = mcp.NewBypassClient(mcpClient, true, "guardian-ai") // Using unified guardian provider
 			logger.Infof("🤖 [%s] Using OLLAMA with Browser Automation Bypass", config.Name)
 		} else {
@@ -324,6 +340,8 @@ func NewAutoTrader(config AutoTraderConfig, st *store.Store, userID string) (*Au
 		bypassEnabled := config.UseBrowserAutomation
 		mcpClient = mcp.NewGuardianClient()
 		if bypassEnabled {
+			// Even when using browser automation, we need to set API key for base client validation
+			mcpClient.SetAPIKey("dummy-key-for-browser-automation", config.CustomAPIURL, config.CustomModelName)
 			mcpClient = mcp.NewBypassClient(mcpClient, true, "guardian-ai")
 			logger.Infof("🤖 [%s] Using GUARDIAN with Browser Automation Bypass", config.Name)
 		} else {
@@ -338,6 +356,8 @@ func NewAutoTrader(config AutoTraderConfig, st *store.Store, userID string) (*Au
 	case "guardian-ai":
 		// Create Guardian client with browser automation bypass
 		baseClient := mcp.NewGuardianClient()
+		// Even when using browser automation, we need to set API key for base client validation
+		baseClient.SetAPIKey("dummy-key-for-browser-automation", config.CustomAPIURL, config.CustomModelName)
 		mcpClient = mcp.NewBypassClient(baseClient, true, "guardian-ai")
 		logger.Infof("🤖 [%s] Using Guardian AI with Browser Automation Bypass", config.Name)
 
@@ -346,6 +366,8 @@ func NewAutoTrader(config AutoTraderConfig, st *store.Store, userID string) (*Au
 		bypassEnabled := config.UseBrowserAutomation
 		mcpClient = mcp.NewDeepSeekClient()
 		if bypassEnabled {
+			// Even when using browser automation, we need to set API key for base client validation
+			mcpClient.SetAPIKey("dummy-key-for-browser-automation", config.CustomAPIURL, config.CustomModelName)
 			mcpClient = mcp.NewBypassClient(mcpClient, true, "guardian-ai")
 			logger.Infof("🤖 [%s] Using DEEPSEEK with Browser Automation Bypass", config.Name)
 		} else {

@@ -78,35 +78,106 @@ func (bc *BypassClient) call(systemPrompt, userPrompt string) (string, error) {
 	return bc.Client.call(systemPrompt, userPrompt)
 }
 
-// Override other hook methods to delegate to base client
+// CallWithMessages implements the AIClient interface
+func (bc *BypassClient) CallWithMessages(systemPrompt, userPrompt string) (string, error) {
+	return bc.call(systemPrompt, userPrompt)
+}
+
+// CallWithRequest implements the AIClient interface
+func (bc *BypassClient) CallWithRequest(req *Request) (string, error) {
+	if bc.enableBypass && bc.browserProvider != nil {
+		// Convert Request to messages format for browser automation
+		var systemMsg, userMsg string
+		for _, msg := range req.Messages {
+			if msg.Role == "system" {
+				systemMsg = msg.Content
+			} else if msg.Role == "user" || msg.Role == "assistant" {
+				userMsg = msg.Content
+			}
+		}
+		return bc.browserProvider.CallWithMessages(systemMsg, userMsg)
+	}
+
+	// Fall back to base client's implementation
+	return bc.Client.CallWithRequest(req)
+}
+
+// OpenLongLivedBrowser implements the AIClient interface
+func (bc *BypassClient) OpenLongLivedBrowser(targetURL string) error {
+	if bc.browserProvider != nil {
+		// If the browser provider has this method, use it
+		if opener, ok := bc.browserProvider.(interface{ OpenLongLivedBrowser(string) error }); ok {
+			return opener.OpenLongLivedBrowser(targetURL)
+		}
+	}
+
+	// Otherwise, fall back to base client's original hooks if not ourselves
+	if bc.Client.hooks != bc {
+		if opener, ok := bc.Client.hooks.(interface{ OpenLongLivedBrowser(string) error }); ok {
+			return opener.OpenLongLivedBrowser(targetURL)
+		}
+	}
+
+	return fmt.Errorf("OpenLongLivedBrowser not supported")
+}
+
+// Override hook methods to delegate to base client's original hooks
+// (to avoid circular reference when base client's hooks are not BypassClient)
 func (bc *BypassClient) buildMCPRequestBody(systemPrompt, userPrompt string) map[string]any {
-	return bc.Client.hooks.buildMCPRequestBody(systemPrompt, userPrompt)
+	// If the original hooks are not ourselves, use them; otherwise, use the Client's default implementation
+	if bc.Client.hooks != bc {
+		return bc.Client.hooks.buildMCPRequestBody(systemPrompt, userPrompt)
+	}
+	// Otherwise, call the embedded Client's methods directly to avoid circular reference
+	return bc.Client.buildMCPRequestBody(systemPrompt, userPrompt)
 }
 
 func (bc *BypassClient) buildRequestBodyFromRequest(req *Request) map[string]any {
-	return bc.Client.hooks.buildRequestBodyFromRequest(req)
+	if bc.Client.hooks != bc {
+		return bc.Client.hooks.buildRequestBodyFromRequest(req)
+	}
+	return bc.Client.buildRequestBodyFromRequest(req)
 }
 
 func (bc *BypassClient) buildUrl() string {
-	return bc.Client.hooks.buildUrl()
+	if bc.Client.hooks != bc {
+		return bc.Client.hooks.buildUrl()
+	}
+	return bc.Client.buildUrl()
 }
 
 func (bc *BypassClient) buildRequest(url string, jsonData []byte) (*http.Request, error) {
-	return bc.Client.hooks.buildRequest(url, jsonData)
+	if bc.Client.hooks != bc {
+		return bc.Client.hooks.buildRequest(url, jsonData)
+	}
+	return bc.Client.buildRequest(url, jsonData)
 }
 
 func (bc *BypassClient) setAuthHeader(reqHeaders http.Header) {
-	bc.Client.hooks.setAuthHeader(reqHeaders)
+	if bc.Client.hooks != bc {
+		bc.Client.hooks.setAuthHeader(reqHeaders)
+	} else {
+		bc.Client.setAuthHeader(reqHeaders)
+	}
 }
 
 func (bc *BypassClient) marshalRequestBody(requestBody map[string]any) ([]byte, error) {
-	return bc.Client.hooks.marshalRequestBody(requestBody)
+	if bc.Client.hooks != bc {
+		return bc.Client.hooks.marshalRequestBody(requestBody)
+	}
+	return bc.Client.marshalRequestBody(requestBody)
 }
 
 func (bc *BypassClient) parseMCPResponse(body []byte) (string, error) {
-	return bc.Client.hooks.parseMCPResponse(body)
+	if bc.Client.hooks != bc {
+		return bc.Client.hooks.parseMCPResponse(body)
+	}
+	return bc.Client.parseMCPResponse(body)
 }
 
 func (bc *BypassClient) isRetryableError(err error) bool {
-	return bc.Client.hooks.isRetryableError(err)
+	if bc.Client.hooks != bc {
+		return bc.Client.hooks.isRetryableError(err)
+	}
+	return bc.Client.isRetryableError(err)
 }
