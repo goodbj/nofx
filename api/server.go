@@ -4163,8 +4163,9 @@ func (s *Server) handleTestGuardian(c *gin.Context) {
 	logger.Info("🧪 Received Guardian browser automation test request")
 
 	var req struct {
-		Prompt string `json:"prompt"`
-		Mode   string `json:"mode,omitempty"`
+		Prompt    string `json:"prompt"`
+		Mode      string `json:"mode,omitempty"`
+		AIService string `json:"aiService,omitempty"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -4182,7 +4183,12 @@ func (s *Server) handleTestGuardian(c *gin.Context) {
 		logger.Info("🚀 Guardian test mode activated")
 
 		// 创建Guardian客户端
-		guardianClient := mcp.NewGuardianClient()
+		var guardianClient mcp.AIClient
+		if req.AIService != "" {
+			guardianClient = mcp.NewGuardianClientForBrowserWithService(req.AIService)
+		} else {
+			guardianClient = mcp.NewGuardianClient()
+		}
 		if guardianClient == nil {
 			logger.Error("❌ Failed to create Guardian client")
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create Guardian client"})
@@ -4231,8 +4237,9 @@ func (s *Server) handleTestGuardianAnalysis(c *gin.Context) {
 	logger.Info("🧪 Received Guardian AI analysis test request")
 
 	var req struct {
-		Prompt   string `json:"prompt"`
-		TestMode bool   `json:"testMode,omitempty"`
+		Prompt    string `json:"prompt"`
+		TestMode  bool   `json:"testMode,omitempty"`
+		AIService string `json:"aiService,omitempty"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -4246,7 +4253,12 @@ func (s *Server) handleTestGuardianAnalysis(c *gin.Context) {
 	}
 
 	// 创建Guardian客户端
-	guardianClient := mcp.NewGuardianClient()
+	var guardianClient mcp.AIClient
+	if req.AIService != "" {
+		guardianClient = mcp.NewGuardianClientForBrowserWithService(req.AIService)
+	} else {
+		guardianClient = mcp.NewGuardianClient()
+	}
 	if guardianClient == nil {
 		logger.Error("❌ Failed to create Guardian client")
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create Guardian client"})
@@ -4280,10 +4292,12 @@ func (s *Server) handleTestGuardianAnalysis(c *gin.Context) {
 
 // handleOpenGuardianBrowser Handle opening a long-lived browser window for user interaction
 func (s *Server) handleOpenGuardianBrowser(c *gin.Context) {
+	startTime := time.Now()
 	logger.Info("🌐 Received request to open long-lived Guardian browser window")
 
 	var req struct {
-		URL string `json:"url"`
+		URL       string `json:"url"`
+		AIService string `json:"aiService,omitempty"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -4298,7 +4312,12 @@ func (s *Server) handleOpenGuardianBrowser(c *gin.Context) {
 	}
 
 	// 创建一个特殊的Guardian客户端，专门用于打开长时间保持的浏览器窗口
-	guardianClient := mcp.NewGuardianClientForBrowser()
+	var guardianClient mcp.AIClient
+	if req.AIService != "" {
+		guardianClient = mcp.NewGuardianClientForBrowserWithService(req.AIService)
+	} else {
+		guardianClient = mcp.NewGuardianClientForBrowser()
+	}
 	if guardianClient == nil {
 		logger.Error("❌ Failed to create Guardian client")
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create Guardian client"})
@@ -4314,11 +4333,14 @@ func (s *Server) handleOpenGuardianBrowser(c *gin.Context) {
 		}
 	}()
 
-	logger.Infof("✅ Long-lived Guardian browser window request sent successfully")
+	executionTime := time.Since(startTime).Seconds()
+	logger.Infof("✅ Long-lived Guardian browser window request sent successfully in %.2f seconds", executionTime)
 	c.JSON(http.StatusOK, gin.H{
-		"message": "Long-lived browser window opened successfully",
-		"url":     req.URL,
-		"status":  "opened",
+		"message":       "Long-lived browser window opened successfully",
+		"url":           req.URL,
+		"aiService":     req.AIService,
+		"status":        "opened",
+		"executionTime": executionTime,
 	})
 }
 

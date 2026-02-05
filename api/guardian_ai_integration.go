@@ -130,6 +130,7 @@ func (s *Server) handleCheckGuardianLoginStatus(c *gin.Context) {
 	var req struct {
 		Provider  string `json:"provider"`            // AI provider (e.g., "deepseek-browser", "guardian-ai")
 		TargetURL string `json:"targetUrl,omitempty"` // Optional target URL for custom services
+		AIService string `json:"aiService,omitempty"` // AI service type for configuration
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -153,7 +154,12 @@ func (s *Server) handleCheckGuardianLoginStatus(c *gin.Context) {
 	}
 
 	// Create a temporary client to check login status
-	tempClient := mcp.NewGuardianClient()
+	var tempClient mcp.AIClient
+	if req.AIService != "" {
+		tempClient = mcp.NewGuardianClientForBrowserWithService(req.AIService)
+	} else {
+		tempClient = mcp.NewGuardianClient()
+	}
 	if tempClient == nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create Guardian client"})
 		return
@@ -182,6 +188,7 @@ func (s *Server) handleCheckGuardianLoginStatus(c *gin.Context) {
 		"isLoggedIn":  isLoggedIn,
 		"provider":    req.Provider,
 		"targetUrl":   targetURL,
+		"aiService":   req.AIService,
 		"description": "Login status check completed",
 	})
 }
