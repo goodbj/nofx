@@ -34,6 +34,9 @@ type Config struct {
 	EnableContextCompression bool // 是否启用上下文压缩
 	ModelContextSize         int  // 模型上下文大小（字符数/tokens）
 
+	// Trader identification for browser data isolation
+	TraderID string // 交易员ID，用于浏览器数据隔离
+
 	// Dependency injection
 	Logger     Logger
 	HTTPClient *http.Client

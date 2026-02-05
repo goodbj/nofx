@@ -2,10 +2,13 @@ package components
 
 import (
 	"context"
+	"fmt"
 	"log"
+	"net/url"
 	"time"
 
-	"github.com/chromedp/cdproto/network"
+	"nofx/mcp" // Import mcp to access GuardianBrowserDataDir constant
+
 	"github.com/chromedp/chromedp"
 )
 
@@ -26,18 +29,25 @@ func NewBrowserAutomationEngine(logger *log.Logger, displayEnabled bool, timeout
 }
 
 // NavigateToURL navigates to the specified URL
-func (bae *BrowserAutomationEngine) NavigateToURL(ctx context.Context, url string) error {
-	bae.logger.Printf("Navigating to URL: %s", url)
+func (bae *BrowserAutomationEngine) NavigateToURL(ctx context.Context, targetURL string) error {
+	// 验证URL格式
+	if targetURL == "" {
+		return fmt.Errorf("URL cannot be empty")
+	}
+	if _, err := url.Parse(targetURL); err != nil {
+		return fmt.Errorf("invalid URL '%s': %w", targetURL, err)
+	}
+
+	bae.logger.Printf("Navigating to URL: %s", targetURL)
 
 	if err := chromedp.Run(ctx,
-		network.Enable(),
-		chromedp.Navigate(url),
+		chromedp.Navigate(targetURL),
 		chromedp.Sleep(2*time.Second), // 等待页面加载
 	); err != nil {
 		return err
 	}
 
-	bae.logger.Printf("Successfully navigated to URL: %s", url)
+	bae.logger.Printf("Successfully navigated to URL: %s", targetURL)
 	return nil
 }
 
@@ -62,9 +72,13 @@ func (bae *BrowserAutomationEngine) SetupChromeOptions() []chromedp.ExecAllocato
 		chromedp.Flag("max_old_space_size", "4096"),
 		chromedp.Flag("no-first-run", "true"),
 		chromedp.Flag("no-default-browser-check", "true"),
-		chromedp.Flag("window-size", "1000,850"),                  // 设置浏览器窗口尺寸为1000x850
-		chromedp.Flag("user-data-dir", "./guardian_browser_data"), // 设置用户数据目录以保存登录状态
-		chromedp.Flag("profile-directory", "Default"),             // 使用默认配置文件
+		chromedp.Flag("disable-backgrounding-occluded-windows", "false"),                                                // 确保窗口可见
+		chromedp.Flag("disable-renderer-backgrounding", "true"),                                                         // 防止后台渲染
+		chromedp.Flag("disable-background-timer-throttling", "true"),                                                    // 防止定时器节流
+		chromedp.Flag("disable-background-networking", "false"),                                                         // 允许后台网络活动
+		chromedp.Flag("window-size", "1000,850"),                                                                        // 设置浏览器窗口尺寸为1000x850
+		chromedp.Flag("user-data-dir", fmt.Sprintf("%s_%d_%p", mcp.GuardianBrowserDataDir, time.Now().UnixNano(), bae)), // 每个实例使用独立的用户数据目录
+		chromedp.Flag("profile-directory", "Default"),                                                                   // 使用默认配置文件
 	)
 
 	return opts

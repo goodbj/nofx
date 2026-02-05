@@ -199,17 +199,29 @@ Please respond with your final decisions in JSON format:`,
 
 // GetGuardianClient 获取配置好的Guardian客户端
 func GetGuardianClient(provider string) mcp.AIClient {
+	return GetGuardianClientWithTraderID(provider, "") // 默认无交易员ID
+}
+
+// GetGuardianClientWithTraderID 获取配置好的Guardian客户端，带交易员ID
+func GetGuardianClientWithTraderID(provider string, traderID string) mcp.AIClient {
 	// 当提供者为guardian时，使用浏览器自动化客户端
 	if provider == "" || strings.ToLower(provider) == "guardian" {
 		// 检查是否通过环境变量指定了特定AI服务
 		aiServiceType := os.Getenv("GUARDIAN_AI_SERVICE")
 		if aiServiceType != "" {
-			return GetGuardianClientWithTarget(aiServiceType)
+			return GetGuardianClientWithTargetAndTraderID(aiServiceType, traderID)
 		}
 
 		// 默认创建基本的GuardianClient，允许动态配置
-		client := mcp.NewGuardianClient()
-		return client
+		if traderID != "" {
+			client := mcp.NewGuardianClientWithOptions(
+				mcp.WithTraderID(traderID), // Pass trader ID for browser data isolation
+			)
+			return client
+		} else {
+			client := mcp.NewGuardianClient()
+			return client
+		}
 	}
 
 	// 对于其他提供者，仍然返回对应的客户端
@@ -254,38 +266,67 @@ func GetGuardianClientWithBaseURL(baseURL string) mcp.AIClient {
 
 // GetGuardianClientWithTarget 获取具有特定目标AI服务的Guardian客户端
 func GetGuardianClientWithTarget(aiServiceType string) mcp.AIClient {
+	return GetGuardianClientWithTargetAndTraderID(aiServiceType, "") // 默认无交易员ID
+}
+
+// GetGuardianClientWithTargetAndTraderID 获取具有特定目标AI服务和交易员ID的Guardian客户端
+func GetGuardianClientWithTargetAndTraderID(aiServiceType string, traderID string) mcp.AIClient {
 	switch strings.ToLower(aiServiceType) {
 	case "deepseek":
-		return mcp.NewGuardianClientWithTarget(
+		client := mcp.NewGuardianClientWithTarget(
 			"https://chat.deepseek.com/",
 			"#prompt-textarea",      // 输入框选择器
 			"button[type='submit']", // 提交按钮选择器
 			".font-light",           // 响应内容选择器
 		)
+		// 设置交易员ID（如果可用）
+		if guardianClient, ok := client.(*mcp.GuardianClient); ok && traderID != "" {
+			guardianClient.TraderID = traderID
+		}
+		return client
 	case "chatgpt":
-		return mcp.NewGuardianClientWithTarget(
+		client := mcp.NewGuardianClientWithTarget(
 			"https://chat.openai.com/",
 			"textarea[placeholder*='Send a message']", // 输入框选择器
 			"button[data-testid='send-button']",       // 提交按钮选择器
 			"[data-message-author-role='assistant']",  // 响应内容选择器
 		)
+		// 设置交易员ID（如果可用）
+		if guardianClient, ok := client.(*mcp.GuardianClient); ok && traderID != "" {
+			guardianClient.TraderID = traderID
+		}
+		return client
 	case "claude":
-		return mcp.NewGuardianClientWithTarget(
+		client := mcp.NewGuardianClientWithTarget(
 			"https://claude.ai/",
 			"div[data-is-empty='true'] div",          // 输入框选择器
 			"button[data-testid='send-button']",      // 提交按钮选择器
 			"div[data-testid='assistant-reply'] div", // 响应内容选择器
 		)
+		// 设置交易员ID（如果可用）
+		if guardianClient, ok := client.(*mcp.GuardianClient); ok && traderID != "" {
+			guardianClient.TraderID = traderID
+		}
+		return client
 	case "gemini":
-		return mcp.NewGuardianClientWithTarget(
+		client := mcp.NewGuardianClientWithTarget(
 			"https://gemini.google.com/",
 			"textarea[aria-label*='Describe what you need']", // 输入框选择器
 			"button[aria-label*='Send']",                     // 提交按钮选择器
 			"div[data-read-aloud]",                           // 响应内容选择器
 		)
+		// 设置交易员ID（如果可用）
+		if guardianClient, ok := client.(*mcp.GuardianClient); ok && traderID != "" {
+			guardianClient.TraderID = traderID
+		}
+		return client
 	default:
-		// 默认使用DeepSeek配置
-		return mcp.NewGuardianClient()
+		// 默认使用DeepSeek配置，但应用交易员ID
+		client := mcp.NewGuardianClient()
+		if guardianClient, ok := client.(*mcp.GuardianClient); ok && traderID != "" {
+			guardianClient.TraderID = traderID
+		}
+		return client
 	}
 }
 

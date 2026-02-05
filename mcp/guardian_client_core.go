@@ -13,6 +13,7 @@ const (
 	ProviderGuardian       = "guardian"
 	DefaultGuardianBaseURL = "https://chat.deepseek.com"
 	DefaultGuardianModel   = "guardian-ai"
+	GuardianBrowserDataDir = "./storage/guardian_browser_data" // 统一的浏览器数据存储目录
 )
 
 // GuardianClient represents a client for Guardian AI service
@@ -28,7 +29,8 @@ type GuardianClient struct {
 	SystemPrompt   string
 	logger         *log.Logger
 	httpClient     *http.Client
-	DisplayEnabled bool // 是否启用显示
+	DisplayEnabled bool   // 是否启用显示
+	TraderID       string // 交易员ID，用于创建独立的浏览器数据目录
 }
 
 // NewGuardianClient creates a new instance of GuardianClient
@@ -54,7 +56,8 @@ func NewGuardianClientFromConfig(config Config) *GuardianClient {
 		SystemPrompt:   "", // Config结构体中没有SystemPrompt字段，暂时设为空
 		logger:         log.Default(),
 		httpClient:     config.HTTPClient,
-		DisplayEnabled: true, // 默认启用显示
+		DisplayEnabled: true,            // 默认启用显示
+		TraderID:       config.TraderID, // 设置交易员ID
 	}
 
 	return client
@@ -130,6 +133,11 @@ func (gc *GuardianClient) GetDisplayEnabled() bool {
 // SetDisplayEnabled sets whether display is enabled
 func (gc *GuardianClient) SetDisplayEnabled(enabled bool) {
 	gc.DisplayEnabled = enabled
+}
+
+// GetTraderID returns the trader ID for this client
+func (gc *GuardianClient) GetTraderID() string {
+	return gc.TraderID
 }
 
 const (

@@ -4,6 +4,7 @@ import (
 	"net/http"
 
 	"nofx/mcp"
+	"nofx/trader"
 
 	"github.com/gin-gonic/gin"
 )
@@ -16,6 +17,7 @@ func (s *Server) handleCallGuardianAI(c *gin.Context) {
 		UserPrompt   string `json:"userPrompt"`
 		TargetURL    string `json:"targetUrl,omitempty"`  // Optional target URL for custom services
 		CheckLogin   bool   `json:"checkLogin,omitempty"` // Whether to check login status only
+		TraderID     string `json:"traderId,omitempty"`   // Trader ID for browser data isolation
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -41,7 +43,12 @@ func (s *Server) handleCallGuardianAI(c *gin.Context) {
 		}
 
 		// Create a temporary client to check login status
-		tempClient := mcp.NewGuardianClient()
+		var tempClient mcp.AIClient
+		if req.TraderID != "" {
+			tempClient = mcp.NewGuardianClientWithOptions(mcp.WithTraderID(req.TraderID))
+		} else {
+			tempClient = mcp.NewGuardianClient()
+		}
 		if tempClient == nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create Guardian client"})
 			return
@@ -131,6 +138,7 @@ func (s *Server) handleCheckGuardianLoginStatus(c *gin.Context) {
 		Provider  string `json:"provider"`            // AI provider (e.g., "deepseek-browser", "guardian-ai")
 		TargetURL string `json:"targetUrl,omitempty"` // Optional target URL for custom services
 		AIService string `json:"aiService,omitempty"` // AI service type for configuration
+		TraderID  string `json:"traderId,omitempty"`  // Trader ID for browser data isolation
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -156,9 +164,19 @@ func (s *Server) handleCheckGuardianLoginStatus(c *gin.Context) {
 	// Create a temporary client to check login status
 	var tempClient mcp.AIClient
 	if req.AIService != "" {
-		tempClient = mcp.NewGuardianClientForBrowserWithService(req.AIService)
+		// 如果有交易员ID，使用带交易员ID的创建函数
+		if req.TraderID != "" {
+			tempClient = trader.GetGuardianClientWithTargetAndTraderID(req.AIService, req.TraderID)
+		} else {
+			tempClient = mcp.NewGuardianClientForBrowserWithService(req.AIService)
+		}
 	} else {
-		tempClient = mcp.NewGuardianClient()
+		// 如果有交易员ID，使用带交易员ID的创建函数
+		if req.TraderID != "" {
+			tempClient = mcp.NewGuardianClientWithOptions(mcp.WithTraderID(req.TraderID))
+		} else {
+			tempClient = mcp.NewGuardianClient()
+		}
 	}
 	if tempClient == nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create Guardian client"})

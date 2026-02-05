@@ -115,8 +115,8 @@ func customLoggerMiddleware() gin.HandlerFunc {
 		// Process request
 		c.Next()
 
-		// Skip logging for health check endpoints (too frequent)
-		if path == "/api/health" || path == "/health" {
+		// Skip logging for health check and trader status polling endpoints (too frequent)
+		if path == "/api/health" || path == "/health" || strings.HasPrefix(path, "/api/traders/") && strings.HasSuffix(path, "/status") {
 			return
 		}
 
@@ -774,6 +774,13 @@ func (s *Server) handleCreateTrader(c *gin.Context) {
 	}
 	logger.Infof("?? DEBUG: LoadUserTraders completed")
 
+	// 创建交易员的浏览器数据目录
+	err = s.createTraderBrowserDataDir(traderID)
+	if err != nil {
+		logger.Errorf("Failed to create browser data directory for trader %s: %v", traderID, err)
+		// 不返回错误，因为交易员已经创建成功，这只是辅助目录
+	}
+
 	logger.Infof("??Trader created successfully: %s (model: %s, exchange: %s)", req.Name, req.AIModelID, req.ExchangeID)
 
 	c.JSON(http.StatusCreated, gin.H{
@@ -782,6 +789,66 @@ func (s *Server) handleCreateTrader(c *gin.Context) {
 		"ai_model":    req.AIModelID,
 		"is_running":  false,
 	})
+}
+
+// createTraderBrowserDataDir 创建交易员的浏览器数据目录
+func (s *Server) createTraderBrowserDataDir(traderID string) error {
+	// 创建交易员专属的浏览器数据目录
+	dirName := fmt.Sprintf("%s_%s", mcp.GuardianBrowserDataDir, traderID)
+	if err := os.MkdirAll(dirName, 0755); err != nil {
+		logger.Errorf("Failed to create browser data directory for trader %s: %v", traderID, err)
+		return fmt.Errorf("failed to create browser data directory: %w", err)
+	}
+	logger.Infof("Created browser data directory for trader: %s", traderID)
+	return nil
+}
+
+// deleteTraderBrowserDataDir 删除交易员的浏览器数据目录
+func (s *Server) deleteTraderBrowserDataDir(traderID string) error {
+	// 删除交易员专属的浏览器数据目录
+	dirName := fmt.Sprintf("%s_%s", mcp.GuardianBrowserDataDir, traderID)
+	if _, err := os.Stat(dirName); os.IsNotExist(err) {
+		// 目录不存在，无需删除
+		logger.Infof("Browser data directory for trader %s does not exist, skipping deletion", traderID)
+		return nil
+	}
+
+	if err := os.RemoveAll(dirName); err != nil {
+		logger.Errorf("Failed to delete browser data directory for trader %s: %v", traderID, err)
+		return fmt.Errorf("failed to delete browser data directory: %w", err)
+	}
+	logger.Infof("Deleted browser data directory for trader: %s", traderID)
+	return nil
+}
+
+// ensureAllTraderBrowserDataDirs 检查并创建所有现有交易员的浏览器数据目录
+func (s *Server) ensureAllTraderBrowserDataDirs() error {
+	logger.Info("🔍 Checking and creating browser data directories for all existing traders...")
+
+	// 获取所有交易员
+	allTraders, err := s.store.Trader().ListAll()
+	if err != nil {
+		logger.Errorf("Failed to get all traders for browser data directory initialization: %v", err)
+		return fmt.Errorf("failed to get all traders: %w", err)
+	}
+
+	for _, trader := range allTraders {
+		dirName := fmt.Sprintf("%s_%s", mcp.GuardianBrowserDataDir, trader.ID)
+		if _, err := os.Stat(dirName); os.IsNotExist(err) {
+			logger.Infof("?? Browser data directory for trader %s does not exist, creating it", trader.ID)
+			if err := s.createTraderBrowserDataDir(trader.ID); err != nil {
+				logger.Errorf("Failed to create browser data directory for trader %s: %v", trader.ID, err)
+				// 继续处理其他交易员
+			} else {
+				logger.Infof("Created browser data directory for trader: %s", trader.ID)
+			}
+		} else {
+			logger.Infof("✓ Browser data directory already exists for trader: %s", trader.ID)
+		}
+	}
+
+	logger.Info("✅ Completed checking and creating browser data directories for all traders")
+	return nil
 }
 
 // UpdateTraderRequest Update trader request
@@ -917,6 +984,17 @@ func (s *Server) handleUpdateTrader(c *gin.Context) {
 		return
 	}
 
+	// 检查并创建交易员的浏览器数据目录（如果不存在）
+	dirName := fmt.Sprintf("%s_%s", mcp.GuardianBrowserDataDir, traderID)
+	if _, statErr := os.Stat(dirName); os.IsNotExist(statErr) {
+		logger.Infof("?? Browser data directory for trader %s does not exist, creating it", traderID)
+		err = s.createTraderBrowserDataDir(traderID)
+		if err != nil {
+			logger.Errorf("Failed to create browser data directory for trader %s during update: %v", traderID, err)
+			// 不返回错误，继续执行更新流程
+		}
+	}
+
 	// Remove old trader from memory first (this also stops if running)
 	s.traderManager.RemoveTrader(traderID)
 
@@ -971,6 +1049,13 @@ func (s *Server) handleDeleteTrader(c *gin.Context) {
 
 	// Remove trader from memory
 	s.traderManager.RemoveTrader(traderID)
+
+	// 删除交易员的浏览器数据目录
+	err = s.deleteTraderBrowserDataDir(traderID)
+	if err != nil {
+		logger.Errorf("Failed to delete browser data directory for trader %s: %v", traderID, err)
+		// 不返回错误，因为交易员已经从内存中移除
+	}
 
 	logger.Infof("??Trader deleted: %s", traderID)
 	c.JSON(http.StatusOK, gin.H{"message": "Trader deleted"})
@@ -3723,6 +3808,12 @@ func (s *Server) Start() error {
 	logger.Infof("  ??GET  /api/performance?trader_id=xxx - Specified trader's AI learning performance analysis")
 	logger.Info()
 
+	// 检查并创建所有现有交易员的浏览器数据目录
+	if err := s.ensureAllTraderBrowserDataDirs(); err != nil {
+		logger.Errorf("Failed to initialize browser data directories: %v", err)
+		// 继续启动服务器，即使初始化失败
+	}
+
 	s.httpServer = &http.Server{
 		Addr:    addr,
 		Handler: s.router,
@@ -4166,6 +4257,7 @@ func (s *Server) handleTestGuardian(c *gin.Context) {
 		Prompt    string `json:"prompt"`
 		Mode      string `json:"mode,omitempty"`
 		AIService string `json:"aiService,omitempty"`
+		TraderID  string `json:"traderId,omitempty"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -4185,9 +4277,19 @@ func (s *Server) handleTestGuardian(c *gin.Context) {
 		// 创建Guardian客户端
 		var guardianClient mcp.AIClient
 		if req.AIService != "" {
-			guardianClient = mcp.NewGuardianClientForBrowserWithService(req.AIService)
+			// 如果有交易员ID，使用带交易员ID的创建函数
+			if req.TraderID != "" {
+				guardianClient = trader.GetGuardianClientWithTargetAndTraderID(req.AIService, req.TraderID)
+			} else {
+				guardianClient = mcp.NewGuardianClientForBrowserWithService(req.AIService)
+			}
 		} else {
-			guardianClient = mcp.NewGuardianClient()
+			// 如果有交易员ID，使用带交易员ID的创建函数
+			if req.TraderID != "" {
+				guardianClient = mcp.NewGuardianClientWithOptions(mcp.WithTraderID(req.TraderID))
+			} else {
+				guardianClient = mcp.NewGuardianClient()
+			}
 		}
 		if guardianClient == nil {
 			logger.Error("❌ Failed to create Guardian client")
@@ -4240,6 +4342,7 @@ func (s *Server) handleTestGuardianAnalysis(c *gin.Context) {
 		Prompt    string `json:"prompt"`
 		TestMode  bool   `json:"testMode,omitempty"`
 		AIService string `json:"aiService,omitempty"`
+		TraderID  string `json:"traderId,omitempty"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -4255,9 +4358,19 @@ func (s *Server) handleTestGuardianAnalysis(c *gin.Context) {
 	// 创建Guardian客户端
 	var guardianClient mcp.AIClient
 	if req.AIService != "" {
-		guardianClient = mcp.NewGuardianClientForBrowserWithService(req.AIService)
+		// 如果有交易员ID，使用带交易员ID的创建函数
+		if req.TraderID != "" {
+			guardianClient = trader.GetGuardianClientWithTargetAndTraderID(req.AIService, req.TraderID)
+		} else {
+			guardianClient = mcp.NewGuardianClientForBrowserWithService(req.AIService)
+		}
 	} else {
-		guardianClient = mcp.NewGuardianClient()
+		// 如果有交易员ID，使用带交易员ID的创建函数
+		if req.TraderID != "" {
+			guardianClient = mcp.NewGuardianClientWithOptions(mcp.WithTraderID(req.TraderID))
+		} else {
+			guardianClient = mcp.NewGuardianClient()
+		}
 	}
 	if guardianClient == nil {
 		logger.Error("❌ Failed to create Guardian client")

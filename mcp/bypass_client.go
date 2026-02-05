@@ -14,6 +14,11 @@ type BypassClient struct {
 
 // NewBypassClient creates a new client with optional API bypass capability
 func NewBypassClient(baseClient AIClient, enableBypass bool, browserProviderType string) AIClient {
+	return NewBypassClientWithTraderID(baseClient, enableBypass, browserProviderType, "") // Default no trader ID
+}
+
+// NewBypassClientWithTraderID creates a new client with optional API bypass capability and trader ID
+func NewBypassClientWithTraderID(baseClient AIClient, enableBypass bool, browserProviderType string, traderID string) AIClient {
 	// Create base client - preserve original client configuration if possible
 	var base *Client
 	if client, ok := baseClient.(*Client); ok {
@@ -44,12 +49,46 @@ func NewBypassClient(baseClient AIClient, enableBypass bool, browserProviderType
 
 	// If bypass is enabled, create the browser provider
 	if enableBypass {
-		provider, err := CreateBrowserAIProvider(browserProviderType)
-		if err != nil {
-			client.logger.Errorf("Failed to create browser provider for %s: %v", browserProviderType, err)
-			client.enableBypass = false // Disable bypass on error
+		// Try to get trader ID from base client if not provided
+		client.logger.Warnf("🚨 [BYPASS DEBUG] BypassClient received traderID: '%s'", traderID)
+		actualTraderID := traderID
+		if actualTraderID == "" {
+			// Check if base client is GuardianClient and has trader ID
+			if guardianClient, ok := baseClient.(*GuardianClient); ok {
+				guardianTraderID := guardianClient.GetTraderID()
+				client.logger.Warnf("🚨 [BYPASS DEBUG] Base GuardianClient has traderID: '%s'", guardianTraderID)
+				actualTraderID = guardianTraderID
+			} else {
+				client.logger.Warnf("🚨 [BYPASS DEBUG] Base client is not GuardianClient, keeping traderID: '%s'", actualTraderID)
+			}
+		}
+		client.logger.Warnf("🚨 [BYPASS DEBUG] Final actualTraderID for browser provider: '%s'", actualTraderID)
+
+		// Instead of creating a generic provider and recreating it with trader ID,
+		// directly create the provider with the correct trader ID
+		if browserProviderType == "guardian-ai" || browserProviderType == "deepseek" || browserProviderType == "chatgpt" || browserProviderType == "claude" {
+			// Use the specific provider creation with trader ID
+			client.browserProvider = NewBaseBrowserAIProviderWithTraderID(browserProviderType, "", actualTraderID)
+			client.logger.Warnf("🚨 [BYPASS DEBUG] Created BaseBrowserAIProvider with traderID: '%s'", actualTraderID)
 		} else {
-			client.browserProvider = provider
+			// For other providers, use the original approach
+			provider, err := CreateBrowserAIProvider(browserProviderType)
+			if err != nil {
+				client.logger.Errorf("Failed to create browser provider for %s: %v", browserProviderType, err)
+				client.enableBypass = false // Disable bypass on error
+			} else {
+				// If the provider is a BaseBrowserAIProvider, set the trader ID
+				if baseProvider, ok := provider.(*BaseBrowserAIProvider); ok {
+					// Recreate the provider with trader ID
+					newProvider := NewBaseBrowserAIProviderWithTraderID(baseProvider.ServiceName, baseProvider.DefaultURL, actualTraderID)
+					newProvider.InputSelectors = baseProvider.InputSelectors
+					newProvider.SubmitSelectors = baseProvider.SubmitSelectors
+					newProvider.ResponseSelectors = baseProvider.ResponseSelectors
+					client.browserProvider = newProvider
+				} else {
+					client.browserProvider = provider
+				}
+			}
 		}
 	}
 

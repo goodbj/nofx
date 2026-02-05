@@ -169,3 +169,14 @@ func WithQwenConfig(apiKey string) ClientOption {
 		c.Model = DefaultQwenModel
 	}
 }
+
+// WithTraderID sets trader ID for browser data isolation
+//
+// Usage example:
+//
+//	client := mcp.NewClient(mcp.WithTraderID("trader-123"))
+func WithTraderID(traderID string) ClientOption {
+	return func(c *Config) {
+		c.TraderID = traderID
+	}
+}

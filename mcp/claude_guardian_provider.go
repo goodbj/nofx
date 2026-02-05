@@ -3,6 +3,7 @@ package mcp
 import (
 	"context"
 	"fmt"
+	"net/url"
 	"strings"
 	"time"
 
@@ -221,8 +222,12 @@ func (p *ClaudeGuardianProvider) performClaudeAutomation(prompt string) (string,
 		chromedp.Flag("max_old_space_size", "4096"),
 		chromedp.Flag("no-first-run", "true"),
 		chromedp.Flag("no-default-browser-check", "true"),
+		chromedp.Flag("disable-backgrounding-occluded-windows", "false"), // 确保窗口可见
+		chromedp.Flag("disable-renderer-backgrounding", "true"),          // 防止后台渲染
+		chromedp.Flag("disable-background-timer-throttling", "true"),     // 防止定时器节流
+		chromedp.Flag("disable-background-networking", "false"),          // 允许后台网络活动
 		chromedp.Flag("window-size", "1000,850"),
-		chromedp.Flag("user-data-dir", "./guardian_browser_data"),
+		chromedp.Flag("user-data-dir", fmt.Sprintf("%s_%d_%p", GuardianBrowserDataDir, time.Now().UnixNano(), p)), // 每个实例使用独立的用户数据目录
 		chromedp.Flag("profile-directory", "Default"),
 	)
 
@@ -238,11 +243,21 @@ func (p *ClaudeGuardianProvider) performClaudeAutomation(prompt string) (string,
 	ctx, timeoutCancel := context.WithTimeout(ctx, timeout)
 	defer timeoutCancel()
 
-	p.logger.Printf("🌐 Navigating to Claude URL: %s", p.ProviderConfig.BaseURL)
+	// 验证URL格式
+	targetURL := p.ProviderConfig.BaseURL
+	if targetURL == "" {
+		targetURL = DefaultGuardianBaseURL
+		p.logger.Printf("⚠️ BaseURL is empty, using default: %s", targetURL)
+	}
+	if _, err := url.Parse(targetURL); err != nil {
+		return "", fmt.Errorf("invalid target URL '%s': %w", targetURL, err)
+	}
+
+	p.logger.Printf("🌐 Navigating to Claude URL: %s", targetURL)
 
 	// Navigate to Claude
 	if err := chromedp.Run(ctx,
-		chromedp.Navigate(p.ProviderConfig.BaseURL),
+		chromedp.Navigate(targetURL),
 		chromedp.Sleep(3*time.Second),
 	); err != nil {
 		return "", fmt.Errorf("failed to navigate to Claude: %w", err)

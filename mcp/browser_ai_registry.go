@@ -75,8 +75,19 @@ type BaseBrowserAIProvider struct {
 
 // NewBaseBrowserAIProvider creates a new base browser AI provider
 func NewBaseBrowserAIProvider(name, defaultURL string) *BaseBrowserAIProvider {
+	return NewBaseBrowserAIProviderWithTraderID(name, defaultURL, "") // Default no trader ID
+}
+
+// NewBaseBrowserAIProviderWithTraderID creates a new base browser AI provider with trader ID
+func NewBaseBrowserAIProviderWithTraderID(name, defaultURL, traderID string) *BaseBrowserAIProvider {
+	fmt.Printf("🚨 [BASE PROVIDER DEBUG] Creating BaseBrowserAIProvider with traderID: '%s'\n", traderID) // Debug print
+	client := NewGuardianClientWithOptions(
+		WithTraderID(traderID), // Pass trader ID for browser data isolation
+	).(*GuardianClient)
+	fmt.Printf("🚨 [BASE PROVIDER DEBUG] Created GuardianClient with traderID: '%s'\n", client.GetTraderID()) // Debug print
+
 	return &BaseBrowserAIProvider{
-		GuardianClient:    NewGuardianClient().(*GuardianClient),
+		GuardianClient:    client,
 		ServiceName:       name,
 		DefaultURL:        defaultURL,
 		InputSelectors:    []string{},

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -42,7 +43,19 @@ func (gc *GuardianClient) performBrowserAutomation(prompt string) (string, error
 	// 初始化响应变量
 	var response string
 
-	// 设置Chrome选项
+	// 设置Chrome选项 - 每个交易员使用独立的用户数据目录，确保每个交易员有独立的登录状态
+	uniqueID := gc.TraderID
+	if uniqueID == "" {
+		// 如果没有交易员ID，则使用时间戳和实例地址作为后备
+		timestamp := time.Now().UnixNano()
+		uniqueID = fmt.Sprintf("%d_%p", timestamp, gc)
+	}
+
+	// 记录调试信息
+	gc.logger.Printf("🚨 [GUARDIAN BROWSER DEBUG] Creating browser with TraderID: '%s', uniqueID: '%s'", gc.TraderID, uniqueID)
+	userDir := fmt.Sprintf("%s_%s", GuardianBrowserDataDir, uniqueID)
+	gc.logger.Printf("🚨 [GUARDIAN BROWSER DEBUG] User data directory: %s", userDir)
+
 	opts := append(chromedp.DefaultExecAllocatorOptions[:],
 		chromedp.Flag("headless", false),             // 非无头模式以便观察
 		chromedp.Flag("disable-web-security", false), // 启用网络安全以支持正常网站功能
@@ -62,9 +75,13 @@ func (gc *GuardianClient) performBrowserAutomation(prompt string) (string, error
 		chromedp.Flag("max_old_space_size", "4096"),
 		chromedp.Flag("no-first-run", "true"),
 		chromedp.Flag("no-default-browser-check", "true"),
-		chromedp.Flag("window-size", "1000,850"),                  // 设置浏览器窗口尺寸为1000x850
-		chromedp.Flag("user-data-dir", "./guardian_browser_data"), // 设置用户数据目录以保存登录状态
-		chromedp.Flag("profile-directory", "Default"),             // 使用默认配置文件
+		chromedp.Flag("disable-backgrounding-occluded-windows", "false"), // 确保窗口可见
+		chromedp.Flag("disable-renderer-backgrounding", "true"),          // 防止后台渲染
+		chromedp.Flag("disable-background-timer-throttling", "true"),     // 防止定时器节流
+		chromedp.Flag("disable-background-networking", "false"),          // 允许后台网络活动
+		chromedp.Flag("window-size", "1000,850"),                         // 设置浏览器窗口尺寸为1000x850
+		chromedp.Flag("user-data-dir", userDir),                          // 每个实例使用独立的用户数据目录
+		chromedp.Flag("profile-directory", "Default"),                    // 使用默认配置文件
 	)
 
 	allocCtx, allocCancel := chromedp.NewExecAllocator(context.Background(), opts...)
@@ -97,8 +114,18 @@ func (gc *GuardianClient) performBrowserAutomation(prompt string) (string, error
 
 	// 访问目标URL
 	targetURL := gc.ProviderConfig.BaseURL
+	if targetURL == "" {
+		// 如果BaseURL为空，使用默认URL
+		targetURL = DefaultGuardianBaseURL
+		gc.logger.Printf("⚠️ BaseURL is empty, using default: %s", targetURL)
+	}
 	if !strings.HasPrefix(targetURL, "http") {
 		targetURL = "https://" + targetURL
+	}
+
+	// 验证URL格式
+	if _, err := url.Parse(targetURL); err != nil {
+		return "", fmt.Errorf("invalid target URL '%s': %w", targetURL, err)
 	}
 
 	gc.logger.Printf("🌐 Navigating to URL: %s", targetURL)
@@ -1088,7 +1115,13 @@ func (gc *GuardianClient) OpenLongLivedBrowser(targetURL string) error {
 
 // performBrowserAutomationWithKeepAlive 类似于performBrowserAutomation，但保持浏览器长时间打开
 func (gc *GuardianClient) performBrowserAutomationWithKeepAlive(targetURL string) (string, error) {
-	// 设置Chrome选项
+	// 设置Chrome选项 - 每个交易员使用独立的用户数据目录，确保每个交易员有独立的登录状态
+	uniqueID := gc.TraderID
+	if uniqueID == "" {
+		// 如果没有交易员ID，则使用时间戳和实例地址作为后备
+		timestamp := time.Now().UnixNano()
+		uniqueID = fmt.Sprintf("%d_%p", timestamp, gc)
+	}
 	opts := append(chromedp.DefaultExecAllocatorOptions[:],
 		chromedp.Flag("headless", false),             // 非无头模式以便观察
 		chromedp.Flag("disable-web-security", false), // 启用网络安全以支持正常网站功能
@@ -1108,9 +1141,13 @@ func (gc *GuardianClient) performBrowserAutomationWithKeepAlive(targetURL string
 		chromedp.Flag("max_old_space_size", "4096"),
 		chromedp.Flag("no-first-run", "true"),
 		chromedp.Flag("no-default-browser-check", "true"),
-		chromedp.Flag("window-size", "1000,850"),                  // 设置浏览器窗口尺寸为1000x850
-		chromedp.Flag("user-data-dir", "./guardian_browser_data"), // 设置用户数据目录以保存登录状态
-		chromedp.Flag("profile-directory", "Default"),             // 使用默认配置文件
+		chromedp.Flag("disable-backgrounding-occluded-windows", "false"),                       // 确保窗口可见
+		chromedp.Flag("disable-renderer-backgrounding", "true"),                                // 防止后台渲染
+		chromedp.Flag("disable-background-timer-throttling", "true"),                           // 防止定时器节流
+		chromedp.Flag("disable-background-networking", "false"),                                // 允许后台网络活动
+		chromedp.Flag("window-size", "1000,850"),                                               // 设置浏览器窗口尺寸为1000x850
+		chromedp.Flag("user-data-dir", fmt.Sprintf("%s_%s", GuardianBrowserDataDir, uniqueID)), // 每个实例使用独立的用户数据目录
+		chromedp.Flag("profile-directory", "Default"),                                          // 使用默认配置文件
 	)
 
 	allocCtx, _ := chromedp.NewExecAllocator(context.Background(), opts...)
