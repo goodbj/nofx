@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Card, Button, Space, Typography, message, Input } from 'antd';
+import { Card, Button, Space, Typography, message, Input, Select } from 'antd';
 
 const { Title, Text, Paragraph } = Typography;
 
@@ -9,6 +9,7 @@ const GuardianTestPage: React.FC = () => {
   const [aiContent, setAiContent] = useState('');
   const [predefinedPrompt, setPredefinedPrompt] = useState('');
   const [executionTime, setExecutionTime] = useState<number | null>(null);
+  const [aiService, setAiService] = useState<string>('deepseek');
 
 
   // 模拟Guardian浏览器自动化测试
@@ -25,7 +26,8 @@ const GuardianTestPage: React.FC = () => {
         },
         body: JSON.stringify({
           prompt: predefinedPrompt || '默认测试提示词',
-          mode: 'guardian-test' // 特殊模式，跳过交易所验证
+          mode: 'guardian-test', // 特殊模式，跳过交易所验证
+          aiService: aiService // 添加AI服务类型
         })
       });
 
@@ -76,7 +78,8 @@ const GuardianTestPage: React.FC = () => {
         },
         body: JSON.stringify({
           prompt: predefinedPrompt || '默认测试提示词',
-          testMode: true
+          testMode: true,
+          aiService: aiService // 添加AI服务类型
         })
       });
 
@@ -119,6 +122,35 @@ const GuardianTestPage: React.FC = () => {
     setLoading(true);
     setTestResult('');
     
+    // 根据AI服务类型确定URL
+    let baseUrl = 'https://chat.deepseek.com/';
+    switch(aiService) {
+      case 'chatgpt':
+        baseUrl = 'https://chat.openai.com/';
+        break;
+      case 'claude':
+        baseUrl = 'https://claude.ai/chat';
+        break;
+      case 'gemini':
+        baseUrl = 'https://gemini.google.com/';
+        break;
+      case 'qwen':
+        baseUrl = 'https://www.qianwen.com';
+        break;
+      case 'grok':
+        baseUrl = 'https://grok.x.ai/';
+        break;
+      case 'kimi':
+        baseUrl = 'https://kimi.moonshot.cn/';
+        break;
+      case 'ollama':
+        baseUrl = 'http://localhost:11434/';
+        break;
+      default:
+        baseUrl = 'https://chat.deepseek.com/';
+        break;
+    }
+    
     try {
       const response = await fetch('/api/open-guardian-browser', {
         method: 'POST',
@@ -126,7 +158,8 @@ const GuardianTestPage: React.FC = () => {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          url: 'https://chat.deepseek.com/'
+          url: baseUrl,
+          aiService: aiService // 添加AI服务类型
         })
       });
 
@@ -176,18 +209,41 @@ const GuardianTestPage: React.FC = () => {
 
       <Card style={{ marginBottom: '24px' }}>
         <Space direction="vertical" style={{ width: '100%' }}>
-          <Text strong>预设提示词：</Text>
-          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-            {predefinedPrompts.map((prompt, index) => (
-              <Button
-                key={index}
-                size="small"
-                onClick={() => setPredefinedPrompt(prompt)}
-                type={predefinedPrompt === prompt ? 'primary' : 'default'}
-              >
-                {prompt}
-              </Button>
-            ))}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px', alignItems: 'end' }}>
+            <div>
+              <Text strong>AI服务类型：</Text>
+              <Select
+                style={{ width: '100%', marginTop: '8px' }}
+                value={aiService}
+                onChange={(value) => setAiService(value)}
+                options={[
+                  { value: 'deepseek', label: 'DeepSeek' },
+                  { value: 'chatgpt', label: 'ChatGPT (OpenAI)' },
+                  { value: 'claude', label: 'Claude' },
+                  { value: 'gemini', label: 'Google Gemini' },
+                  { value: 'qwen', label: 'Qwen (通义千问)' },
+                  { value: 'grok', label: 'Grok (xAI)' },
+                  { value: 'kimi', label: 'Kimi (月之暗面)' },
+                  { value: 'ollama', label: 'Ollama' },
+                ]}
+              />
+            </div>
+            
+            <div>
+              <Text strong>预设提示词：</Text>
+              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginTop: '8px' }}>
+                {predefinedPrompts.map((prompt, index) => (
+                  <Button
+                    key={index}
+                    size="small"
+                    onClick={() => setPredefinedPrompt(prompt)}
+                    type={predefinedPrompt === prompt ? 'primary' : 'default'}
+                  >
+                    {prompt}
+                  </Button>
+                ))}
+              </div>
+            </div>
           </div>
           
           <Text strong>自定义提示词：</Text>

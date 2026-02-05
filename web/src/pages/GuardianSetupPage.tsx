@@ -23,7 +23,8 @@ const GuardianSetupPage: React.FC = () => {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          url: targetUrl
+          url: targetUrl,
+          aiService: selectedProvider // 添加AI服务类型
         })
       });
 
@@ -46,9 +47,22 @@ const GuardianSetupPage: React.FC = () => {
     setLoading(true);
 
     try {
-      const result = await import('../api/guardian').then(mod => 
-        mod.guardianAPI.checkLoginStatus({ provider: selectedProvider })
-      );
+      const response = await fetch('/api/guardian/check-login', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          provider: selectedProvider,
+          aiService: selectedProvider // 使用selectedProvider作为AI服务类型
+        })
+      });
+      
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      
+      const result = await response.json();
       
       if (result.isLoggedIn) {
         message.success('✅ 您已登录');
@@ -67,10 +81,10 @@ const GuardianSetupPage: React.FC = () => {
     { value: 'deepseek', label: 'DeepSeek' },
     { value: 'openai', label: 'ChatGPT' },
     { value: 'claude', label: 'Claude' },
-    { value: 'qwen', label: '通义千问' },
-    { value: 'gemini', label: 'Gemini' },
-    { value: 'grok', label: 'Grok' },
-    { value: 'kimi', label: 'Kimi' },
+    { value: 'qwen', label: 'Qwen (通义千问)' },
+    { value: 'gemini', label: 'Google Gemini' },
+    { value: 'grok', label: 'Grok (xAI)' },
+    { value: 'kimi', label: 'Kimi (月之暗面)' },
     { value: 'ollama', label: 'Ollama' },
     { value: 'guardian-ai', label: 'Guardian AI' },
   ];

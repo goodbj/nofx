@@ -87,7 +87,7 @@ export const guardianAPI = {
       'deepseek': 'https://chat.deepseek.com',
       'openai': 'https://chat.openai.com',
       'claude': 'https://claude.ai',
-      'qwen': 'https://tongyi.aliyun.com/qwen/',
+      'qwen': 'https://www.qianwen.com',
       'gemini': 'https://gemini.google.com',
       'grok': 'https://grok.x.ai',
       'kimi': 'https://kimi.moonshot.cn',
