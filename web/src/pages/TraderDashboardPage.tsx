@@ -296,6 +296,41 @@ export function TraderDashboardPage({
     }
   }
 
+  // 删除决策记录
+  const handleDeleteDecision = async (decisionId: number, traderId: string) => {
+    if (!token) {
+      notify.error(
+        language === 'zh'
+          ? '认证令牌不存在，请重新登录'
+          : 'Authentication token not found, please log in again'
+      )
+      return
+    }
+
+    try {
+      const response = await api.deleteDecision(decisionId, traderId)
+      
+      if (!response.success) {
+        notify.error(response.message || (language === 'zh' ? '删除决策失败' : 'Failed to delete decision'))
+        return
+      }
+
+      notify.success(language === 'zh' ? '决策删除成功' : 'Decision deleted successfully')
+      
+      // 刷新决策列表
+      await mutate(`decisions-${selectedTraderId}`)
+    } catch (error: unknown) {
+      const errorMessage = 
+        error instanceof Error 
+          ? error.message 
+          : language === 'zh' 
+            ? '网络错误或未知错误' 
+            : 'Network error or unknown error';
+            
+      notify.error(errorMessage)
+    }
+  }
+
   // Current positions pagination
   const [positionsPageSize, setPositionsPageSize] = useState<number>(20)
   const [positionsCurrentPage, setPositionsCurrentPage] = useState<number>(1)
@@ -1748,6 +1783,7 @@ ${promptPreview.user_prompt}`
                     decision={decision}
                     language={language}
                     onSymbolClick={handleSymbolClick}
+                    onDelete={handleDeleteDecision}
                   />
                 ))
               ) : (

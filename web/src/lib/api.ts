@@ -819,4 +819,13 @@ export const api = {
     )
     return result
   },
+
+  // 删除单个决策记录
+  async deleteDecision(decisionId: number, traderId: string): Promise<{ 
+    success: boolean, 
+    message?: string 
+  }> {
+    const result = await httpClient.delete(`${API_BASE}/decisions/${decisionId}?trader_id=${traderId}`)
+    return result
+  },
 }

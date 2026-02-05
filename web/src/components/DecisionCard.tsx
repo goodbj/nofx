@@ -6,6 +6,7 @@ interface DecisionCardProps {
   decision: DecisionRecord
   language: Language
   onSymbolClick?: (symbol: string) => void
+  onDelete?: (decisionId: number, traderId: string) => void
 }
 
 // Action type configuration
@@ -217,7 +218,7 @@ function ActionCard({ action, language, onSymbolClick }: { action: DecisionActio
   )
 }
 
-export function DecisionCard({ decision, language, onSymbolClick }: DecisionCardProps) {
+export function DecisionCard({ decision, language, onSymbolClick, onDelete }: DecisionCardProps) {
   const [showSystemPrompt, setShowSystemPrompt] = useState(false)
   const [showInputPrompt, setShowInputPrompt] = useState(false)
   const [showCoT, setShowCoT] = useState(false)
@@ -272,15 +273,35 @@ export function DecisionCard({ decision, language, onSymbolClick }: DecisionCard
             </div>
           </div>
         </div>
-        <div
-          className="px-4 py-1.5 rounded-full text-xs font-bold tracking-wider"
-          style={
-            decision.success
-              ? { background: 'rgba(14, 203, 129, 0.15)', color: '#0ECB81', border: '1px solid rgba(14, 203, 129, 0.3)' }
-              : { background: 'rgba(246, 70, 93, 0.15)', color: '#F6465D', border: '1px solid rgba(246, 70, 93, 0.3)' }
-          }
-        >
-          {t(decision.success ? 'success' : 'failed', language)}
+        <div className="flex items-center gap-2">
+          <div
+            className="px-4 py-1.5 rounded-full text-xs font-bold tracking-wider"
+            style={
+              decision.success
+                ? { background: 'rgba(14, 203, 129, 0.15)', color: '#0ECB81', border: '1px solid rgba(14, 203, 129, 0.3)' }
+                : { background: 'rgba(246, 70, 93, 0.15)', color: '#F6465D', border: '1px solid rgba(246, 70, 93, 0.3)' }
+            }
+          >
+            {t(decision.success ? 'success' : 'failed', language)}
+          </div>
+          {onDelete && (
+            <button
+              onClick={() => {
+                if (window.confirm(`Are you sure you want to delete cycle #${decision.cycle_number}?`)) {
+                  onDelete(decision.id, decision.trader_id);
+                }
+              }}
+              className="p-1.5 rounded-lg hover:bg-red-500/20 transition-colors"
+              style={{ color: '#F6465D' }}
+              title="Delete this decision cycle"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M3 6h18"></path>
+                <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"></path>
+                <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"></path>
+              </svg>
+            </button>
+          )}
         </div>
       </div>
 

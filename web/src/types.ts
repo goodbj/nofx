@@ -86,6 +86,8 @@ export interface AccountSnapshot {
 }
 
 export interface DecisionRecord {
+  id: number
+  trader_id: string
   timestamp: string
   cycle_number: number
   system_prompt: string

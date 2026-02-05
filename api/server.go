@@ -3,6 +3,7 @@
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -31,6 +32,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
+	"gorm.io/gorm"
 )
 
 // Server HTTP API server
@@ -262,6 +264,7 @@ func (s *Server) setupRoutes() {
 			protected.GET("/open-orders", s.handleOpenOrders)      // Open orders from exchange (pending SL/TP)
 			protected.GET("/decisions", s.handleDecisions)
 			protected.GET("/decisions/latest", s.handleLatestDecisions)
+			protected.DELETE("/decisions/:id", s.handleDeleteDecision) // 🔥 删除单个决策记录
 			protected.GET("/statistics", s.handleStatistics)
 
 			// Test API endpoint
@@ -3269,6 +3272,67 @@ func (s *Server) handleLatestDecisions(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, records)
+}
+
+// handleDeleteDecision Delete a specific decision record
+func (s *Server) handleDeleteDecision(c *gin.Context) {
+	decisionID := c.Param("id")
+	if decisionID == "" {
+		SafeBadRequest(c, "Decision ID is required")
+		return
+	}
+
+	// Convert decision ID to integer
+	id, err := strconv.ParseInt(decisionID, 10, 64)
+	if err != nil {
+		SafeBadRequest(c, "Invalid decision ID")
+		return
+	}
+
+	// Get user and trader info
+	userID := c.GetString("user_id")
+	traderID := c.Query("trader_id")
+	if traderID == "" {
+		SafeBadRequest(c, "Trader ID is required")
+		return
+	}
+
+	// Verify trader belongs to current user
+	_, err = s.store.Trader().GetFullConfig(userID, traderID)
+	if err != nil {
+		logger.Errorf("User %s trying to delete decision from unauthorized trader %s: %v", userID, traderID, err)
+		c.JSON(http.StatusForbidden, gin.H{"error": "No access permission"})
+		return
+	}
+
+	// Find the decision record using the decision store
+	var decisionRecord store.DecisionRecordDB
+	err = s.store.GormDB().First(&decisionRecord, id).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Decision record not found"})
+			return
+		}
+		SafeInternalError(c, "Find decision record", err)
+		return
+	}
+
+	// Verify that the decision belongs to the specified trader
+	if decisionRecord.TraderID != traderID {
+		logger.Errorf("Decision %d does not belong to trader %s", id, traderID)
+		c.JSON(http.StatusForbidden, gin.H{"error": "Decision does not belong to this trader"})
+		return
+	}
+
+	// Delete the decision record
+	err = s.store.GormDB().Delete(&decisionRecord).Error
+	if err != nil {
+		SafeInternalError(c, "Delete decision record", err)
+		return
+	}
+
+	logger.Infof("✅ Decision record %d deleted successfully for trader %s", id, traderID)
+	c.JSON(http.StatusOK, gin.H{"message": "Decision record deleted successfully", "id": id})
 }
 
 // handleStatistics Statistics information
