@@ -43,14 +43,32 @@ func (gc *GuardianClient) waitForAndValidateOutput(ctx context.Context) (string,
 				gc.logger.Printf("⚠️ Error getting page HTML: %v", err)
 				// 继续尝试，不中断轮询
 			} else {
-				// 检查页面是否包含 ds-message _63c77b1 或 ds-flex _0a3d93b 字符串
-				// 优先检查 ds-message _63c77b1 (AI正在输出内容) 和 ds-flex _0a3d93b (AI输出完成)
-				containsAIMessage := strings.Contains(pageHTML, "ds-message _63c77b1")
-				containsAICompletion := strings.Contains(pageHTML, "ds-flex _0a3d93b")
+				serviceType := strings.ToLower(gc.ProviderConfig.Provider)
+
+				// 检查页面是否包含相应服务的AI输出完成标志
+				// 对于DeepSeek，检查 ds-message _63c77b1 或 ds-flex _0a3d93b 字符串
+				// 对于Qwen，检查通义千问特有的类名
+				containsAIMessage := false
+				containsAICompletion := false
+
+				if strings.Contains(serviceType, "qwen") || strings.Contains(serviceType, "通义千问") {
+					// Qwen 特有的检测标志
+					containsAIMessage = strings.Contains(pageHTML, "chat-item assistant") || strings.Contains(pageHTML, "role=\"assistant\"")
+					containsAICompletion = strings.Contains(pageHTML, "chat-item assistant") && strings.Contains(pageHTML, "data-status=\"finished\"") ||
+						strings.Contains(pageHTML, "role=\"assistant\"") && strings.Contains(pageHTML, "data-status=\"finished\"")
+				} else {
+					// DeepSeek 特有的检测标志
+					containsAIMessage = strings.Contains(pageHTML, "ds-message _63c77b1")
+					containsAICompletion = strings.Contains(pageHTML, "ds-flex _0a3d93b")
+				}
 
 				if containsAICompletion {
 					// 发现完成关键字，输出日志
-					gc.logger.Println("✅ ds-flex _0a3d93b keyword detected, AI output completed")
+					if strings.Contains(serviceType, "qwen") || strings.Contains(serviceType, "通义千问") {
+						gc.logger.Println("✅ Qwen completion keyword detected, AI output completed")
+					} else {
+						gc.logger.Println("✅ ds-flex _0a3d93b keyword detected, AI output completed")
+					}
 
 					// 提取AI输出内容
 					extractedContent, extractErr := gc.extractAIOutputContent(ctx)
@@ -63,13 +81,20 @@ func (gc *GuardianClient) waitForAndValidateOutput(ctx context.Context) (string,
 					// 复制AI输出内容后输出日志
 					gc.logger.Printf("📋 AI output copied, content length: %d", len(extractedContent))
 
-					// 现在extractAIOutputContent已经返回纯净内容，不需要再次清理
+					// 🚨 TRANSPARENCY PIPELINE NOTICE 🚨
+					// 重要通知：劫匪计划透明管道原则
+					// extractAIOutputContent已经返回纯净内容，不需要再次清理
+					// 严禁在此处添加任何形式的内容过滤、格式化或清理操作
 					gc.logger.Printf("📋 Content extracted, final length: %d", len(extractedContent))
 
 					return extractedContent, nil // 找到关键字并提取内容，返回成功
 				} else if containsAIMessage {
 					// 发现AI消息内容，但尚未完成，继续等待完成标志
-					gc.logger.Println("💬 ds-message _63c77b1 detected, AI is generating content...")
+					if strings.Contains(serviceType, "qwen") || strings.Contains(serviceType, "通义千问") {
+						gc.logger.Println("💬 Qwen assistant message detected, AI is generating content...")
+					} else {
+						gc.logger.Println("💬 ds-message _63c77b1 detected, AI is generating content...")
+					}
 				}
 			}
 
@@ -140,6 +165,14 @@ func (gc *GuardianClient) clickCopyButton(ctx context.Context) error {
 }
 
 func (gc *GuardianClient) extractAIOutputContent(ctx context.Context) (string, error) {
+	// 🚨 TRANSPARENCY PIPELINE NOTICE 🚨
+	// ===================================
+	// 重要通知：劫匪计划透明管道原则
+	// 从浏览器获取的AI输出内容必须保持原始格式，不做任何处理
+	// 任何对内容的修改都会影响AI思维链的可读性
+	// 严禁在此处添加任何形式的内容过滤、格式化或清理操作
+	// ===================================
+	
 	// 首先尝试点击复制按钮
 	copyErr := gc.clickCopyButton(ctx)
 	if copyErr == nil {
@@ -154,17 +187,35 @@ func (gc *GuardianClient) extractAIOutputContent(ctx context.Context) (string, e
 	gc.logger.Printf("ℹ️  Proceeding to extract content from page")
 
 	var aiContent string
-
-	// 优先尝试获取完整的 ds-message _63c77b1 元素的HTML内容
-	selectors := []string{
-		"div.ds-message._63c77b1",      // DeepSeek AI输出内容的主要容器（最优先）
-		"div.ds-flex._0a3d93b",         // AI输出完成标志容器
-		"div.ds-message._63c77b1 div",  // 容器内的内容
-		"div.ds-message._63c77b1 span", // 容器内的文本节点
-		"div.ds-message._63c77b1 *",    // 容器内的任意元素
-		"div.ds-flex._0a3d93b div",     // 容器内的内容
-		"div.ds-flex._0a3d93b span",    // 容器内的文本节点
-		"div.ds-flex._0a3d93b *",       // 容器内的任意元素
+	
+	serviceType := strings.ToLower(gc.ProviderConfig.Provider)
+	
+	// 根据服务类型选择不同的选择器
+	var selectors []string
+	if strings.Contains(serviceType, "qwen") || strings.Contains(serviceType, "通义千问") {
+		// Qwen 通义千问的选择器
+		selectors = []string{
+			"div.chat-item.assistant",           // Qwen 助手消息的主要容器
+			"div[role='assistant']",             // Qwen 助手角色容器
+			"div.chat-item.assistant div.content", // Qwen 内容容器
+			"div[role='assistant'] div.content",   // Qwen 内容容器
+			"div.chat-item.assistant p",          // Qwen 段落内容
+			"div[role='assistant'] p",            // Qwen 段落内容
+			"div.chat-item.assistant span",       // Qwen 文本内容
+			"div[role='assistant'] span",         // Qwen 文本内容
+		}
+	} else {
+		// DeepSeek 的选择器
+		selectors = []string{
+			"div.ds-message._63c77b1",      // DeepSeek AI输出内容的主要容器（最优先）
+			"div.ds-flex._0a3d93b",         // AI输出完成标志容器
+			"div.ds-message._63c77b1 div",  // 容器内的内容
+			"div.ds-message._63c77b1 span", // 容器内的文本节点
+			"div.ds-message._63c77b1 *",    // 容器内的任意元素
+			"div.ds-flex._0a3d93b div",     // 容器内的内容
+			"div.ds-flex._0a3d93b span",    // 容器内的文本节点
+			"div.ds-flex._0a3d93b *",       // 容器内的任意元素
+		}
 	}
 
 	for _, selector := range selectors {
@@ -176,11 +227,13 @@ func (gc *GuardianClient) extractAIOutputContent(ctx context.Context) (string, e
 				chromedp.Evaluate(`(() => {
 					const elements = document.querySelectorAll('div.ds-message._63c77b1');
 					if (elements.length >= 2) {
-						// 获取第二个元素的内容，优先使用 textContent 获取纯净文本
-						return elements[1].textContent || elements[1].innerText || elements[1].innerHTML || elements[1].outerHTML || '';
+						// 获取第二个元素的原始内容，不做任何处理
+						const element = elements[1];
+						return element.innerText || element.textContent || element.innerHTML || element.outerHTML || '';
 					} else if (elements.length == 1) {
-						// 如果只有一个元素，返回它
-						return elements[0].textContent || elements[0].innerText || elements[0].innerHTML || elements[0].outerHTML || '';
+						// 如果只有一个元素，返回它的原始内容
+						const element = elements[0];
+						return element.innerText || element.textContent || element.innerHTML || element.outerHTML || '';
 					}
 					return '';
 				})()`, &elementContent),
@@ -200,7 +253,8 @@ func (gc *GuardianClient) extractAIOutputContent(ctx context.Context) (string, e
 				var innerHTML string
 				err := chromedp.InnerHTML(selector, &innerHTML).Do(ctx)
 				if err == nil && strings.TrimSpace(innerHTML) != "" {
-					aiContent = strings.TrimSpace(innerHTML)
+					// 保留内容中的换行符，只移除首尾空白
+					aiContent = innerHTML
 					gc.logger.Printf("✅ Extracted innerHTML from selector '%s', length: %d", selector, len(aiContent))
 					return nil // 成功提取内容
 				}
@@ -209,7 +263,8 @@ func (gc *GuardianClient) extractAIOutputContent(ctx context.Context) (string, e
 				var outerHTML string
 				err = chromedp.OuterHTML(selector, &outerHTML).Do(ctx)
 				if err == nil && strings.TrimSpace(outerHTML) != "" {
-					aiContent = strings.TrimSpace(outerHTML)
+					// 保留内容中的换行符，只移除首尾空白
+					aiContent = outerHTML
 					gc.logger.Printf("✅ Extracted outerHTML from selector '%s', length: %d", selector, len(aiContent))
 					return nil // 成功提取内容
 				}
@@ -218,7 +273,8 @@ func (gc *GuardianClient) extractAIOutputContent(ctx context.Context) (string, e
 				var content string
 				err = chromedp.Text(selector, &content).Do(ctx)
 				if err == nil && strings.TrimSpace(content) != "" {
-					aiContent = strings.TrimSpace(content)
+					// 保留内容中的换行符，只移除首尾空白
+					aiContent = content
 					gc.logger.Printf("✅ Extracted text content from selector '%s', length: %d", selector, len(aiContent))
 					return nil // 成功提取内容
 				}
@@ -239,23 +295,21 @@ func (gc *GuardianClient) extractAIOutputContent(ctx context.Context) (string, e
 			// 首先尝试查找 ds-message _63c77b1 元素（AI输出内容）
 			const messageElements = document.querySelectorAll('div.ds-message._63c77b1');
 			if (messageElements.length >= 2) {
-				// 获取第二个匹配元素的完整内部HTML（按您的要求获取第二个）
+				// 获取第二个匹配元素的原始内容，不做任何处理
 				const element = messageElements[1];
-				// 返回完整的内部HTML，保留所有嵌套结构
-				return element.innerHTML || element.outerHTML || element.innerText || element.textContent || '';
+				return element.innerText || element.textContent || element.innerHTML || element.outerHTML || '';
 			} else if (messageElements.length == 1) {
-				// 如果只有一个元素，返回它
+				// 如果只有一个元素，返回它的原始内容
 				const element = messageElements[0];
-				return element.innerHTML || element.outerHTML || element.innerText || element.textContent || '';
+				return element.innerText || element.textContent || element.innerHTML || element.outerHTML || '';
 			}
 			
 			// 如果没有找到 ds-message _63c77b1 元素，尝试查找 ds-flex _0a3d93b 元素（AI输出完成标志）
 			const elements = document.querySelectorAll('div.ds-flex._0a3d93b');
 			if (elements.length > 0) {
-				// 获取第一个匹配元素的完整内容
+				// 获取第一个匹配元素的原始内容
 				const element = elements[0];
-				// 返回完整的内部HTML
-				return element.innerHTML || element.outerHTML || element.innerText || element.textContent || '';
+				return element.innerText || element.textContent || element.innerHTML || element.outerHTML || '';
 			}
 			return '';
 		})()`, &aiContent),
@@ -276,6 +330,14 @@ func (gc *GuardianClient) extractAIOutputContent(ctx context.Context) (string, e
 
 // cleanAndDecodeContent 清理和解码AI输出内容，处理HTML实体编码和其他特殊字符
 func (gc *GuardianClient) cleanAndDecodeContent(content string) string {
+	// 🚨 TRANSPARENCY PIPELINE NOTICE 🚨
+	// ===================================
+	// 重要通知：劫匪计划透明管道原则
+	// 从浏览器获取的AI输出内容必须保持原始格式，不做任何处理
+	// 任何对内容的修改都会影响AI思维链的可读性
+	// 严禁在此处添加任何形式的内容过滤、格式化或清理操作
+	// ===================================
+	// 🔥 FUNDAMENTAL PRINCIPLE: RETURN RAW CONTENT WITHOUT ANY PROCESSING 🔥
 	// 直接返回原始内容，让nofx原生解析逻辑处理
 	// 这样确保nofx的extractDecisions函数能使用其完整的解析链
 	gc.logger.Printf("📥 Raw AI response received, length: %d", len(content))
@@ -291,8 +353,8 @@ func (gc *GuardianClient) cleanHTMLContent(htmlContent string) string {
 	re := regexp.MustCompile(`<[^>]*>`)
 	cleaned = re.ReplaceAllString(cleaned, " ")
 
-	// 替换多个空白字符为单个空格
-	space := regexp.MustCompile(`\s+`)
+	// 仅替换多个连续的空格为单个空格，保留换行符
+	space := regexp.MustCompile(`[ ]+`)
 	cleaned = space.ReplaceAllString(cleaned, " ")
 
 	// 移除常见的转义字符

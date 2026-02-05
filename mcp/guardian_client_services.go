@@ -33,6 +33,10 @@ func NewGuardianClientWithService(serviceType string) AIClient {
 		gc.ProviderConfig.Provider = "claude"
 		gc.BaseURL = "https://claude.ai/chat"
 		gc.Model = "claude"
+	case "qwen":
+		gc.ProviderConfig.Provider = "qwen"
+		gc.BaseURL = "https://tongyi.aliyun.com/qwen/"
+		gc.Model = "qwen"
 		// Add more services as needed
 	}
 
@@ -60,6 +64,10 @@ func NewGuardianClientForBrowserWithService(serviceType string) AIClient {
 		gc.ProviderConfig.Provider = "claude"
 		gc.BaseURL = "https://claude.ai/chat"
 		gc.Model = "claude"
+	case "qwen":
+		gc.ProviderConfig.Provider = "qwen"
+		gc.BaseURL = "https://tongyi.aliyun.com/qwen/"
+		gc.Model = "qwen"
 		// Add more services as needed
 	}
 

@@ -213,6 +213,29 @@ func (gc *GuardianClient) performBrowserAutomation(prompt string) (string, error
 			".chat-message-content",
 			"div.markdown-body",
 		}
+	case strings.Contains(serviceType, "qwen") || strings.Contains(serviceType, "通义千问"):
+		inputSelectors = []string{
+			"textarea[placeholder*='请输入'], textarea[placeholder*='输入']",
+			"textarea[placeholder*='message'], textarea[placeholder*='Message']",
+			"textarea[aria-label*='input'], textarea[aria-label*='text']",
+			"div[contenteditable='true']",
+			"textarea[data-testid='chat-input']",
+			"textarea#text-input",
+		}
+		submitSelectors = []string{
+			"button[data-testid='send-button'], button.send-btn",
+			"button[aria-label*='发送'], button[aria-label*='Send']",
+			"button[type='submit']",
+			".submit-btn, #submit-btn",
+			"button:has(svg[class*='send']), button:has(i[class*='send'])",
+		}
+		responseSelectors = []string{
+			"div[data-testid='assistant-response'], div[data-role='assistant']",
+			"div.qwen-response, div.chat-message.assistant",
+			"div.markdown-body, div.response-content",
+			"pre, code",
+			"div[class*='message']:not([data-role='user'])",
+		}
 	case strings.Contains(serviceType, "other"):
 		// 预留其他服务类型
 		inputSelectors = []string{
@@ -782,7 +805,10 @@ Loop:
 							var respText string
 							err = chromedp.Text(selector, &respText).Do(ctx)
 							if err == nil && strings.TrimSpace(respText) != "" {
-								response = strings.TrimSpace(respText)
+								// 🚨 TRANSPARENCY PIPELINE NOTICE 🚨
+								// 重要通知：劫匪计划透明管道原则 - 保留原始内容格式
+								// 严禁在此处添加任何形式的内容过滤、格式化或清理操作
+								response = respText
 								gc.logger.Printf("✅ Got response from selector: %s, length: %d", selector, len(response))
 								return nil
 							}
@@ -1031,9 +1057,14 @@ Loop:
 	duration := time.Since(startTime)
 	gc.logger.Printf("⏱️ Browser automation completed in %v", duration)
 
-	// 清理最终响应内容
-	cleanedResponse := gc.cleanAndDecodeContent(response)
-	gc.logger.Printf("🧹 Final response content cleaned, length: %d", len(cleanedResponse))
+	// 🚨 TRANSPARENCY PIPELINE NOTICE 🚨
+	// ===================================
+	// 重要通知：劫匪计划透明管道原则
+	// 从浏览器获取的AI输出内容必须保持原始格式，不做任何处理
+	// 任何对内容的修改都会影响AI思维链的可读性
+	// 严禁在此处添加任何形式的内容过滤、格式化或清理操作
+	// ===================================
+	gc.logger.Printf("🧹 Final response content, length: %d", len(response))
 
 	// 根据配置决定是否保持浏览器打开
 	// 由于Config结构体中没有KeepAlive字段，暂时移除该条件
@@ -1043,8 +1074,9 @@ Loop:
 	// 在AI处理完成后立即关闭浏览器，不再等待长时间延迟
 	gc.logger.Println("✅ AI processing completed, closing browser immediately")
 
-	// 不再等待配置的延迟时间，直接返回
-	return cleanedResponse, nil
+	// 不再等待配置的延迟时间，直接返回原始内容
+	// 🔥 FUNDAMENTAL PRINCIPLE: RETURN RAW CONTENT WITHOUT ANY PROCESSING 🔥
+	return response, nil
 }
 
 // OpenLongLivedBrowser 打开长生命周期的浏览器窗口，用于首次登录设置
