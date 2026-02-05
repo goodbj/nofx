@@ -626,7 +626,7 @@ export function TraderDashboardPage({
                         value={trader.trader_id}
                         className="bg-[#0B0E11]"
                       >
-                        {trader.trader_name}
+                        {trader.trader_name} ({trader.trader_id.slice(0, 8)}) {trader.is_running ? '🟢' : '🔴'}
                       </option>
                     ))}
                   </select>
