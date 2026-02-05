@@ -39,6 +39,33 @@ func NewGuardianClientWithService(serviceType string) AIClient {
 	return gc
 }
 
+// NewGuardianClientForBrowserWithService creates a GuardianClient for browser automation configured for a specific service
+func NewGuardianClientForBrowserWithService(serviceType string) AIClient {
+	client := NewGuardianClientForBrowser()
+
+	gc, ok := client.(*GuardianClient)
+	if !ok {
+		return client
+	}
+
+	// Configure for the specific service
+	switch strings.ToLower(serviceType) {
+	case "deepseek":
+		gc.ConfigureForDeepSeek()
+	case "chatgpt":
+		gc.ProviderConfig.Provider = "chatgpt"
+		gc.BaseURL = "https://chat.openai.com"
+		gc.Model = "chatgpt"
+	case "claude":
+		gc.ProviderConfig.Provider = "claude"
+		gc.BaseURL = "https://claude.ai/chat"
+		gc.Model = "claude"
+		// Add more services as needed
+	}
+
+	return gc
+}
+
 // NewGuardianClient creates Guardian client (backward compatible)
 func NewGuardianClient_() AIClient {
 	return NewGuardianClientWithOptions()
