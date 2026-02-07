@@ -13,6 +13,142 @@ import (
 	"github.com/chromedp/chromedp"
 )
 
+// AutoLoginProcess 自动弹出登录窗口并等待用户完成登录
+func (gc *GuardianClient) AutoLoginProcess() bool {
+	gc.logger.Println("🚀 Starting automatic login process...")
+
+	// 使用长生命周期浏览器窗口进行登录
+	targetURL := gc.ProviderConfig.BaseURL
+	if targetURL == "" {
+		targetURL = DefaultGuardianBaseURL
+	}
+
+	// 打开长时间保持的浏览器窗口用于登录
+	loginTimeout := 300 // 5分钟登录超时
+	result, err := gc.performLoginBrowserAutomation(targetURL, loginTimeout)
+	if err != nil {
+		gc.logger.Printf("❌ Login browser automation failed: %v", err)
+		return false
+	}
+
+	gc.logger.Printf("✅ Login browser session completed: %s", result)
+
+	// 验证登录状态
+	isLoggedIn, err := gc.CheckLoginStatus(targetURL)
+	if err != nil {
+		gc.logger.Printf("⚠️ Error verifying login status after login attempt: %v", err)
+		return false
+	}
+
+	if isLoggedIn {
+		gc.logger.Println("✅ Login verification successful")
+		return true
+	} else {
+		gc.logger.Println("❌ Login verification failed")
+		return false
+	}
+}
+
+// performLoginBrowserAutomation 专门用于登录的浏览器自动化流程
+func (gc *GuardianClient) performLoginBrowserAutomation(targetURL string, timeoutSeconds int) (string, error) {
+	gc.logger.Printf("🔐 Opening login browser window for: %s", targetURL)
+
+	// 设置Chrome选项
+	uniqueID := gc.TraderID
+	if uniqueID == "" {
+		timestamp := time.Now().UnixNano()
+		uniqueID = fmt.Sprintf("%d_%p", timestamp, gc)
+	}
+
+	userDir := fmt.Sprintf("%s_%s", GuardianBrowserDataDir, uniqueID)
+	gc.logger.Printf("📁 Using user data directory: %s", userDir)
+
+	opts := append(chromedp.DefaultExecAllocatorOptions[:],
+		chromedp.Flag("headless", false),
+		chromedp.Flag("disable-web-security", false),
+		chromedp.Flag("disable-features", "VizDisplayCompositor"),
+		chromedp.Flag("no-sandbox", true),
+		chromedp.Flag("disable-dev-shm-usage", true),
+		chromedp.Flag("disable-gpu", false),
+		chromedp.Flag("blink-settings", "imagesEnabled=true"),
+		chromedp.Flag("enable-automation", false),
+		chromedp.Flag("exclude-switches", "enable-automation"),
+		chromedp.Flag("disable-extensions", false),
+		chromedp.Flag("disable-plugins-discovery", false),
+		chromedp.Flag("incognito", false),
+		chromedp.Flag("user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"),
+		chromedp.Flag("disable-blink-features", "AutomationControlled"),
+		chromedp.Flag("renderer-process-limit", "1"),
+		chromedp.Flag("max_old_space_size", "4096"),
+		chromedp.Flag("no-first-run", "true"),
+		chromedp.Flag("no-default-browser-check", "true"),
+		chromedp.Flag("disable-backgrounding-occluded-windows", "false"),
+		chromedp.Flag("disable-renderer-backgrounding", "true"),
+		chromedp.Flag("disable-background-timer-throttling", "true"),
+		chromedp.Flag("disable-background-networking", "false"),
+		chromedp.Flag("window-size", "1000,850"),
+		chromedp.Flag("user-data-dir", userDir),
+		chromedp.Flag("profile-directory", "Default"),
+	)
+
+	allocCtx, allocCancel := chromedp.NewExecAllocator(context.Background(), opts...)
+	defer allocCancel()
+
+	ctx, browserCancel := chromedp.NewContext(allocCtx)
+	defer browserCancel()
+
+	// 设置登录超时
+	timeout := time.Duration(timeoutSeconds) * time.Second
+	ctx, timeoutCancel := context.WithTimeout(ctx, timeout)
+	defer timeoutCancel()
+
+	gc.logger.Printf("⏰ Login browser started with timeout: %v", timeout)
+
+	// 导航到登录页面
+	if !strings.HasPrefix(targetURL, "http") {
+		targetURL = "https://" + targetURL
+	}
+
+	if err := chromedp.Run(ctx,
+		network.Enable(),
+		chromedp.Navigate(targetURL),
+		chromedp.Sleep(3*time.Second), // 给页面更多加载时间
+	); err != nil {
+		return "", fmt.Errorf("failed to navigate to login page: %w", err)
+	}
+
+	gc.logger.Printf("✅ Successfully navigated to login page: %s", targetURL)
+
+	// 等待用户完成登录
+	gc.logger.Println("⏳ Waiting for user to complete login... (browser will close automatically after login or timeout)")
+
+	// 定期检查登录状态
+	ticker := time.NewTicker(5 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ticker.C:
+			isLoggedIn, err := gc.checkLoginStatus(ctx)
+			if err != nil {
+				gc.logger.Printf("⚠️ Error checking login status: %v", err)
+				continue
+			}
+
+			if isLoggedIn {
+				gc.logger.Println("✅ Login detected, closing browser...")
+				return "Login successful", nil
+			}
+
+			gc.logger.Println("⏳ Still waiting for login completion...")
+
+		case <-ctx.Done():
+			gc.logger.Println("⏰ Login timeout reached")
+			return "Login timeout", nil
+		}
+	}
+}
+
 // call implements the actual AI call using browser automation
 func (gc *GuardianClient) call(systemPrompt, userPrompt string) (string, error) {
 	gc.logger.Println("🤖 Guardian Browser Automation: Starting browser automation for AI processing")
@@ -26,6 +162,9 @@ func (gc *GuardianClient) call(systemPrompt, userPrompt string) (string, error) 
 	} else {
 		combinedPrompt = systemPrompt // 否则使用系统提示
 	}
+
+	// 注意：不再自动检查登录状态，因为已有专门的首次登录工具
+	// 如需登录，请使用前端的交易员首次登录工具页面进行设置
 
 	// 启动浏览器自动化流程
 	result, err := gc.performBrowserAutomation(combinedPrompt)
