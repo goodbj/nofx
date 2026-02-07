@@ -3729,30 +3729,44 @@ func (s *Server) handleVerifyOTP(c *gin.Context) {
 		OTPCode string `json:"otp_code" binding:"required"`
 	}
 
+	logger.Infof("[OTP] Received verify request for user_id: %s, otp_code length: %d", req.UserID, len(req.OTPCode))
+
 	if err := c.ShouldBindJSON(&req); err != nil {
-		SafeBadRequest(c, "Invalid request parameters")
+		logger.Errorf("[OTP] Failed to bind JSON: %v", err)
+		SafeBadRequest(c, "Invalid request parameters: "+err.Error())
 		return
 	}
 
+	logger.Infof("[OTP] Parsed request - UserID: %s, OTPCode: %s", req.UserID, req.OTPCode)
+
 	// Get user information
+	logger.Infof("[OTP] Looking up user: %s", req.UserID)
 	user, err := s.store.User().GetByID(req.UserID)
 	if err != nil {
+		logger.Errorf("[OTP] User not found: %s, error: %v", req.UserID, err)
 		SafeNotFound(c, "User")
 		return
 	}
+	logger.Infof("[OTP] Found user: %s, email: %s, OTP verified: %v", user.ID, user.Email, user.OTPVerified)
 
 	// Verify OTP
+	logger.Infof("[OTP] Verifying code for user %s with secret length: %d", user.ID, len(user.OTPSecret))
 	if !auth.VerifyOTP(user.OTPSecret, req.OTPCode) {
+		logger.Errorf("[OTP] Verification failed for user %s", user.ID)
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Verification code error"})
 		return
 	}
+	logger.Infof("[OTP] Verification successful for user %s", user.ID)
 
 	// Generate JWT token
+	logger.Infof("[OTP] Generating JWT token for user %s", user.ID)
 	token, err := auth.GenerateJWT(user.ID, user.Email)
 	if err != nil {
+		logger.Errorf("[OTP] Failed to generate token for user %s: %v", user.ID, err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate token"})
 		return
 	}
+	logger.Infof("[OTP] Token generated successfully for user %s", user.ID)
 
 	c.JSON(http.StatusOK, gin.H{
 		"token":   token,
