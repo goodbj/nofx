@@ -987,7 +987,26 @@ func (e *StrategyEngine) BuildSystemPrompt(accountEquity float64, variant string
 	sb.WriteString(fmt.Sprintf("- Position Value Limit (BTC/ETH): max %.0f USDT (= equity %.0f × %.1fx)\n",
 		accountEquity*btcEthPosValueRatio, accountEquity, btcEthPosValueRatio))
 	sb.WriteString(fmt.Sprintf("- Max Margin Usage: ≤%.0f%%\n", riskControl.MaxMarginUsage*100))
-	sb.WriteString(fmt.Sprintf("- Min Position Size: ≥%.0f USDT\n\n", riskControl.MinPositionSize))
+	sb.WriteString(fmt.Sprintf("- Min Position Size: ≥%.0f USDT\n", riskControl.MinPositionSize))
+	if riskControl.MaxDailyTrades > 0 {
+		sb.WriteString(fmt.Sprintf("- Max Daily Trades: %d trades\n", riskControl.MaxDailyTrades))
+	}
+	if riskControl.MaxHourlyTrades > 0 {
+		sb.WriteString(fmt.Sprintf("- Max Hourly Trades: %d trades\n", riskControl.MaxHourlyTrades))
+	}
+	if riskControl.MaxTradesPerSymbolPerHour > 0 {
+		sb.WriteString(fmt.Sprintf("- Max Trades Per Symbol Per Hour: %d trades\n", riskControl.MaxTradesPerSymbolPerHour))
+	}
+	if riskControl.MinHoldTimeMinutes > 0 {
+		sb.WriteString(fmt.Sprintf("- Min Hold Time: %d minutes\n", riskControl.MinHoldTimeMinutes))
+	}
+	if riskControl.MaxLossPerTradePercent > 0 {
+		sb.WriteString(fmt.Sprintf("- Max Loss Per Trade: %.2f%%\n", riskControl.MaxLossPerTradePercent))
+	}
+	if riskControl.DailyLossLimitPercent > 0 {
+		sb.WriteString(fmt.Sprintf("- Daily Loss Limit: %.2f%%\n", riskControl.DailyLossLimitPercent))
+	}
+	sb.WriteString("\n")
 
 	sb.WriteString("## AI GUIDED (Recommended, you should follow):\n")
 	sb.WriteString(fmt.Sprintf("- Trading Leverage: Altcoins max %dx | BTC/ETH max %dx\n",

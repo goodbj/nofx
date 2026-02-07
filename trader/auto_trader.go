@@ -1622,6 +1622,22 @@ func (at *AutoTrader) executeOpenLongWithRecord(decision *kernel.Decision, actio
 		availableBalance = avail
 	}
 
+	// [CODE ENFORCED] Check daily loss limit before opening new positions
+	if err := at.enforceDailyLossLimit(); err != nil {
+		return err
+	}
+
+	// [CODE ENFORCED] Check current margin usage
+	marginUsedPct := 0.0
+	if marginUsed, ok := balance["marginUsed"].(float64); ok && marginUsed > 0 {
+		if totalEquity, ok := balance["totalEquity"].(float64); ok && totalEquity > 0 {
+			marginUsedPct = (marginUsed / totalEquity) * 100
+		}
+	}
+	if err := at.enforceMaxMarginUsage(marginUsedPct); err != nil {
+		return err
+	}
+
 	// Get equity for position value ratio check
 	equity := 0.0
 	if eq, ok := balance["totalEquity"].(float64); ok && eq > 0 {
@@ -1752,6 +1768,22 @@ func (at *AutoTrader) executeOpenShortWithRecord(decision *kernel.Decision, acti
 		availableBalance = avail
 	}
 
+	// [CODE ENFORCED] Check daily loss limit before opening new positions
+	if err := at.enforceDailyLossLimit(); err != nil {
+		return err
+	}
+
+	// [CODE ENFORCED] Check current margin usage
+	marginUsedPct := 0.0
+	if marginUsed, ok := balance["marginUsed"].(float64); ok && marginUsed > 0 {
+		if totalEquity, ok := balance["totalEquity"].(float64); ok && totalEquity > 0 {
+			marginUsedPct = (marginUsed / totalEquity) * 100
+		}
+	}
+	if err := at.enforceMaxMarginUsage(marginUsedPct); err != nil {
+		return err
+	}
+
 	// Get equity for position value ratio check
 	equity := 0.0
 	if eq, ok := balance["totalEquity"].(float64); ok && eq > 0 {
@@ -1855,6 +1887,11 @@ func (at *AutoTrader) executeCloseLongWithRecord(decision *kernel.Decision, acti
 	}
 	actionRecord.Price = marketData.CurrentPrice
 
+	// [CODE ENFORCED] Check minimum hold time before closing position
+	if err := at.enforceMinHoldTime(decision.Symbol, "long"); err != nil {
+		return err
+	}
+
 	// Normalize symbol for database lookup
 	normalizedSymbol := market.Normalize(decision.Symbol)
 
@@ -1936,6 +1973,11 @@ func (at *AutoTrader) executeCloseShortWithRecord(decision *kernel.Decision, act
 		return err
 	}
 	actionRecord.Price = marketData.CurrentPrice
+
+	// [CODE ENFORCED] Check minimum hold time before closing position
+	if err := at.enforceMinHoldTime(decision.Symbol, "short"); err != nil {
+		return err
+	}
 
 	// Normalize symbol for database lookup
 	normalizedSymbol := market.Normalize(decision.Symbol)
@@ -3203,6 +3245,103 @@ func (at *AutoTrader) enforceMaxPositions(currentPositionCount int) error {
 	if currentPositionCount >= maxPositions {
 		return fmt.Errorf("❌ [RISK CONTROL] Already at max positions (%d/%d)", currentPositionCount, maxPositions)
 	}
+	return nil
+}
+
+// enforceMaxMarginUsage checks maximum margin usage (CODE ENFORCED)
+func (at *AutoTrader) enforceMaxMarginUsage(currentMarginUsagePct float64) error {
+	if at.config.StrategyConfig == nil {
+		return nil
+	}
+
+	maxMarginUsage := at.config.StrategyConfig.RiskControl.MaxMarginUsage
+	if maxMarginUsage <= 0 {
+		maxMarginUsage = 0.9 // Default: 90%
+	}
+
+	if currentMarginUsagePct > maxMarginUsage*100 {
+		return fmt.Errorf("❌ [RISK CONTROL] Margin usage %.2f%% exceeds limit (%.0f%%)", currentMarginUsagePct, maxMarginUsage*100)
+	}
+	return nil
+}
+
+// enforceMinHoldTime checks minimum hold time for positions (CODE ENFORCED)
+func (at *AutoTrader) enforceMinHoldTime(symbol string, side string) error {
+	if at.config.StrategyConfig == nil {
+		return nil
+	}
+
+	minHoldTimeMinutes := at.config.StrategyConfig.RiskControl.MinHoldTimeMinutes
+	if minHoldTimeMinutes <= 0 {
+		return nil // If not set, don't enforce
+	}
+
+	positionKey := fmt.Sprintf("%s_%s", symbol, side)
+	firstSeenTime, exists := at.positionFirstSeenTime[positionKey]
+	if !exists {
+		return nil // If no first seen time, let it pass
+	}
+
+	positionHeldDuration := time.Since(time.UnixMilli(firstSeenTime))
+	minHoldDuration := time.Duration(minHoldTimeMinutes) * time.Minute
+
+	if positionHeldDuration < minHoldDuration {
+		remainingTime := minHoldDuration - positionHeldDuration
+		return fmt.Errorf("❌ [RISK CONTROL] Position %s held for only %v, minimum hold time is %v (remaining: %v)",
+			positionKey, positionHeldDuration.Round(time.Second), minHoldDuration, remainingTime.Round(time.Second))
+	}
+
+	return nil
+}
+
+// enforceMaxLossPerTrade checks maximum loss per single trade (CODE ENFORCED)
+func (at *AutoTrader) enforceMaxLossPerTrade(symbol string, unrealizedPnL float64, positionValue float64) error {
+	if at.config.StrategyConfig == nil || positionValue <= 0 {
+		return nil
+	}
+
+	maxLossPercent := at.config.StrategyConfig.RiskControl.MaxLossPerTradePercent
+	if maxLossPercent <= 0 {
+		return nil // If not set, don't enforce
+	}
+
+	currentLossPercent := (math.Abs(unrealizedPnL) / positionValue) * 100
+
+	if unrealizedPnL < 0 && currentLossPercent > maxLossPercent {
+		return fmt.Errorf("❌ [RISK CONTROL] Position %s loss %.2f%% exceeds limit (%.2f%%), current loss: %.2f USDT",
+			symbol, currentLossPercent, maxLossPercent, unrealizedPnL)
+	}
+
+	return nil
+}
+
+// enforceDailyLossLimit checks daily loss limit (CODE ENFORCED)
+func (at *AutoTrader) enforceDailyLossLimit() error {
+	if at.config.StrategyConfig == nil {
+		return nil
+	}
+
+	dailyLossLimitPercent := at.config.StrategyConfig.RiskControl.DailyLossLimitPercent
+	if dailyLossLimitPercent <= 0 {
+		return nil // If not set, don't enforce
+	}
+
+	// Reset daily P&L if day has changed
+	currentTime := time.Now()
+	if currentTime.Day() != at.lastResetTime.Day() ||
+		currentTime.Month() != at.lastResetTime.Month() ||
+		currentTime.Year() != at.lastResetTime.Year() {
+		at.dailyPnL = 0
+		at.lastResetTime = currentTime
+	}
+
+	currentDailyLossPercent := (math.Abs(at.dailyPnL) / at.initialBalance) * 100
+
+	if at.dailyPnL < 0 && currentDailyLossPercent > dailyLossLimitPercent {
+		return fmt.Errorf("❌ [RISK CONTROL] Daily loss %.2f%% exceeds limit (%.2f%%), current daily loss: %.2f USDT",
+			currentDailyLossPercent, dailyLossLimitPercent, at.dailyPnL)
+	}
+
 	return nil
 }
 
