@@ -1223,6 +1223,15 @@ export const translations = {
       // Direction Stats
       trades: 'Trades',
       avgPnL: 'Avg P&L',
+      
+      // Sync
+      sync: 'Sync',
+      syncing: 'Syncing...',
+      syncSuccess: 'Sync completed',
+      syncFailed: 'Sync failed',
+      positionsCreated: 'positions created',
+      positionsSkipped: 'positions skipped',
+      
       // Symbol Performance
       symbolPerformance: 'Symbol Performance',
       // Filters
@@ -2493,6 +2502,15 @@ export const translations = {
       // Direction Stats
       trades: '交易次数',
       avgPnL: '平均盈亏',
+      
+      // Sync
+      sync: '同步',
+      syncing: '同步中...',
+      syncSuccess: '同步完成',
+      syncFailed: '同步失败',
+      positionsCreated: '条记录已创建',
+      positionsSkipped: '条记录已跳过',
+      
       // Symbol Performance
       symbolPerformance: '品种表现',
       // Filters

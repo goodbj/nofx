@@ -1802,11 +1802,13 @@ func (s *Server) handleClosePosition(c *gin.Context) {
 
 // recordClosePositionOrder Record close position order to database (Lighter version - direct FILLED status)
 func (s *Server) recordClosePositionOrder(traderID, exchangeID, exchangeType, symbol, side string, quantity, exitPrice float64, result map[string]interface{}) {
-	// Skip for exchanges with OrderSync - let the background sync handle it to avoid duplicates
+	// For exchanges with OrderSync, still record basic position close info to ensure history visibility
 	switch exchangeType {
 	case "binance", "lighter", "hyperliquid", "bybit", "okx", "bitget", "aster":
-		logger.Infof("  ?? Close order will be synced by OrderSync, skipping immediate record")
-		return
+		logger.Infof("  ?? Close order will be synced by OrderSync, recording basic close info for history")
+		// Continue to record basic close information for history tracking
+	default:
+		// For other exchanges, proceed with normal recording
 	}
 
 	// Check if order was placed (skip if NO_POSITION)
@@ -2653,6 +2655,15 @@ func (s *Server) handlePositionHistory(c *gin.Context) {
 	if err != nil {
 		SafeInternalError(c, "Get position history", err)
 		return
+	}
+
+	// Debug logging
+	logger.Infof("📊 Position history request for trader %s: found %d closed positions (limit: %d)", traderID, len(positions), limit)
+	if len(positions) == 0 {
+		// Check if there are any open positions that might explain the empty history
+		positionStore := store.Position()
+		openPositions, _ := positionStore.GetOpenPositions(trader.GetID())
+		logger.Infof("📊 No closed positions found. Current open positions: %d", len(openPositions))
 	}
 
 	// Get statistics
