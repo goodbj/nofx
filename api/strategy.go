@@ -801,10 +801,10 @@ func (s *Server) runRealAITest(userID, modelID, systemPrompt, userPrompt string)
 		// Handle Guardian AI models (browser automation)
 		// For guardian models, we use the custom API URL as the target service
 		if model.CustomAPIURL != "" {
-			aiClient = mcp.GetGuardianClientWithBaseURL(model.CustomAPIURL)
+			aiClient = mcp.NewGuardianClientWithService(model.CustomAPIURL)
 		} else {
 			// Default to DeepSeek if no custom URL provided
-			aiClient = mcp.GetGuardianClientWithTarget("deepseek")
+			aiClient = mcp.NewGuardianClientWithTarget("deepseek", "", "", "")
 		}
 		// Set API key for base client validation even though Guardian uses browser automation
 		aiClient.SetAPIKey("dummy-key-for-browser-automation", model.CustomAPIURL, model.CustomModelName)
