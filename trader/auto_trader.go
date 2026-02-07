@@ -2788,6 +2788,24 @@ func (at *AutoTrader) checkPositionDrawdown() {
 			currentPnLPct = ((entryPrice - markPrice) / entryPrice) * float64(leverage) * 100
 		}
 
+		// Calculate position value for loss checking
+		positionValue := math.Abs(markPrice * quantity)
+
+		// Check maximum loss per trade (applies to existing positions)
+		if err := at.enforceMaxLossPerTrade(symbol, currentPnLPct*positionValue/100, positionValue); err != nil {
+			logger.Infof("🚨 Max loss per trade exceeded: %v", err)
+
+			// Execute emergency close position due to excessive loss
+			if closeErr := at.emergencyClosePosition(symbol, side); closeErr != nil {
+				logger.Infof("❌ Max loss close position failed (%s %s): %v", symbol, side, closeErr)
+			} else {
+				logger.Infof("✅ Max loss close position succeeded: %s %s", symbol, side)
+				// Clear cache for this position after closing
+				at.ClearPeakPnLCache(symbol, side)
+				continue // Skip further processing for this position since it's closed
+			}
+		}
+
 		// Construct unique position identifier (distinguish long/short)
 		posKey := symbol + "_" + side
 
