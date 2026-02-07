@@ -1873,11 +1873,14 @@ func (at *AutoTrader) executeOpenShortWithRecord(decision *kernel.Decision, acti
 
 // executeCloseLongWithRecord executes close long position and records detailed information
 func (at *AutoTrader) executeCloseLongWithRecord(decision *kernel.Decision, actionRecord *store.DecisionAction) error {
-	logger.Infof("  🔄 Close long: %s", decision.Symbol)
+	logger.Infof("  ✖️ Close long: %s", decision.Symbol)
 
-	// [CODE ENFORCED] Check trade frequency limits
-	if err := at.enforceTradeFrequencyLimits(decision.Symbol); err != nil {
-		return err
+	// Only enforce trade frequency limits for position opening actions (open_long, open_short)
+	// Updates to existing positions (stop loss, take profit, etc.) should not be limited
+	if decision.Action == "open_long" || decision.Action == "open_short" {
+		if err := at.enforceTradeFrequencyLimits(decision.Symbol); err != nil {
+			return err
+		}
 	}
 
 	// Get current price
@@ -1960,11 +1963,14 @@ func (at *AutoTrader) executeCloseLongWithRecord(decision *kernel.Decision, acti
 
 // executeCloseShortWithRecord executes close short position and records detailed information
 func (at *AutoTrader) executeCloseShortWithRecord(decision *kernel.Decision, actionRecord *store.DecisionAction) error {
-	logger.Infof("  🔄 Close short: %s", decision.Symbol)
+	logger.Infof("  ✖️ Close short: %s", decision.Symbol)
 
-	// [CODE ENFORCED] Check trade frequency limits
-	if err := at.enforceTradeFrequencyLimits(decision.Symbol); err != nil {
-		return err
+	// Only enforce trade frequency limits for position opening actions (open_long, open_short)
+	// Updates to existing positions (stop loss, take profit, etc.) should not be limited
+	if decision.Action == "open_long" || decision.Action == "open_short" {
+		if err := at.enforceTradeFrequencyLimits(decision.Symbol); err != nil {
+			return err
+		}
 	}
 
 	// Get current price
@@ -2050,9 +2056,12 @@ func (at *AutoTrader) executeTrailingStopWithRecord(decision *kernel.Decision, a
 	logger.Infof("  🔄 Setting trailing stop: %s, Trail %%: %.2f%%, Activation Price: %.4f",
 		decision.Symbol, decision.TrailPercentage, decision.ActivationPrice)
 
-	// [CODE ENFORCED] Check trade frequency limits
-	if err := at.enforceTradeFrequencyLimits(decision.Symbol); err != nil {
-		return err
+	// Only enforce trade frequency limits for position opening actions (open_long, open_short)
+	// Updates to existing positions (stop loss, take profit, etc.) should not be limited
+	if decision.Action == "open_long" || decision.Action == "open_short" {
+		if err := at.enforceTradeFrequencyLimits(decision.Symbol); err != nil {
+			return err
+		}
 	}
 
 	// Get current positions to determine quantity and side
@@ -2183,9 +2192,12 @@ func (at *AutoTrader) executeDynamicTakeProfitWithRecord(decision *kernel.Decisi
 	logger.Infof("  🔄 Setting dynamic take profit: %s, Target ROI: %.2f%%, Max ROI: %.2f%%, Time Limit: %.2f hours",
 		decision.Symbol, decision.TargetROI, decision.MaxROI, decision.TimeLimitHours)
 
-	// [CODE ENFORCED] Check trade frequency limits
-	if err := at.enforceTradeFrequencyLimits(decision.Symbol); err != nil {
-		return err
+	// Only enforce trade frequency limits for position opening actions (open_long, open_short)
+	// Updates to existing positions (stop loss, take profit, etc.) should not be limited
+	if decision.Action == "open_long" || decision.Action == "open_short" {
+		if err := at.enforceTradeFrequencyLimits(decision.Symbol); err != nil {
+			return err
+		}
 	}
 
 	// Get current positions to determine quantity and side
@@ -3448,9 +3460,12 @@ func getBinanceCustomEndpointForAutoTrader(config *AutoTraderConfig) string {
 func (at *AutoTrader) executeUpdateStopLossWithRecord(decision *kernel.Decision, actionRecord *store.DecisionAction) error {
 	logger.Infof("  🔄 Update stop loss: %s to %.4f", decision.Symbol, decision.NewStopLoss)
 
-	// [CODE ENFORCED] Check trade frequency limits
-	if err := at.enforceTradeFrequencyLimits(decision.Symbol); err != nil {
-		return err
+	// Only enforce trade frequency limits for position opening actions (open_long, open_short)
+	// Updates to existing positions (stop loss, take profit, etc.) should not be limited
+	if decision.Action == "open_long" || decision.Action == "open_short" {
+		if err := at.enforceTradeFrequencyLimits(decision.Symbol); err != nil {
+			return err
+		}
 	}
 
 	// Get current positions to determine quantity and side
@@ -3574,9 +3589,12 @@ func (at *AutoTrader) executeUpdateStopLossWithRecord(decision *kernel.Decision,
 func (at *AutoTrader) executeUpdateTakeProfitWithRecord(decision *kernel.Decision, actionRecord *store.DecisionAction) error {
 	logger.Infof("  🔄 Update take profit: %s to %.4f", decision.Symbol, decision.NewTakeProfit)
 
-	// [CODE ENFORCED] Check trade frequency limits
-	if err := at.enforceTradeFrequencyLimits(decision.Symbol); err != nil {
-		return err
+	// Only enforce trade frequency limits for position opening actions (open_long, open_short)
+	// Updates to existing positions (stop loss, take profit, etc.) should not be limited
+	if decision.Action == "open_long" || decision.Action == "open_short" {
+		if err := at.enforceTradeFrequencyLimits(decision.Symbol); err != nil {
+			return err
+		}
 	}
 
 	// Get current positions to determine quantity and side
@@ -3700,9 +3718,12 @@ func (at *AutoTrader) executeUpdateTakeProfitWithRecord(decision *kernel.Decisio
 func (at *AutoTrader) executePartialCloseWithRecord(decision *kernel.Decision, actionRecord *store.DecisionAction) error {
 	logger.Infof("  🔄 Partial close: %s, %.2f%%", decision.Symbol, decision.ClosePercentage)
 
-	// [CODE ENFORCED] Check trade frequency limits
-	if err := at.enforceTradeFrequencyLimits(decision.Symbol); err != nil {
-		return err
+	// Only enforce trade frequency limits for position opening actions (open_long, open_short)
+	// Updates to existing positions (stop loss, take profit, etc.) should not be limited
+	if decision.Action == "open_long" || decision.Action == "open_short" {
+		if err := at.enforceTradeFrequencyLimits(decision.Symbol); err != nil {
+			return err
+		}
 	}
 
 	// Get current positions to determine quantity and side
@@ -3780,9 +3801,12 @@ func (at *AutoTrader) executePartialCloseWithRecord(decision *kernel.Decision, a
 func (at *AutoTrader) executeOCOOrderWithRecord(decision *kernel.Decision, actionRecord *store.DecisionAction) error {
 	logger.Infof("  🔄 Executing OCO order: %s", decision.Symbol)
 
-	// [CODE ENFORCED] Check trade frequency limits
-	if err := at.enforceTradeFrequencyLimits(decision.Symbol); err != nil {
-		return err
+	// Only enforce trade frequency limits for position opening actions (open_long, open_short)
+	// Updates to existing positions (stop loss, take profit, etc.) should not be limited
+	if decision.Action == "open_long" || decision.Action == "open_short" {
+		if err := at.enforceTradeFrequencyLimits(decision.Symbol); err != nil {
+			return err
+		}
 	}
 
 	// Get current positions to determine quantity and side
@@ -3972,9 +3996,12 @@ func (at *AutoTrader) executeOCOOrderWithRecord(decision *kernel.Decision, actio
 func (at *AutoTrader) executeBracketOrderWithRecord(decision *kernel.Decision, actionRecord *store.DecisionAction) error {
 	logger.Infof("  🔄 Executing bracket order (2-step): %s", decision.Symbol)
 
-	// [CODE ENFORCED] Check trade frequency limits
-	if err := at.enforceTradeFrequencyLimits(decision.Symbol); err != nil {
-		return err
+	// Only enforce trade frequency limits for position opening actions (open_long, open_short)
+	// Updates to existing positions (stop loss, take profit, etc.) should not be limited
+	if decision.Action == "open_long" || decision.Action == "open_short" {
+		if err := at.enforceTradeFrequencyLimits(decision.Symbol); err != nil {
+			return err
+		}
 	}
 
 	// Get current positions to check if position already exists
@@ -4172,9 +4199,12 @@ func (at *AutoTrader) executeBracketOrderWithRecord(decision *kernel.Decision, a
 func (at *AutoTrader) executeAddToPositionWithRecord(decision *kernel.Decision, actionRecord *store.DecisionAction) error {
 	logger.Infof("  ➕ Adding to position: %s", decision.Symbol)
 
-	// [CODE ENFORCED] Check trade frequency limits
-	if err := at.enforceTradeFrequencyLimits(decision.Symbol); err != nil {
-		return err
+	// Only enforce trade frequency limits for position opening actions (open_long, open_short)
+	// Updates to existing positions (stop loss, take profit, etc.) should not be limited
+	if decision.Action == "open_long" || decision.Action == "open_short" {
+		if err := at.enforceTradeFrequencyLimits(decision.Symbol); err != nil {
+			return err
+		}
 	}
 
 	// Get current positions to determine existing position type
