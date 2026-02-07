@@ -211,6 +211,102 @@ func (s *Server) handleCheckGuardianLoginStatus(c *gin.Context) {
 	})
 }
 
+// handleAutoLogin 处理自动登录请求
+func (s *Server) handleAutoLogin(c *gin.Context) {
+	var req struct {
+		Provider  string `json:"provider"`            // AI provider (e.g., "deepseek-browser", "guardian-ai")
+		TargetURL string `json:"targetUrl,omitempty"` // Optional target URL for custom services
+		AIService string `json:"aiService,omitempty"` // AI service type for configuration
+		TraderID  string `json:"traderId,omitempty"`  // Trader ID for browser data isolation
+	}
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request format"})
+		return
+	}
+
+	// Determine the target URL based on provider if not provided
+	targetURL := req.TargetURL
+	if targetURL == "" {
+		switch req.Provider {
+		case "deepseek":
+			targetURL = "https://chat.deepseek.com"
+		case "chatgpt":
+			targetURL = "https://chat.openai.com"
+		case "claude":
+			targetURL = "https://claude.ai"
+		default:
+			targetURL = "https://chat.deepseek.com" // Default
+		}
+	}
+
+	// Create a temporary client for auto login
+	var tempClient mcp.AIClient
+	if req.AIService != "" {
+		// 如果有交易员ID，使用带交易员ID的创建函数
+		if req.TraderID != "" {
+			tempClient = trader.GetGuardianClientWithTargetAndTraderID(req.AIService, req.TraderID)
+		} else {
+			tempClient = mcp.NewGuardianClientForBrowserWithService(req.AIService)
+		}
+	} else {
+		// 如果有交易员ID，使用带交易员ID的创建函数
+		if req.TraderID != "" {
+			tempClient = mcp.NewGuardianClientWithOptions(mcp.WithTraderID(req.TraderID))
+		} else {
+			tempClient = mcp.NewGuardianClient()
+		}
+	}
+	if tempClient == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create Guardian client"})
+		return
+	}
+
+	// Type assert to GuardianClient to access auto login functionality
+	guardianClient, ok := tempClient.(*mcp.GuardianClient)
+	if !ok {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to cast client to GuardianClient"})
+		return
+	}
+
+	// Check current login status first
+	isLoggedIn, err := guardianClient.CheckLoginStatus(targetURL)
+	if err != nil {
+		s.logger.Errorf("Error checking login status: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"error":   "Failed to check login status",
+			"details": err.Error(),
+		})
+		return
+	}
+
+	if isLoggedIn {
+		c.JSON(http.StatusOK, gin.H{
+			"success":     true,
+			"isLoggedIn":  true,
+			"provider":    req.Provider,
+			"targetUrl":   targetURL,
+			"description": "Already logged in, no action needed",
+		})
+		return
+	}
+
+	// Trigger auto login process in a goroutine to avoid blocking
+	go func() {
+		loginSuccess := guardianClient.AutoLoginProcess()
+		s.logger.Infof("Auto login process completed with result: %v", loginSuccess)
+	}()
+
+	c.JSON(http.StatusOK, gin.H{
+		"success":     true,
+		"isLoggedIn":  false,
+		"provider":    req.Provider,
+		"targetUrl":   targetURL,
+		"description": "Auto login process initiated, please complete login in the opened browser window",
+	})
+}
+
 // handleListGuardianProviders returns a list of available Guardian AI providers
 func (s *Server) handleListGuardianProviders(c *gin.Context) {
 	providers := mcp.ListBrowserAIProviders()

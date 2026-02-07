@@ -26,8 +26,9 @@ import { useSystemConfig } from './hooks/useSystemConfig'
 import { OFFICIAL_LINKS } from './constants/branding'
 import { BacktestPage } from './components/BacktestPage'
 import { ToolsPage } from './pages/ToolsPage';
-import GuardianTestPage from './pages/GuardianTestPage';
-import GuardianSetupPage from './pages/GuardianSetupPage';
+import GuardianTestPage from './pages/GuardianTestPage'
+import GuardianSetupPage from './pages/GuardianSetupPage'
+import AutoLoginTestPage from './pages/AutoLoginTestPage'
 import type {
   SystemStatus,
   AccountInfo,
@@ -51,6 +52,7 @@ type Page =
   | 'tools'
   | 'guardian-test'
   | 'guardian-setup'
+  | 'auto-login-test'
   | 'login'
   | 'register'
 
@@ -107,6 +109,7 @@ function App() {
       'tools': '/tools',
       'guardian-test': '/guardian-test',
       'guardian-setup': '/guardian-setup',
+      'auto-login-test': '/auto-login-test',
       'login': '/login',
       'register': '/register',
     }
@@ -185,6 +188,8 @@ function App() {
         setCurrentPage('guardian-test')
       } else if (path === '/guardian-setup') {
         setCurrentPage('guardian-setup')
+      } else if (path === '/auto-login-test') {
+        setCurrentPage('auto-login-test')
       } else if (
         path === '/competition' ||
         hash === 'competition' ||
@@ -504,6 +509,8 @@ function App() {
               <GuardianTestPage />
             ) : currentPage === 'guardian-setup' ? (
               <GuardianSetupPage />
+            ) : currentPage === 'auto-login-test' ? (
+              <AutoLoginTestPage />
             ) : (
               <TraderDashboardPage
                 selectedTrader={selectedTrader}

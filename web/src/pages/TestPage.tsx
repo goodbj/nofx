@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { useLanguage } from '../contexts/LanguageContext';
 import { t as globalT } from '../i18n/translations';
+import { Card, Button, Space, Typography, message, Input, Select } from 'antd';
 
 const TestPage: React.FC = () => {
   const { token } = useAuth();
@@ -16,6 +17,175 @@ const TestPage: React.FC = () => {
   // 国际化文本
   const t = (key: string) => {
     return globalT(key, language);
+  };
+  
+  // Guardian Test Functions
+  const testGuardianBrowser = async () => {
+    setGuardianLoading(true);
+    setGuardianTestResult('');
+    
+    try {
+      const response = await fetch('/api/test-guardian', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          prompt: guardianPredefinedPrompt || '默认测试提示词',
+          mode: 'guardian-test',
+          aiService: guardianAiService
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      const data = await response.json();
+      setGuardianTestResult(data.message || 'Guardian浏览器自动化测试已启动');
+      if (data.result) {
+        setGuardianAiContent(data.result);
+      }
+      if (data.executionTime !== undefined) {
+        setGuardianExecutionTime(parseFloat(data.executionTime.toFixed(2)));
+      }
+      
+      message.success('Guardian测试已启动，请查看浏览器弹窗');
+    } catch (error: any) {
+      console.error('Guardian测试失败:', error);
+      message.error('Guardian测试失败: ' + error.message);
+      setGuardianTestResult('测试失败: ' + error.message);
+      try {
+        const errorData = await error.response.json();
+        if (errorData.executionTime !== undefined) {
+          setGuardianExecutionTime(parseFloat(errorData.executionTime.toFixed(2)));
+        }
+      } catch (e) {
+        // 忽略错误响应解析失败
+      }
+    } finally {
+      setGuardianLoading(false);
+    }
+  };
+
+  const testGuardianAIAnalysis = async () => {
+    setGuardianLoading(true);
+    setGuardianTestResult('');
+    
+    try {
+      const response = await fetch('/api/test-guardian-analysis', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          prompt: guardianPredefinedPrompt || '默认测试提示词',
+          testMode: true,
+          aiService: guardianAiService
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      const data = await response.json();
+      setGuardianTestResult(JSON.stringify(data, null, 2));
+      if (data.analysis) {
+        setGuardianAiContent(data.analysis);
+      }
+      if (data.executionTime !== undefined) {
+        setGuardianExecutionTime(parseFloat(data.executionTime.toFixed(2)));
+      }
+      
+      message.success('AI分析测试完成');
+    } catch (error: any) {
+      console.error('AI分析测试失败:', error);
+      message.error('AI分析测试失败: ' + error.message);
+      setGuardianTestResult('AI分析测试失败: ' + error.message);
+      try {
+        const errorData = await error.response.json();
+        if (errorData.executionTime !== undefined) {
+          setGuardianExecutionTime(parseFloat(errorData.executionTime.toFixed(2)));
+        }
+      } catch (e) {
+        // 忽略错误响应解析失败
+      }
+    } finally {
+      setGuardianLoading(false);
+    }
+  };
+
+  const openLongLivedBrowser = async () => {
+    setGuardianLoading(true);
+    setGuardianTestResult('');
+    
+    let baseUrl = 'https://chat.deepseek.com/';
+    switch(guardianAiService) {
+      case 'chatgpt':
+        baseUrl = 'https://chat.openai.com/';
+        break;
+      case 'claude':
+        baseUrl = 'https://claude.ai/chat';
+        break;
+      case 'gemini':
+        baseUrl = 'https://gemini.google.com/';
+        break;
+      case 'qwen':
+        baseUrl = 'https://www.qianwen.com';
+        break;
+      case 'grok':
+        baseUrl = 'https://grok.x.ai/';
+        break;
+      case 'kimi':
+        baseUrl = 'https://kimi.moonshot.cn/';
+        break;
+      case 'ollama':
+        baseUrl = 'http://localhost:11434/';
+        break;
+      default:
+        baseUrl = 'https://chat.deepseek.com/';
+        break;
+    }
+    
+    try {
+      const response = await fetch('/api/open-guardian-browser', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          url: baseUrl,
+          aiService: guardianAiService
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      const data = await response.json();
+      setGuardianTestResult(data.message || '长时间浏览器窗口已打开');
+      if (data.executionTime !== undefined) {
+        setGuardianExecutionTime(parseFloat(data.executionTime.toFixed(2)));
+      }
+      
+      message.success('浏览器窗口已打开，请进行设置操作');
+    } catch (error: any) {
+      console.error('打开浏览器失败:', error);
+      message.error('打开浏览器失败: ' + error.message);
+      setGuardianTestResult('打开浏览器失败: ' + error.message);
+      try {
+        const errorData = await error.response.json();
+        if (errorData.executionTime !== undefined) {
+          setGuardianExecutionTime(parseFloat(errorData.executionTime.toFixed(2)));
+        }
+      } catch (e) {
+        // 忽略错误响应解析失败
+      }
+    } finally {
+      setGuardianLoading(false);
+    }
   };
   const [testResults, setTestResults] = useState<string>('');
   const [batchResults, setBatchResults] = useState<string>('');
@@ -36,7 +206,15 @@ const TestPage: React.FC = () => {
   const [isFetchingPrice, setIsFetchingPrice] = useState(false);
   const [countdown, setCountdown] = useState(0);
 
-  const [activeTab, setActiveTab] = useState('batch-trade'); // 'api-test', 'batch-trade', 'test-scripts'
+  const [activeTab, setActiveTab] = useState('batch-trade'); // 'api-test', 'batch-trade', 'test-scripts', 'guardian-test'
+  
+  // Guardian Test State
+  const [guardianLoading, setGuardianLoading] = useState(false);
+  const [guardianTestResult, setGuardianTestResult] = useState('');
+  const [guardianAiContent, setGuardianAiContent] = useState('');
+  const [guardianPredefinedPrompt, setGuardianPredefinedPrompt] = useState('');
+  const [guardianExecutionTime, setGuardianExecutionTime] = useState<number | null>(null);
+  const [guardianAiService, setGuardianAiService] = useState<string>('deepseek');
   const [testScripts, setTestScripts] = useState<string[]>([]);
   const [fetchingScripts, setFetchingScripts] = useState(false);
     
@@ -646,6 +824,13 @@ const TestPage: React.FC = () => {
               >
                 {t('test_scripts_tab')}
               </button>
+              <button
+                className={`px-4 py-2 font-medium text-sm rounded-t-lg transition-colors ${activeTab === 'guardian-test' ? 'text-blue-400 border-b-2 border-blue-400 bg-gray-800' : 'text-gray-400 hover:text-gray-200'}`}
+                onClick={() => setActiveTab('guardian-test')}
+                style={activeTab === 'guardian-test' ? { color: '#93C5FD', borderBottom: '2px solid #93C5FD', background: '#2D3748' } : {}}
+              >
+                Guardian测试
+              </button>
 
             </nav>
           </div>
@@ -853,6 +1038,122 @@ const TestPage: React.FC = () => {
                       </button>
                     </div>
                     <pre className="p-4 rounded-md text-[10px] overflow-auto h-[400px] font-mono bg-[#1E293B] border border-[#334155]">{testResults || t('no_output_yet')}</pre>
+                  </div>
+                </div>
+              </div>
+            )}
+            
+            {activeTab === 'guardian-test' && (
+              <div className="space-y-4">
+                <div className="mb-6 border border-[#3D444D] rounded-lg p-4 bg-[#2B3139]">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-end">
+                    <div>
+                      <label className="block text-sm font-medium mb-2">AI服务类型：</label>
+                      <Select
+                        style={{ width: '100%' }}
+                        value={guardianAiService}
+                        onChange={(value) => setGuardianAiService(value)}
+                        options={[
+                          { value: 'deepseek', label: 'DeepSeek' },
+                          { value: 'chatgpt', label: 'ChatGPT (OpenAI)' },
+                          { value: 'claude', label: 'Claude' },
+                          { value: 'gemini', label: 'Google Gemini' },
+                          { value: 'qwen', label: 'Qwen (通义千问)' },
+                          { value: 'grok', label: 'Grok (xAI)' },
+                          { value: 'kimi', label: 'Kimi (月之暗面)' },
+                          { value: 'ollama', label: 'Ollama' },
+                        ]}
+                      />
+                    </div>
+                    
+                    <div>
+                      <label className="block text-sm font-medium mb-2">预设提示词：</label>
+                      <div className="flex flex-wrap gap-2">
+                        {['分析比特币未来24小时走势', '以太坊价格预测和交易建议', '当前市场趋势分析', '风险评估和投资建议'].map((prompt, index) => (
+                          <Button
+                            key={index}
+                            size="small"
+                            onClick={() => setGuardianPredefinedPrompt(prompt)}
+                            type={guardianPredefinedPrompt === prompt ? 'primary' : 'default'}
+                          >
+                            {prompt}
+                          </Button>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                  
+                  <div className="mt-4">
+                    <label className="block text-sm font-medium mb-2">自定义提示词：</label>
+                    <Input.TextArea
+                      rows={4}
+                      placeholder="输入自定义提示词..."
+                      value={guardianPredefinedPrompt}
+                      onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setGuardianPredefinedPrompt(e.target.value)}
+                    />
+                  </div>
+                </div>
+                
+                <div className="border border-[#3D444D] rounded-lg p-4 bg-[#2B3139]">
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      type="primary"
+                      loading={guardianLoading}
+                      onClick={testGuardianBrowser}
+                    >
+                      测试Guardian浏览器自动化
+                    </Button>
+                    
+                    <Button
+                      type="default"
+                      loading={guardianLoading}
+                      onClick={testGuardianAIAnalysis}
+                    >
+                      测试AI分析功能
+                    </Button>
+                    
+                    <Button
+                      type="default"
+                      loading={guardianLoading}
+                      onClick={openLongLivedBrowser}
+                    >
+                      设置浏览器
+                    </Button>
+                  </div>
+                </div>
+                
+                {guardianTestResult && (
+                  <div className="border border-[#3D444D] rounded-lg p-4 bg-[#2B3139]">
+                    <h3 className="text-lg font-semibold mb-2">测试结果</h3>
+                    <div className="mb-3">
+                      {guardianExecutionTime !== null && (
+                        <span className="text-blue-400 font-medium">
+                          🕐 执行时间: {guardianExecutionTime} 秒
+                        </span>
+                      )}
+                    </div>
+                    <pre className="bg-[#1E293B] p-4 rounded border border-[#334155] max-h-96 overflow-auto text-sm">
+                      {guardianTestResult}
+                    </pre>
+                  </div>
+                )}
+                
+                {guardianAiContent && (
+                  <div className="border border-[#3D444D] rounded-lg p-4 bg-[#2B3139]">
+                    <h3 className="text-lg font-semibold mb-2">AI输出内容</h3>
+                    <div className="bg-[#F9FAFB] p-4 rounded border border-[#E2E8F0] max-h-96 overflow-auto whitespace-pre-wrap break-words">
+                      {guardianAiContent}
+                    </div>
+                  </div>
+                )}
+                
+                <div className="border border-[#3D444D] rounded-lg p-4 bg-[#2B3139]">
+                  <h3 className="text-lg font-semibold mb-2">使用说明</h3>
+                  <div className="space-y-2 text-sm">
+                    <p><span className="font-semibold">1. 浏览器自动化测试：</span>点击"测试Guardian浏览器自动化"按钮将启动Chrome浏览器，自动打开AI网站并输入您的提示词。</p>
+                    <p><span className="font-semibold">2. AI分析测试：</span>测试Guardian获取AI分析结果的功能。</p>
+                    <p><span className="font-semibold">3. 设置浏览器：</span>点击"设置浏览器"按钮将打开一个长时间保持的浏览器窗口，方便您进行登录等设置操作。</p>
+                    <p className="text-orange-400"><span className="font-semibold">注意：</span>此测试不连接任何交易所，仅测试浏览器自动化功能。</p>
                   </div>
                 </div>
               </div>
