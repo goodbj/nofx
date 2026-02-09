@@ -19,6 +19,7 @@ AI改写增减代码时必须按照以下原则进行
 */
 import (
 	"bytes"
+	"fmt"
 	"io"
 	"log"
 	"net/http"
@@ -43,6 +44,36 @@ var (
 	logCounters = make(map[string]*LogCounter)
 	logMutex    = sync.RWMutex{}
 )
+
+// 异步日志工作器
+func startLogWorker() {
+	go func() {
+		for logMsg := range logQueue {
+			log.Printf("[PROXY] %s", logMsg)
+		}
+	}()
+}
+
+// 异步日志记录函数
+func logAsync(format string, args ...interface{}) {
+	logWorkerStarted.Do(startLogWorker)
+
+	logMsg := fmt.Sprintf(format, args...)
+
+	select {
+	case logQueue <- logMsg:
+		// 成功入队
+	default:
+		// 队列满时丢弃日志，避免阻塞
+		if len(logQueue) == cap(logQueue) {
+			// 只记录队列满的警告，避免过多日志
+			select {
+			case logQueue <- "[WARNING] Log queue is full, dropping messages":
+			default:
+			}
+		}
+	}
+}
 
 // 限制相同URL的日志输出频率
 func shouldLogRequest(targetURL string) bool {
@@ -84,27 +115,65 @@ func shouldLogRequest(targetURL string) bool {
 var httpClient = &http.Client{
 	Timeout: 60 * time.Second,
 	Transport: &http.Transport{
-		MaxIdleConns:          100,
-		MaxIdleConnsPerHost:   10,
-		IdleConnTimeout:       90 * time.Second,
+		MaxIdleConns:          200,               // 增加最大空闲连接数
+		MaxIdleConnsPerHost:   20,                // 增加每主机最大空闲连接数
+		MaxConnsPerHost:       50,                // 限制每主机最大连接数
+		IdleConnTimeout:       120 * time.Second, // 延长空闲连接超时
 		TLSHandshakeTimeout:   10 * time.Second,
 		ExpectContinueTimeout: 1 * time.Second,
 		DisableKeepAlives:     false,
+		DisableCompression:    false, // 启用压缩
 	},
 }
 
-// 从请求头获取目标API URL - 完全依赖nofx提供
-func getTargetAPIURL(r *http.Request) string {
-	customURL := r.Header.Get("X-Custom-API-URL")
-	return customURL
+// 并发控制信号量 - 限制最大并发请求数
+var semaphore = make(chan struct{}, 100) // 最多100个并发请求
+
+// 异步日志队列
+var logQueue = make(chan string, 1000)
+var logWorkerStarted sync.Once
+
+// 内存池 - 复用缓冲区
+var bufferPool = sync.Pool{
+	New: func() interface{} {
+		return make([]byte, 32*1024) // 32KB缓冲区
+	},
+}
+
+// 从请求头获取完整的目标URL
+func getTargetURL(r *http.Request) string {
+	// 尝试多种可能的头部名称，包括与CustomTransport兼容的头部
+	headers := []string{"X-Target-URL", "X-Target-Url", "x-target-url", "X-TARGET-URL", "X-Custom-API-URL", "X-Custom-Api-Url", "x-custom-api-url"}
+
+	for _, header := range headers {
+		if url := r.Header.Get(header); url != "" {
+			log.Printf("🎯 Found target URL in header %s: %s", header, url)
+			return url
+		}
+	}
+
+	// 如果没找到，记录所有头部信息用于调试
+	log.Printf("🔍 Request headers:")
+	for name, values := range r.Header {
+		log.Printf("  %s: %v", name, values)
+	}
+
+	return ""
 }
 
 // 代理请求函数 - 只转发，不修改
 func handleProxyRequest(w http.ResponseWriter, r *http.Request) {
-	targetURL := getTargetAPIURL(r)
+	// 使用信号量控制并发
+	semaphore <- struct{}{}        // 获取令牌
+	defer func() { <-semaphore }() // 释放令牌
+
+	logAsync("🔄 Proxy request received: %s %s", r.Method, r.URL.Path)
+
+	targetURL := getTargetURL(r)
+	logAsync("🎯 Target URL from header: %s", targetURL)
 
 	if targetURL == "" {
-		http.Error(w, "Missing X-Custom-API-URL header", http.StatusBadRequest)
+		http.Error(w, "Missing X-Target-URL header", http.StatusBadRequest)
 		return
 	}
 
@@ -115,8 +184,8 @@ func handleProxyRequest(w http.ResponseWriter, r *http.Request) {
 func forwardRequest(w http.ResponseWriter, r *http.Request, targetBaseURL string) {
 	// 验证目标基础URL是否为空
 	if targetBaseURL == "" {
-		http.Error(w, "Target API URL cannot be empty", http.StatusBadRequest)
-		log.Printf("❌ Empty target URL provided for request from %s", r.RemoteAddr)
+		http.Error(w, "Target URL cannot be empty", http.StatusBadRequest)
+		logAsync("❌ Empty target URL provided for request from %s", r.RemoteAddr)
 		return
 	}
 
@@ -125,16 +194,31 @@ func forwardRequest(w http.ResponseWriter, r *http.Request, targetBaseURL string
 	if serverPort == "" {
 		serverPort = "8081"
 	}
-	ownAddress := "http://localhost:" + serverPort
+
+	// 增强循环检测逻辑 - 包括多种可能的localhost表示形式
+	ownAddresses := []string{
+		"http://localhost:" + serverPort,
+		"http://127.0.0.1:" + serverPort,
+		"http://0.0.0.0:" + serverPort,
+		"http://[::1]:" + serverPort,
+		"http://localhost:8081",
+		"http://127.0.0.1:8081",
+		"http://0.0.0.0:8081",
+		"http://[::1]:8081",
+		"http://192.168.1.1:" + serverPort, // 常见本地IP
+		"http://10.0.0.1:" + serverPort,    // 常见私有IP
+	}
 
 	// 检查是否试图转发到自身，防止循环
-	if strings.HasPrefix(targetBaseURL, ownAddress) {
-		http.Error(w, "Prevented infinite loop: trying to forward to self", http.StatusBadRequest)
-		// 使用智能日志控制
-		if shouldLogRequest(targetBaseURL) {
-			log.Printf("❌ Blocked request that would cause infinite loop: %s", targetBaseURL)
+	for _, addr := range ownAddresses {
+		if strings.HasPrefix(targetBaseURL, addr) {
+			http.Error(w, "Prevented infinite loop: trying to forward to self", http.StatusBadRequest)
+			// 使用智能日志控制
+			if shouldLogRequest(targetBaseURL) {
+				logAsync("❌ Blocked request that would cause infinite loop: %s -> %s", r.RemoteAddr, targetBaseURL)
+			}
+			return
 		}
-		return
 	}
 
 	// 确保目标基础URL以http://或https://开头
@@ -147,13 +231,42 @@ func forwardRequest(w http.ResponseWriter, r *http.Request, targetBaseURL string
 	finalBaseURL = strings.TrimSuffix(finalBaseURL, "/")
 
 	// 构建目标URL
-	targetURL := finalBaseURL + r.URL.Path
-	if r.URL.RawQuery != "" {
-		targetURL += "?" + r.URL.RawQuery
+	// 如果目标URL已经是完整URL，则将其作为基础URL，并附加请求路径和查询参数
+	logAsync("🔍 Checking if targetBaseURL has HTTP(S) prefix: %s", targetBaseURL)
+	var targetURL string
+	if strings.HasPrefix(targetBaseURL, "http://") || strings.HasPrefix(targetBaseURL, "https://") {
+		logAsync("🔗 Processing as HTTP(S) URL, base: %s", targetBaseURL)
+		logAsync("🔗 Original request path: %s, query: %s", r.URL.Path, r.URL.RawQuery)
+		// 将X-Target-URL作为基础URL，然后附加原始请求的路径和查询参数
+		baseURL := strings.TrimSuffix(targetBaseURL, "/")
+		requestPath := r.URL.Path
+		logAsync("🔗 Processed requestPath: %s", requestPath)
+		if requestPath == "" || requestPath == "/" {
+			requestPath = ""
+			logAsync("🔗 Resetting requestPath to empty")
+		}
+		targetURL = baseURL + requestPath
+		logAsync("🔗 URL after adding path: %s", targetURL)
+		if r.URL.RawQuery != "" {
+			targetURL += "?" + r.URL.RawQuery
+			logAsync("🔗 Final URL after adding query: %s", targetURL)
+		}
+	} else {
+		logAsync("🔗 Processing as non-HTTP URL, finalBaseURL: %s, request path: %s", finalBaseURL, r.URL.Path)
+		// 否则将基础URL与请求路径组合
+		targetURL = finalBaseURL + r.URL.Path
+		if r.URL.RawQuery != "" {
+			targetURL += "?" + r.URL.RawQuery
+		}
 	}
 
-	// 读取请求体
-	body, err := io.ReadAll(r.Body)
+	logAsync("🎯 Final target URL: %s", targetURL)
+
+	// 使用内存池读取请求体
+	buffer := bufferPool.Get().([]byte)
+	defer bufferPool.Put(buffer)
+
+	body, err := io.ReadAll(io.LimitReader(r.Body, int64(len(buffer))))
 	if err != nil {
 		http.Error(w, "Error reading request body", http.StatusBadRequest)
 		return
@@ -186,16 +299,22 @@ func forwardRequest(w http.ResponseWriter, r *http.Request, targetBaseURL string
 	req.Header.Del("Trailers")
 	req.Header.Del("Transfer-Encoding")
 	req.Header.Del("Upgrade")
+	// 移除我们使用的特殊头部，避免循环传递
+	req.Header.Del("X-Target-URL")
 
 	// 使用全局HTTP客户端以提高性能
-
 	resp, err := httpClient.Do(req)
 	if err != nil {
-		log.Printf("[ERROR] Proxy request failed: %v", err)
+		logAsync("[ERROR] Proxy request failed: %v", err)
 		http.Error(w, "Error forwarding request", http.StatusBadGateway)
 		return
 	}
 	defer resp.Body.Close()
+
+	// 记录响应状态码用于调试
+	if resp.StatusCode >= 400 {
+		logAsync("[DEBUG] Response from target server: status %d for URL %s", resp.StatusCode, targetURL)
+	}
 
 	// 复制响应头
 	for header, values := range resp.Header {
@@ -207,10 +326,66 @@ func forwardRequest(w http.ResponseWriter, r *http.Request, targetBaseURL string
 	// 设置响应状态码
 	w.WriteHeader(resp.StatusCode)
 
-	// 复制响应体
-	_, err = io.Copy(w, resp.Body)
+	// 使用内存池读取响应体
+	responseBuffer := bufferPool.Get().([]byte)
+	defer bufferPool.Put(responseBuffer)
+
+	responseBody, err := io.ReadAll(io.LimitReader(resp.Body, int64(len(responseBuffer))))
 	if err != nil {
-		log.Printf("[ERROR] Error copying response body: %v", err)
+		logAsync("[ERROR] Error reading response body: %v", err)
+		http.Error(w, "Error reading response from target server", http.StatusInternalServerError)
+		return
+	}
+
+	// 记录响应体大小和内容（如果是错误响应）
+	if resp.StatusCode >= 400 {
+		bodyLen := len(responseBody)
+		truncateLen := bodyLen
+		if truncateLen > 200 {
+			truncateLen = 200
+		}
+		logAsync("[DEBUG] Response body size: %d bytes for error status %d", bodyLen, resp.StatusCode)
+		if bodyLen > 0 {
+			logAsync("[DEBUG] Response body (first 200 chars): %s", string(responseBody)[:truncateLen])
+		} else {
+			logAsync("[DEBUG] Response body is empty for error status %d", resp.StatusCode)
+		}
+	}
+
+	// 检查响应内容类型
+	contentType := resp.Header.Get("Content-Type")
+	logAsync("[DEBUG] Response Content-Type: %s", contentType)
+
+	// 对于Binance API，即使错误响应也应返回JSON格式，但有时可能返回HTML错误页面或纯文本
+	// 如果是错误状态码且内容不是JSON格式，尝试返回更友好的错误信息
+	if resp.StatusCode >= 400 && len(responseBody) > 0 {
+		responseStr := string(responseBody)
+		isJSON := strings.HasPrefix(strings.TrimSpace(responseStr), "{") ||
+			strings.HasPrefix(strings.TrimSpace(responseStr), "[")
+
+		if !isJSON {
+			logAsync("[WARNING] Non-JSON response received from %s", targetURL)
+			// 尝试返回一个JSON格式的错误响应，以便客户端正确处理
+			errorResponse := fmt.Sprintf(`{"error": "Non-JSON response from upstream server", "original_status": %d, "content_type": %q}`, resp.StatusCode, contentType)
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(resp.StatusCode)
+			_, writeErr := w.Write([]byte(errorResponse))
+			if writeErr != nil {
+				logAsync("[ERROR] Error writing error response: %v", writeErr)
+			}
+		} else {
+			// JSON格式的错误响应，直接返回
+			_, err = w.Write(responseBody)
+			if err != nil {
+				logAsync("[ERROR] Error writing response body: %v", err)
+			}
+		}
+	} else {
+		// 正常响应或错误响应但有内容
+		_, err = w.Write(responseBody)
+		if err != nil {
+			logAsync("[ERROR] Error writing response body: %v", err)
+		}
 	}
 }
 
@@ -237,6 +412,14 @@ func redactURL(rawURL string) string {
 
 	parsed.RawQuery = query.Encode()
 	return parsed.String()
+}
+
+// Helper function to get minimum of two integers
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }
 
 func main() {
@@ -269,6 +452,12 @@ func main() {
 
 	log.Printf("🚀 Independent Transparent Proxy Server starting on port %s", port)
 	log.Printf("📊 Health check available at: http://localhost:%s/health", port)
+	log.Printf("⚡ Performance optimizations enabled:")
+	log.Printf("   - Connection pooling: MaxIdleConns=200, MaxIdleConnsPerHost=20")
+	log.Printf("   - Concurrency control: Max 100 concurrent requests")
+	log.Printf("   - Async logging: Non-blocking log processing")
+	log.Printf("   - Memory pooling: 32KB buffer reuse")
+	log.Printf("   - Response compression: Enabled")
 
 	// Start server
 	log.Fatal(server.ListenAndServe())

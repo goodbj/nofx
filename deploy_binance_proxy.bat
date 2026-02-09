@@ -83,7 +83,7 @@ if %errorlevel% neq 0 (
     echo.
     echo RUN chmod +x ./binance-proxy
     echo.
-    echo EXPOSE 8082
+    echo EXPOSE 8081
     echo.
     echo CMD ["^^./binance-proxy^^"]
     ) > build_context\Dockerfile.proxy
@@ -102,8 +102,8 @@ if %errorlevel% neq 0 (
 REM 启动容器
 docker run -d ^
     --name binance-proxy-service ^
-    -p 8081:8082 ^
-    -e PORT=8082 ^
+    -p 8081:8081 ^
+    -e PORT=8081 ^
     -e GIN_MODE=release ^
     -e DEBUG=false ^
     --restart unless-stopped ^
@@ -133,7 +133,7 @@ echo [✓] 服务部署完成！
 echo.
 echo 服务信息：
 echo   容器名称: binance-proxy-service
-echo   监听端口: 8081 (映射到容器内8082端口)
+echo   监听端口: 8081 (映射到容器内8081端口)
 echo   功能: 处理币安API请求，绕过地区限制
 echo.
 echo 测试连接: 

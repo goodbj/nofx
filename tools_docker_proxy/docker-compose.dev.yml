@@ -1,0 +1,22 @@
+version: '3.8'
+
+services:
+  nofx-proxy:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    container_name: tools_docker_proxy
+    ports:
+      - "${PROXY_PORT:-8081}:8081"
+    environment:
+      - PORT=8081
+      - GIN_MODE=release
+    volumes:
+      - .:/app  # 挂载源代码目录以支持热更新
+    restart: unless-stopped
+    networks:
+      - nofx-proxy-network
+
+networks:
+  nofx-proxy-network:
+    driver: bridge

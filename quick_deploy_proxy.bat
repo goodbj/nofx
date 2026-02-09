@@ -28,7 +28,7 @@ if %errorlevel% neq 0 (
     echo WORKDIR /root/ >> temp_build\Dockerfile.alt
     echo COPY --from=builder /app/binance-proxy . >> temp_build\Dockerfile.alt
     echo RUN chmod +x ./binance-proxy >> temp_build\Dockerfile.alt
-    echo EXPOSE 8082 >> temp_build\Dockerfile.alt
+    echo EXPOSE 8081 >> temp_build\Dockerfile.alt
     echo CMD ["./binance-proxy"] >> temp_build\Dockerfile.alt
     
     docker build -t binance-proxy-service -f temp_build/Dockerfile.alt temp_build >nul 2>&1
@@ -36,7 +36,7 @@ if %errorlevel% neq 0 (
 )
 
 REM Start the container
-docker run -d --name binance-proxy-service -p 8081:8082 -e PORT=8082 --restart unless-stopped binance-proxy-service >nul 2>&1
+docker run -d --name binance-proxy-service -p 8081:8081 -e PORT=8081 --restart unless-stopped binance-proxy-service >nul 2>&1
 
 REM Wait a moment for service to start
 timeout /t 3 /nobreak >nul

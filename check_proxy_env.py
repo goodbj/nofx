@@ -35,13 +35,13 @@ def check_proxy_service():
     success, output = run_command("netstat -an | findstr :8081", "检查8081端口占用情况")
     
     # 2. 检查进程
-    success, output = run_command("tasklist | findstr binance-proxy", "查找binance-proxy进程")
+    success, output = run_command("tasklist | findstr tools_docker_proxy", "查找tools_docker_proxy进程")
     
     # 3. 测试HTTP连接
     success, output = run_command("curl -v http://localhost:8081/health 2>&1", "测试代理服务健康检查端点")
     
     # 4. 检查Docker容器（如果适用）
-    success, output = run_command("docker ps | findstr binance-proxy", "检查Docker中的代理服务容器")
+    success, output = run_command("docker ps | findstr tools_docker_proxy", "检查Docker中的代理服务容器")
     
     print("\n" + "=" * 50)
     print("📊 检查完成")

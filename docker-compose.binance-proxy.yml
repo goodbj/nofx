@@ -7,9 +7,9 @@ services:
       dockerfile: Dockerfile.simple
     container_name: binance-proxy
     ports:
-      - "${BINANCE_PROXY_PORT:-8081}:${BINANCE_PROXY_INTERNAL_PORT:-8082}"
+      - "${BINANCE_PROXY_PORT:-8081}:${BINANCE_PROXY_INTERNAL_PORT:-8081}"
     environment:
-      - PORT=${BINANCE_PROXY_INTERNAL_PORT:-8082}
+      - PORT=${BINANCE_PROXY_INTERNAL_PORT:-8081}
       - GIN_MODE=release
       - DEBUG=false
     networks:
