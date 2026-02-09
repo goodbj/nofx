@@ -10,6 +10,7 @@ func (s *Server) registerGuardianRoutes(api *gin.RouterGroup) {
 	api.GET("/guardian/providers", s.handleListGuardianProviders)
 	api.POST("/guardian/call", s.handleCallGuardianAI)
 	api.POST("/guardian/check-login", s.handleCheckGuardianLoginStatus)
+	api.POST("/guardian/auto-login", s.handleAutoLogin) // 新增自动登录端点
 
 	// Guardian browser automation test routes (no authentication required)
 	api.POST("/test-guardian", s.handleTestGuardian)

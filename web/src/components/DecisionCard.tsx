@@ -319,17 +319,25 @@ export function DecisionCard({ decision, language, onSymbolClick, onDelete }: De
         {/* System Prompt */}
         {decision.system_prompt && (
           <div>
-            <button
-              onClick={() => setShowSystemPrompt(!showSystemPrompt)}
-              className="flex items-center gap-2 text-sm transition-colors w-full justify-between p-2 rounded hover:bg-white/5"
-            >
-              <div className="flex items-center gap-2">
-                <span className="text-base">⚙️</span>
-                <span className="font-semibold" style={{ color: '#a78bfa' }}>
-                  System Prompt
+            <div className="flex items-center gap-2 justify-between">
+              <button
+                onClick={() => setShowSystemPrompt(!showSystemPrompt)}
+                className="flex items-center gap-2 text-sm transition-colors w-full p-2 rounded hover:bg-white/5"
+              >
+                <div className="flex items-center gap-2">
+                  <span className="text-base">⚙️</span>
+                  <span className="font-semibold" style={{ color: '#a78bfa' }}>
+                    System Prompt
+                  </span>
+                </div>
+                <span
+                  className="text-xs px-2 py-0.5 rounded"
+                  style={{ background: 'rgba(167, 139, 250, 0.15)', color: '#a78bfa' }}
+                >
+                  {showSystemPrompt ? t('collapse', language) : t('expand', language)}
                 </span>
-              </div>
-              <div className="flex items-center gap-2">
+              </button>
+              <div className="flex items-center gap-2 ml-2">
                 <button
                   onClick={(e) => {
                     e.stopPropagation()
@@ -352,14 +360,8 @@ export function DecisionCard({ decision, language, onSymbolClick, onDelete }: De
                 >
                   <span>💾</span>
                 </button>
-                <span
-                  className="text-xs px-2 py-0.5 rounded"
-                  style={{ background: 'rgba(167, 139, 250, 0.15)', color: '#a78bfa' }}
-                >
-                  {showSystemPrompt ? t('collapse', language) : t('expand', language)}
-                </span>
               </div>
-            </button>
+            </div>
             {showSystemPrompt && (
               <div
                 className="mt-2 rounded-lg p-4 text-sm font-mono whitespace-pre-wrap max-h-96 overflow-y-auto"
@@ -378,17 +380,25 @@ export function DecisionCard({ decision, language, onSymbolClick, onDelete }: De
         {/* User/Input Prompt */}
         {decision.input_prompt && (
           <div>
-            <button
-              onClick={() => setShowInputPrompt(!showInputPrompt)}
-              className="flex items-center gap-2 text-sm transition-colors w-full justify-between p-2 rounded hover:bg-white/5"
-            >
-              <div className="flex items-center gap-2">
-                <span className="text-base">📥</span>
-                <span className="font-semibold" style={{ color: '#60a5fa' }}>
-                  User Prompt
+            <div className="flex items-center gap-2 justify-between">
+              <button
+                onClick={() => setShowInputPrompt(!showInputPrompt)}
+                className="flex items-center gap-2 text-sm transition-colors w-full p-2 rounded hover:bg-white/5"
+              >
+                <div className="flex items-center gap-2">
+                  <span className="text-base">📥</span>
+                  <span className="font-semibold" style={{ color: '#60a5fa' }}>
+                    User Prompt
+                  </span>
+                </div>
+                <span
+                  className="text-xs px-2 py-0.5 rounded"
+                  style={{ background: 'rgba(96, 165, 250, 0.15)', color: '#60a5fa' }}
+                >
+                  {showInputPrompt ? t('collapse', language) : t('expand', language)}
                 </span>
-              </div>
-              <div className="flex items-center gap-2">
+              </button>
+              <div className="flex items-center gap-2 ml-2">
                 <button
                   onClick={(e) => {
                     e.stopPropagation()
@@ -411,14 +421,8 @@ export function DecisionCard({ decision, language, onSymbolClick, onDelete }: De
                 >
                   <span>💾</span>
                 </button>
-                <span
-                  className="text-xs px-2 py-0.5 rounded"
-                  style={{ background: 'rgba(96, 165, 250, 0.15)', color: '#60a5fa' }}
-                >
-                  {showInputPrompt ? t('collapse', language) : t('expand', language)}
-                </span>
               </div>
-            </button>
+            </div>
             {showInputPrompt && (
               <div
                 className="mt-2 rounded-lg p-4 text-sm font-mono whitespace-pre-wrap max-h-96 overflow-y-auto"

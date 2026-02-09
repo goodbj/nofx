@@ -1,5 +1,22 @@
 package main
 
+/*
+注意，重要声明
+
+这是代理接口服务必须遵守的原则）
+AI改写增减代码时必须按照以下原则进行
+代理服务现在的作用是：
+1 纯透传原则
+2 验证与远程服务的连接性
+3 传输认证信息
+4 将请求转发给远程服务
+5 将响应返回给nofx原生方法进行处理
+纯透传架构设计，其中：
+1代理服务只做网络层的透明转发
+2不处理任何业务逻辑
+3不依赖环境变量进行控制
+4所有功能都通过原始交易者实现
+*/
 import (
 	"bytes"
 	"io"
@@ -8,10 +25,60 @@ import (
 	"net/url"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gorilla/mux"
 )
+
+// 日志频率控制结构
+type LogCounter struct {
+	count     int
+	lastReset time.Time
+	mutex     sync.Mutex
+}
+
+// 全局日志计数器
+var (
+	logCounters = make(map[string]*LogCounter)
+	logMutex    = sync.RWMutex{}
+)
+
+// 限制相同URL的日志输出频率
+func shouldLogRequest(targetURL string) bool {
+	now := time.Now()
+	threshold := 30 * time.Second // 30秒内最多记录指定次数
+	maxLogsPerURL := 3            // 每个URL每30秒最多3条日志
+
+	logMutex.Lock()
+	defer logMutex.Unlock()
+
+	counter, exists := logCounters[targetURL]
+	if !exists {
+		counter = &LogCounter{
+			count:     1,
+			lastReset: now,
+		}
+		logCounters[targetURL] = counter
+		return true
+	}
+
+	// 如果距离上次重置超过阈值，重置计数器
+	if now.Sub(counter.lastReset) > threshold {
+		counter.count = 1
+		counter.lastReset = now
+		return true
+	}
+
+	// 如果计数未达到上限，增加计数并记录
+	if counter.count < maxLogsPerURL {
+		counter.count++
+		return true
+	}
+
+	// 达到上限，不记录日志
+	return false
+}
 
 // 全局HTTP客户端以提高性能和复用连接
 var httpClient = &http.Client{
@@ -63,7 +130,10 @@ func forwardRequest(w http.ResponseWriter, r *http.Request, targetBaseURL string
 	// 检查是否试图转发到自身，防止循环
 	if strings.HasPrefix(targetBaseURL, ownAddress) {
 		http.Error(w, "Prevented infinite loop: trying to forward to self", http.StatusBadRequest)
-		log.Printf("❌ Blocked request that would cause infinite loop: %s", targetBaseURL)
+		// 使用智能日志控制
+		if shouldLogRequest(targetBaseURL) {
+			log.Printf("❌ Blocked request that would cause infinite loop: %s", targetBaseURL)
+		}
 		return
 	}
 
@@ -203,3 +273,5 @@ func main() {
 	// Start server
 	log.Fatal(server.ListenAndServe())
 }
+
+// Hot reload test comment

@@ -4,6 +4,8 @@ import { api } from '../lib/api'
 import { useLanguage } from '../contexts/LanguageContext'
 import { t } from '../i18n/translations'
 import { MetricTooltip } from './MetricTooltip'
+import { RefreshCw } from 'lucide-react'
+import { notify } from '../lib/notify'
 import type {
   HistoricalPosition,
   TraderStats,
@@ -345,6 +347,7 @@ function PositionRow({ position }: { position: HistoricalPosition }) {
 
 export function PositionHistory({ traderId, onExport, traderName }: PositionHistoryProps) {
   const { language } = useLanguage()
+  const [isSyncing, setIsSyncing] = useState(false)
   
   // Get data from SWR
   const {
@@ -370,6 +373,24 @@ export function PositionHistory({ traderId, onExport, traderName }: PositionHist
   
   // 管理loading状态，考虑SWR状态
   const loading = !historyData && !swrError && traderId !== undefined && traderId !== ''
+
+  // Manual sync function
+  const handleSyncHistory = async () => {
+    if (!traderId) return
+    
+    setIsSyncing(true)
+    try {
+      const result = await api.syncPositionHistory(traderId)
+      notify.success(`${t('positionHistory.syncSuccess', language)}: ${result.created} ${t('positionHistory.positionsCreated', language)}, ${result.skipped} ${t('positionHistory.positionsSkipped', language)}`)
+      // Refresh the data
+      await mutate()
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : t('positionHistory.syncFailed', language)
+      notify.error(errorMsg)
+    } finally {
+      setIsSyncing(false)
+    }
+  }
 
   // Pagination state
   const [pageSize, setPageSize] = useState<number>(20)
@@ -572,6 +593,31 @@ export function PositionHistory({ traderId, onExport, traderName }: PositionHist
               </div>
             </button>
           )}
+          <button
+            onClick={handleSyncHistory}
+            disabled={isSyncing || !traderId}
+            className="px-4 py-2 rounded-lg text-sm font-medium transition-all hover:scale-105 active:scale-95"
+            style={{
+              background: 'rgba(66, 133, 244, 0.1)',
+              color: '#4285F4',
+              border: '1px solid rgba(66, 133, 244, 0.3)',
+            }}
+            title="Sync position history from exchange"
+          >
+            {isSyncing ? (
+              <div className="flex items-center gap-2">
+                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-500"></div>
+                {t('positionHistory.syncing', language) || 'Syncing...'}
+              </div>
+            ) : (
+              <div className="flex items-center gap-2">
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.418 0L17 9m0 0l-1 1v5a2 2 0 01-2 2H7a2 2 0 01-2-2v-5l-1-1m0-4l1-1h14l1 1m-1 4l-1 1v5a2 2 0 01-2 2H7a2 2 0 01-2-2v-5l-1-1" />
+                </svg>
+                {t('positionHistory.sync', language) || 'Sync'}
+              </div>
+            )}
+          </button>
           <button
             onClick={handleManualRefresh}
             disabled={loading}

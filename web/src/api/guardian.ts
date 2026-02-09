@@ -28,6 +28,21 @@ interface GuardianLoginCheckResponse {
   description: string
 }
 
+interface GuardianAutoLoginRequest {
+  provider: string
+  targetUrl?: string
+  aiService?: string
+  traderId?: string
+}
+
+interface GuardianAutoLoginResponse {
+  success: boolean
+  isLoggedIn: boolean
+  provider: string
+  targetUrl: string
+  description: string
+}
+
 const API_BASE = import.meta.env.VITE_API_BASE || ''
 
 export const guardianAPI = {
@@ -76,6 +91,23 @@ export const guardianAPI = {
 
     if (!response.ok) {
       throw new Error(`Check Guardian login status failed: ${response.status}`)
+    }
+
+    return response.json()
+  },
+
+  // Auto login for a Guardian AI provider
+  autoLogin: async (request: GuardianAutoLoginRequest): Promise<GuardianAutoLoginResponse> => {
+    const response = await fetch(`${API_BASE}/api/guardian/auto-login`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(request),
+    })
+
+    if (!response.ok) {
+      throw new Error(`Auto login failed: ${response.status}`)
     }
 
     return response.json()

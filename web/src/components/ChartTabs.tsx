@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, memo, useCallback, useMemo } from 'react'
 import { EquityChart } from './EquityChart'
 import { AdvancedChart } from './AdvancedChart'
 import { useLanguage } from '../contexts/LanguageContext'
@@ -51,7 +51,7 @@ function getMarketTypeFromExchange(exchangeId: string | undefined): MarketType {
   return 'crypto'
 }
 
-export function ChartTabs({ traderId, selectedSymbol, updateKey, exchangeId }: ChartTabsProps) {
+export const ChartTabs = memo(function ChartTabs({ traderId, selectedSymbol, updateKey, exchangeId }: ChartTabsProps) {
   const { language } = useLanguage()
   const [activeTab, setActiveTab] = useState<ChartTab>('equity')
   const [chartSymbol, setChartSymbol] = useState<string>('BTC')
@@ -74,7 +74,7 @@ export function ChartTabs({ traderId, selectedSymbol, updateKey, exchangeId }: C
   // 优先使用传入的 exchangeId（非 hyperliquid 时）
   const currentExchange = marketType === 'hyperliquid' ? 'hyperliquid' : (exchangeId || marketConfig.exchange)
 
-  // 获取可用币种列表
+  // 获取可用币种列表 - 优化依赖数组
   useEffect(() => {
     if (marketConfig.hasDropdown) {
       fetch(`/api/symbols?exchange=${marketConfig.exchange}`)
@@ -94,7 +94,7 @@ export function ChartTabs({ traderId, selectedSymbol, updateKey, exchangeId }: C
         })
         .catch(err => console.error('Failed to fetch symbols:', err))
     }
-  }, [marketType, marketConfig.exchange, marketConfig.hasDropdown])
+  }, [marketConfig.hasDropdown, marketConfig.exchange]) // 优化依赖数组
 
   // 点击外部关闭下拉
   useEffect(() => {
@@ -107,29 +107,16 @@ export function ChartTabs({ traderId, selectedSymbol, updateKey, exchangeId }: C
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [])
 
-  // 切换市场类型时更新默认符号
-  const handleMarketTypeChange = (type: MarketType) => {
-    setMarketType(type)
-    setChartSymbol(MARKET_CONFIG[type].defaultSymbol)
-    setShowDropdown(false)
-  }
-
-  // 过滤后的币种列表
-  const filteredSymbols = availableSymbols.filter(s =>
-    s.symbol.toLowerCase().includes(searchFilter.toLowerCase())
-  )
-
-  // 当从外部选择币种时，自动切换到K线图
+  // 当从外部选择币种时，自动切换到K线图 - 移除调试日志
   useEffect(() => {
     if (selectedSymbol) {
-      console.log('[ChartTabs] 收到币种选择:', selectedSymbol, 'updateKey:', updateKey)
       setChartSymbol(selectedSymbol)
       setActiveTab('kline')
     }
   }, [selectedSymbol, updateKey])
 
-  // 处理手动输入符号
-  const handleSymbolSubmit = (e: React.FormEvent) => {
+  // 处理手动输入符号 - 使用useCallback优化
+  const handleSymbolSubmit = useCallback((e: React.FormEvent) => {
     e.preventDefault()
     if (symbolInput.trim()) {
       let symbol = symbolInput.trim().toUpperCase()
@@ -140,9 +127,23 @@ export function ChartTabs({ traderId, selectedSymbol, updateKey, exchangeId }: C
       setChartSymbol(symbol)
       setSymbolInput('')
     }
-  }
+  }, [symbolInput, marketType])
 
-  console.log('[ChartTabs] rendering, activeTab:', activeTab)
+  // 切换市场类型时更新默认符号 - 使用useCallback优化
+  const handleMarketTypeChange = useCallback((type: MarketType) => {
+    setMarketType(type)
+    setChartSymbol(MARKET_CONFIG[type].defaultSymbol)
+    setShowDropdown(false)
+  }, [])
+
+  // 过滤后的币种列表 - 使用useMemo优化
+  const filteredSymbols = useMemo(() => 
+    availableSymbols.filter(s =>
+      s.symbol.toLowerCase().includes(searchFilter.toLowerCase())
+    ), [availableSymbols, searchFilter])
+
+  // 移除调试日志以减少不必要的重新渲染
+  // console.log('[ChartTabs] rendering, activeTab:', activeTab)
 
   return (
     <div className={`nofx-glass rounded-lg border border-white/5 relative z-10 w-full flex flex-col transition-all duration-300 ${typeof window !== 'undefined' && window.innerWidth < 768 ? 'h-[500px]' : 'h-[600px]'
@@ -335,4 +336,4 @@ export function ChartTabs({ traderId, selectedSymbol, updateKey, exchangeId }: C
       </div>
     </div>
   )
-}
+})

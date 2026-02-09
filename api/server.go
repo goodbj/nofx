@@ -1802,11 +1802,13 @@ func (s *Server) handleClosePosition(c *gin.Context) {
 
 // recordClosePositionOrder Record close position order to database (Lighter version - direct FILLED status)
 func (s *Server) recordClosePositionOrder(traderID, exchangeID, exchangeType, symbol, side string, quantity, exitPrice float64, result map[string]interface{}) {
-	// Skip for exchanges with OrderSync - let the background sync handle it to avoid duplicates
+	// For exchanges with OrderSync, still record basic position close info to ensure history visibility
 	switch exchangeType {
 	case "binance", "lighter", "hyperliquid", "bybit", "okx", "bitget", "aster":
-		logger.Infof("  ?? Close order will be synced by OrderSync, skipping immediate record")
-		return
+		logger.Infof("  ?? Close order will be synced by OrderSync, recording basic close info for history")
+		// Continue to record basic close information for history tracking
+	default:
+		// For other exchanges, proceed with normal recording
 	}
 
 	// Check if order was placed (skip if NO_POSITION)
@@ -2653,6 +2655,15 @@ func (s *Server) handlePositionHistory(c *gin.Context) {
 	if err != nil {
 		SafeInternalError(c, "Get position history", err)
 		return
+	}
+
+	// Debug logging
+	logger.Infof("📊 Position history request for trader %s: found %d closed positions (limit: %d)", traderID, len(positions), limit)
+	if len(positions) == 0 {
+		// Check if there are any open positions that might explain the empty history
+		positionStore := store.Position()
+		openPositions, _ := positionStore.GetOpenPositions(trader.GetID())
+		logger.Infof("📊 No closed positions found. Current open positions: %d", len(openPositions))
 	}
 
 	// Get statistics
@@ -3718,30 +3729,44 @@ func (s *Server) handleVerifyOTP(c *gin.Context) {
 		OTPCode string `json:"otp_code" binding:"required"`
 	}
 
+	logger.Infof("[OTP] Received verify request for user_id: %s, otp_code length: %d", req.UserID, len(req.OTPCode))
+
 	if err := c.ShouldBindJSON(&req); err != nil {
-		SafeBadRequest(c, "Invalid request parameters")
+		logger.Errorf("[OTP] Failed to bind JSON: %v", err)
+		SafeBadRequest(c, "Invalid request parameters: "+err.Error())
 		return
 	}
 
+	logger.Infof("[OTP] Parsed request - UserID: %s, OTPCode: %s", req.UserID, req.OTPCode)
+
 	// Get user information
+	logger.Infof("[OTP] Looking up user: %s", req.UserID)
 	user, err := s.store.User().GetByID(req.UserID)
 	if err != nil {
+		logger.Errorf("[OTP] User not found: %s, error: %v", req.UserID, err)
 		SafeNotFound(c, "User")
 		return
 	}
+	logger.Infof("[OTP] Found user: %s, email: %s, OTP verified: %v", user.ID, user.Email, user.OTPVerified)
 
 	// Verify OTP
+	logger.Infof("[OTP] Verifying code for user %s with secret length: %d", user.ID, len(user.OTPSecret))
 	if !auth.VerifyOTP(user.OTPSecret, req.OTPCode) {
+		logger.Errorf("[OTP] Verification failed for user %s", user.ID)
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Verification code error"})
 		return
 	}
+	logger.Infof("[OTP] Verification successful for user %s", user.ID)
 
 	// Generate JWT token
+	logger.Infof("[OTP] Generating JWT token for user %s", user.ID)
 	token, err := auth.GenerateJWT(user.ID, user.Email)
 	if err != nil {
+		logger.Errorf("[OTP] Failed to generate token for user %s: %v", user.ID, err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate token"})
 		return
 	}
+	logger.Infof("[OTP] Token generated successfully for user %s", user.ID)
 
 	c.JSON(http.StatusOK, gin.H{
 		"token":   token,

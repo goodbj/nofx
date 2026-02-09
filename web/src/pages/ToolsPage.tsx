@@ -1,10 +1,11 @@
 import { useState, useEffect } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import { useLanguage } from '../contexts/LanguageContext'
-import { Zap, Settings, Activity, BarChart3, Shield, Target, FileText, Globe, Eye, Play, Loader2, RefreshCw, Clock, Bot, Terminal, Code, Send, Download, Upload, Clipboard, ClipboardCheck, ClipboardPaste } from 'lucide-react'
+import { Zap, Settings, Activity, BarChart3, Shield, Target, FileText, Globe, Eye, Play, Loader2, RefreshCw, Clock, Bot, Terminal, Code, Send, Download, Upload, Clipboard, ClipboardCheck, ClipboardPaste, UserPlus } from 'lucide-react'
 import type { Strategy, StrategyConfig, AIModel } from '../types'
 import { confirmToast, notify } from '../lib/notify'
 import { DeepVoidBackground } from '../components/DeepVoidBackground'
+import AutoLoginTestPage from './AutoLoginTestPage'
 
 const API_BASE = import.meta.env.VITE_API_BASE || ''
 
@@ -12,7 +13,7 @@ export function ToolsPage() {
   const { token } = useAuth()
   const { language } = useLanguage()
   
-  const [activeTool, setActiveTool] = useState<'ai-semi-auto' | 'other-tool'>('ai-semi-auto')
+  const [activeTool, setActiveTool] = useState<'ai-semi-auto' | 'auto-login'>('ai-semi-auto')
   const [aiModels, setAiModels] = useState<AIModel[]>([])
   const [selectedModelId, setSelectedModelId] = useState<string>('')
   
@@ -42,6 +43,7 @@ export function ToolsPage() {
       tools: { zh: '工具', en: 'Tools' },
       utilities: { zh: '实用工具', en: 'Utilities' },
       aiSemiAuto: { zh: 'AI 半自动', en: 'AI Semi-Auto' },
+      autoLogin: { zh: '交易员登录', en: 'Trader Login' },
       otherTool: { zh: '其他工具', en: 'Other Tools' },
       aiManualWorkflow: { zh: 'AI 手动工作流', en: 'AI Manual Workflow' },
       aiManualWorkflowDesc: { zh: '手动复制Prompt到AI服务，粘贴决策结果', en: 'Manually copy prompt to AI service, paste decision result' },
@@ -224,6 +226,17 @@ export function ToolsPage() {
               >
                 <Zap className="w-4 h-4" />
                 <span>{t('aiSemiAuto')}</span>
+              </button>
+              <button
+                onClick={() => setActiveTool('auto-login')}
+                className={`w-full flex items-center gap-2 px-3 py-2.5 rounded-lg text-sm transition-colors ${
+                  activeTool === 'auto-login'
+                    ? 'ring-1 ring-blue-500/50 bg-blue-500/10 text-blue-400'
+                    : 'hover:bg-white/5 text-nofx-text-muted'
+                }`}
+              >
+                <UserPlus className="w-4 h-4" />
+                <span>{t('autoLogin')}</span>
               </button>
             </div>
           </div>
@@ -416,7 +429,7 @@ ${promptPreview.user_prompt}`
                         }
                       }}
                       disabled={submitAILoading || !selectedSemiAutoTraderId || !manualAIDecision.trim()}
-                      className="mt-4 w-full px-4 py-3 rounded-lg bg-gradient-to-r from-emerald-600 to-green-600 text-white font-bold hover:from-emerald-700 hover:to-green-700 disabled:from-gray-700 disabled:to-gray-700 disabled:cursor-not-allowed transition-all flex items-center justify-center gap-2"
+                      className="mt-4 w-full px-4 py-3 rounded-lg bg-gradient-to-r from-emerald-600 to-green-600 text-white font-bold hover:from-emerald-700 hover:to-green-700 disabled:from-gray-700 disabled:to-green-700 disabled:cursor-not-allowed transition-all flex items-center justify-center gap-2"
                     >
                       {submitAILoading ? <Loader2 className="w-5 h-5 animate-spin" /> : <Send className="w-5 h-5" />}
                       {t('submitDecision')}
@@ -434,6 +447,12 @@ ${promptPreview.user_prompt}`
                   )}
                 </div>
               </div>
+            </div>
+          )}
+          
+          {activeTool === 'auto-login' && (
+            <div className="p-4 h-full">
+              <AutoLoginTestPage />
             </div>
           )}
         </div>

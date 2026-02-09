@@ -771,6 +771,15 @@ export const api = {
     return result.data!
   },
 
+  // Manual sync position history
+  async syncPositionHistory(traderId: string): Promise<{ message: string; created: number; skipped: number }> {
+    const result = await httpClient.post<{ message: string; created: number; skipped: number }>(
+      `${API_BASE}/traders/${traderId}/sync-positions`
+    )
+    if (!result.success) throw new Error('同步历史仓位失败')
+    return result.data!
+  },
+
   // 手动触发AI决策
   async triggerDecision(traderId: string): Promise<{ message: string; result?: any; execution_time_ms?: number; execution_time_formatted?: string }> {
     const result = await httpClient.post(

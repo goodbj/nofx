@@ -254,6 +254,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const verifyOTP = async (userID: string, otpCode: string) => {
     try {
+      console.log('[OTP] Sending verification request:', { userID, otpCodeLength: otpCode.length });
+      
       const response = await fetch('/api/verify-otp', {
         method: 'POST',
         headers: {
@@ -261,8 +263,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         },
         body: JSON.stringify({ user_id: userID, otp_code: otpCode }),
       })
+      
+      console.log('[OTP] Response status:', response.status);
 
       const data = await response.json()
+      console.log('[OTP] Response data:', data);
 
       if (response.ok) {
         // Reset 401 flag on successful login
@@ -289,9 +294,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
         return { success: true, message: data.message }
       } else {
-        return { success: false, message: data.error }
+        console.error('[OTP] Verification failed:', data);
+        return { success: false, message: data.error || 'Verification failed' }
       }
     } catch (error) {
+      console.error('[OTP] Network error:', error);
       return { success: false, message: 'OTP验证失败，请重试' }
     }
   }
