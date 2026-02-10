@@ -17,28 +17,28 @@ type ExchangeStore struct {
 
 // Exchange exchange configuration
 type Exchange struct {
-	ID                      string          `gorm:"primaryKey" json:"id"`
-	ExchangeType            string          `gorm:"column:exchange_type;not null;default:''" json:"exchange_type"`
-	AccountName             string          `gorm:"column:account_name;not null;default:''" json:"account_name"`
-	UserID                  string          `gorm:"column:user_id;not null;default:default;index" json:"user_id"`
-	Name                    string          `gorm:"not null" json:"name"`
-	Type                    string          `gorm:"not null" json:"type"` // "cex" or "dex"
-	Enabled                 bool            `gorm:"default:false" json:"enabled"`
+	ID                      string                 `gorm:"primaryKey" json:"id"`
+	ExchangeType            string                 `gorm:"column:exchange_type;not null;default:''" json:"exchange_type"`
+	AccountName             string                 `gorm:"column:account_name;not null;default:''" json:"account_name"`
+	UserID                  string                 `gorm:"column:user_id;not null;default:default;index" json:"user_id"`
+	Name                    string                 `gorm:"not null" json:"name"`
+	Type                    string                 `gorm:"not null" json:"type"` // "cex" or "dex"
+	Enabled                 bool                   `gorm:"default:false" json:"enabled"`
 	APIKey                  crypto.EncryptedString `gorm:"column:api_key;default:''" json:"apiKey"`
 	SecretKey               crypto.EncryptedString `gorm:"column:secret_key;default:''" json:"secretKey"`
 	Passphrase              crypto.EncryptedString `gorm:"column:passphrase;default:''" json:"passphrase"`
-	Testnet                 bool            `gorm:"default:false" json:"testnet"`
-	CustomAPIURL            string          `gorm:"column:custom_api_url;default:''" json:"customApiUrl"`
-	HyperliquidWalletAddr   string          `gorm:"column:hyperliquid_wallet_addr;default:''" json:"hyperliquidWalletAddr"`
-	AsterUser               string          `gorm:"column:aster_user;default:''" json:"asterUser"`
-	AsterSigner             string          `gorm:"column:aster_signer;default:''" json:"asterSigner"`
+	Testnet                 bool                   `gorm:"default:false" json:"testnet"`
+	CustomAPIURL            string                 `gorm:"column:custom_api_url;default:''" json:"customApiUrl"`
+	HyperliquidWalletAddr   string                 `gorm:"column:hyperliquid_wallet_addr;default:''" json:"hyperliquidWalletAddr"`
+	AsterUser               string                 `gorm:"column:aster_user;default:''" json:"asterUser"`
+	AsterSigner             string                 `gorm:"column:aster_signer;default:''" json:"asterSigner"`
 	AsterPrivateKey         crypto.EncryptedString `gorm:"column:aster_private_key;default:''" json:"asterPrivateKey"`
-	LighterWalletAddr       string          `gorm:"column:lighter_wallet_addr;default:''" json:"lighterWalletAddr"`
+	LighterWalletAddr       string                 `gorm:"column:lighter_wallet_addr;default:''" json:"lighterWalletAddr"`
 	LighterPrivateKey       crypto.EncryptedString `gorm:"column:lighter_private_key;default:''" json:"lighterPrivateKey"`
 	LighterAPIKeyPrivateKey crypto.EncryptedString `gorm:"column:lighter_api_key_private_key;default:''" json:"lighterAPIKeyPrivateKey"`
-	LighterAPIKeyIndex      int             `gorm:"column:lighter_api_key_index;default:0" json:"lighterAPIKeyIndex"`
-	CreatedAt               time.Time       `json:"created_at"`
-	UpdatedAt               time.Time       `json:"updated_at"`
+	LighterAPIKeyIndex      int                    `gorm:"column:lighter_api_key_index;default:0" json:"lighterAPIKeyIndex"`
+	CreatedAt               time.Time              `json:"created_at"`
+	UpdatedAt               time.Time              `json:"updated_at"`
 }
 
 func (Exchange) TableName() string { return "exchanges" }
@@ -225,15 +225,22 @@ func (s *ExchangeStore) Create(userID, exchangeType, accountName string, enabled
 }
 
 // Update updates exchange configuration by UUID
-func (s *ExchangeStore) Update(userID, id string, enabled bool, apiKey, secretKey, passphrase string, testnet bool, customAPIURL string,
+func (s *ExchangeStore) Update(userID, id string, accountName string, enabled bool, apiKey, secretKey, passphrase string, testnet bool, customAPIURL string,
 	hyperliquidWalletAddr, asterUser, asterSigner, asterPrivateKey, lighterWalletAddr, lighterPrivateKey, lighterApiKeyPrivateKey string, lighterApiKeyIndex int) error {
 
 	logger.Debugf("🔧 ExchangeStore.Update: userID=%s, id=%s, enabled=%v", userID, id, enabled)
+
+	// First, get the existing exchange to handle partial updates of encrypted fields
+	var existingExchange Exchange
+	if err := s.db.Where("id = ? AND user_id = ?", id, userID).First(&existingExchange).Error; err != nil {
+		return fmt.Errorf("exchange not found: id=%s, userID=%s", id, userID)
+	}
 
 	updates := map[string]interface{}{
 		"enabled":                 enabled,
 		"testnet":                 testnet,
 		"custom_api_url":          customAPIURL,
+		"account_name":            existingExchange.AccountName, // Keep existing name by default
 		"hyperliquid_wallet_addr": hyperliquidWalletAddr,
 		"aster_user":              asterUser,
 		"aster_signer":            asterSigner,
@@ -242,24 +249,47 @@ func (s *ExchangeStore) Update(userID, id string, enabled bool, apiKey, secretKe
 		"updated_at":              time.Now().UTC(),
 	}
 
-	// Only update encrypted fields if not empty
+	// Update account name if provided (non-empty)
+	if accountName != "" {
+		updates["account_name"] = accountName
+	}
+
+	// Handle encrypted fields - use new value if provided, otherwise keep existing
 	if apiKey != "" {
 		updates["api_key"] = crypto.EncryptedString(apiKey)
+	} else {
+		// Keep existing encrypted API key
+		updates["api_key"] = existingExchange.APIKey
 	}
 	if secretKey != "" {
 		updates["secret_key"] = crypto.EncryptedString(secretKey)
+	} else {
+		// Keep existing encrypted secret key
+		updates["secret_key"] = existingExchange.SecretKey
 	}
 	if passphrase != "" {
 		updates["passphrase"] = crypto.EncryptedString(passphrase)
+	} else {
+		// Keep existing encrypted passphrase
+		updates["passphrase"] = existingExchange.Passphrase
 	}
 	if asterPrivateKey != "" {
 		updates["aster_private_key"] = crypto.EncryptedString(asterPrivateKey)
+	} else {
+		// Keep existing encrypted aster private key
+		updates["aster_private_key"] = existingExchange.AsterPrivateKey
 	}
 	if lighterPrivateKey != "" {
 		updates["lighter_private_key"] = crypto.EncryptedString(lighterPrivateKey)
+	} else {
+		// Keep existing encrypted lighter private key
+		updates["lighter_private_key"] = existingExchange.LighterPrivateKey
 	}
 	if lighterApiKeyPrivateKey != "" {
 		updates["lighter_api_key_private_key"] = crypto.EncryptedString(lighterApiKeyPrivateKey)
+	} else {
+		// Keep existing encrypted lighter API key private key
+		updates["lighter_api_key_private_key"] = existingExchange.LighterAPIKeyPrivateKey
 	}
 
 	result := s.db.Model(&Exchange{}).Where("id = ? AND user_id = ?", id, userID).Updates(updates)
