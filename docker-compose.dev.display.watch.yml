@@ -1,0 +1,72 @@
+version: '3.8'
+
+services:
+  backend-display-watch:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.backend.dev.chrome.fixed
+    container_name: nofx-dev-backend-display-watch
+    ports:
+      - "8890:8888"
+    environment:
+      - CHROME_HEADLESS=false  # 启用浏览器显示
+      - CHROME_BIN=/usr/bin/chromium-browser
+      - PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
+      - API_SERVER_PORT=8888
+      - OLLAMA_READ_TIMEOUT=270s
+      - TZ=Asia/Shanghai
+    volumes:
+      # 代码热更新卷
+      - ./api:/app/api
+      - ./auth:/app/auth
+      - ./backtest:/app/backtest
+      - ./config:/app/config
+      - ./crypto:/app/crypto
+      - ./debate:/app/debate
+      - ./decision:/app/decision
+      - ./hook:/app/hook
+      - ./kernel:/app/kernel
+      - ./launcher:/app/launcher
+      - ./llm:/app/llm
+      - ./logger:/app/logger
+      - ./manager:/app/manager
+      - ./market:/app/market
+      - ./mcp:/app/mcp
+      - ./provider:/app/provider
+      - ./scripts:/app/scripts
+      - ./security:/app/security
+      - ./setup:/app/setup
+      - ./store:/app/store
+      - ./trader:/app/trader
+      - ./web:/app/web
+      - ./go.mod:/app/go.mod
+      - ./go.sum:/app/go.sum
+      - ./main.go:/app/main.go
+      # Cookie持久化卷
+      - ./data:/app/data
+      - ./guardian/chrome_profile:/home/chrome/.config/chromium
+    networks:
+      - display-net
+    working_dir: /app
+    # 禁用重启策略以便于热更新测试
+    # restart: unless-stopped
+
+  frontend-display-watch:
+    # 使用现有的前端镜像
+    image: setup-nofx-dev-frontend
+    container_name: nofx-dev-frontend-display-watch
+    ports:
+      - "3301:5173"
+    volumes:
+      - ./web:/app
+      - /app/node_modules
+    environment:
+      - NODE_ENV=development
+      - VITE_API_TARGET=http://host.docker.internal:8890  # 指向带显示功能的后端
+    networks:
+      - display-net
+    restart: unless-stopped
+
+networks:
+  display-net:
+    driver: bridge

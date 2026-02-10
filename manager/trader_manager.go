@@ -663,13 +663,14 @@ func (tm *TraderManager) addTraderFromStore(traderCfg *store.Trader, aiModelCfg 
 		QwenKey:               "",
 		CustomAPIURL:          aiModelCfg.CustomAPIURL,
 		CustomModelName:       aiModelCfg.CustomModelName,
-		UseBrowserAutomation:  aiModelCfg.UseBrowserAutomation, // Use browser automation setting from AI model config
-		ExchangeTestnet:       exchangeCfg.Testnet,
-		ScanInterval:          time.Duration(traderCfg.ScanIntervalMinutes) * time.Minute,
-		InitialBalance:        traderCfg.InitialBalance,
-		IsCrossMargin:         traderCfg.IsCrossMargin,
-		ShowInCompetition:     traderCfg.ShowInCompetition,
-		StrategyConfig:        strategyConfig,
+		// Trader does not need to know AI model implementation details
+		// AI model handles browser automation internally
+		ExchangeTestnet:   exchangeCfg.Testnet,
+		ScanInterval:      time.Duration(traderCfg.ScanIntervalMinutes) * time.Minute,
+		InitialBalance:    traderCfg.InitialBalance,
+		IsCrossMargin:     traderCfg.IsCrossMargin,
+		ShowInCompetition: traderCfg.ShowInCompetition,
+		StrategyConfig:    strategyConfig,
 	}
 
 	logger.Infof("📊 Loading trader %s: ScanIntervalMinutes=%d (from DB), ScanInterval=%v",
@@ -680,6 +681,10 @@ func (tm *TraderManager) addTraderFromStore(traderCfg *store.Trader, aiModelCfg 
 	case "binance":
 		traderConfig.BinanceAPIKey = string(exchangeCfg.APIKey)
 		traderConfig.BinanceSecretKey = string(exchangeCfg.SecretKey)
+		traderConfig.BinanceCustomAPIURL = exchangeCfg.CustomAPIURL
+		traderConfig.ExchangeTestnet = exchangeCfg.Testnet
+		logger.Infof("🔧 [TRADER MANAGER DEBUG] Setting BinanceCustomAPIURL to: '%s' (from exchangeCfg.CustomAPIURL: '%s'), ExchangeTestnet: %t",
+			traderConfig.BinanceCustomAPIURL, exchangeCfg.CustomAPIURL, traderConfig.ExchangeTestnet)
 	case "bybit":
 		traderConfig.BybitAPIKey = string(exchangeCfg.APIKey)
 		traderConfig.BybitSecretKey = string(exchangeCfg.SecretKey)

@@ -9,7 +9,7 @@
 | 前端服务 | `FRONTEND_PORT` | 3300 | Web前端服务端口 |
 | 后端服务 | `BACKEND_PORT` | 8888 | API后端服务端口 |
 | 币安代理服务（外部） | `BINANCE_PROXY_PORT` | 8081 | 宿主机访问端口 |
-| 币安代理服务（内部） | `BINANCE_PROXY_INTERNAL_PORT` | 8082 | 容器内部监听端口 |
+| 币安代理服务（内部） | `BINANCE_PROXY_INTERNAL_PORT` | 8081 | 容器内部监听端口 |
 | Guardian服务 | `GUARDIAN_PORT` | 8083 | Guardian监控服务端口 |
 | 数据库 | `DB_PORT` | 5432 | PostgreSQL数据库端口 |
 | Redis | `REDIS_PORT` | 6379 | Redis缓存端口 |
@@ -36,11 +36,11 @@ python scripts/update_ports.py 8090 8091
 ```bash
 # Linux/Mac
 export BINANCE_PROXY_PORT=8090
-export BINANCE_PROXY_INTERNAL_PORT=8091
+export BINANCE_PROXY_INTERNAL_PORT=8081
 
 # Windows
 set BINANCE_PROXY_PORT=8090
-set BINANCE_PROXY_INTERNAL_PORT=8091
+set BINANCE_PROXY_INTERNAL_PORT=8081
 ```
 
 ### 方法三：修改配置文件

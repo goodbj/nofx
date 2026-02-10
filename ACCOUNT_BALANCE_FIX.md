@@ -17,15 +17,15 @@ Server error occurred: Get account info failed URL: /api/account?trader_id=f819f
 1. 在docker-compose.nofx-dev-chrome-hot.yml中添加了binance-proxy服务
 2. 配置了环境变量：
    - `USE_BINANCE_PROXY=true`
-   - `BINANCE_PROXY_URL=http://nofx-binance-proxy:8082`
+   - `BINANCE_PROXY_URL=http://nofx-binance-proxy:8081`
 3. 设置了服务间的依赖关系，确保后端服务在代理服务之后启动
 4. 移除了可能导致二进制文件被覆盖的卷挂载
 
 ## 技术细节
-- Binance代理服务运行在端口8082
+- Binance代理服务运行在端口8081
 - 后端服务现在通过代理服务获取账户信息
 - 使用ProxyDataProvider替代了DirectDataProvider
-- 代理服务健康检查通过 `http://localhost:8082/health` 验证
+- 代理服务健康检查通过 `http://localhost:8081/health` 验证
 
 ## 验证结果
 - 所有服务正常运行（binance-proxy, backend, frontend）

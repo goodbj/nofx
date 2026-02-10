@@ -1,5 +1,5 @@
 # 使用支持Chrome的镜像作为基础镜像
-FROM zenika/alpine-chrome:latest
+FROM zenika/alpine-chrome:with-node
 
 # 清除原有的ENTRYPOINT和CMD
 ENTRYPOINT []

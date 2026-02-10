@@ -1,0 +1,127 @@
+version: '3.8'
+
+# NOFX 开发版显示分组服务配置 - 简化版Docker部署
+# 避免复杂的依赖和构建问题
+
+services:
+  # 后端服务 - 带浏览器显示功能和热更新
+  backend:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.backend.dev.complete
+    container_name: nofx-dev-backend-display
+    ports:
+      - "8888:8888"
+    environment:
+      - CHROME_HEADLESS=false  # 启用浏览器显示（非无头模式）
+      - CHROME_BIN=/usr/bin/chromium-browser
+      - PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
+      - DISPLAY=:0
+      # 加密相关环境变量 - 使用YAML字面块标量格式
+      - |
+        RSA_PRIVATE_KEY=-----BEGIN RSA PRIVATE KEY-----
+        MIIEogIBAAKCAQEA7ZAy8I/xU3/pv7MZ25nHgRD1XSrCMHtH2OL/qwqCvkvGCRhS
+        XoVSsimeeBB/PNSU3iYD6BrXaYk7YKnuzHhftiRq/D4I+itjY0jf24UyJ6KmfT6s
+        KQAjWxTsOEQUktrfFXaGIg2e+KhpYXnZze2PUDnNWxNqfi6PEEqlOEbd/fzzThY0
+        em6T9RH7wawScVUR6w3v3olO+BUsu02kHXDkQ1YPPcrHgoTQ8pxHUm/3N/feDqwn
+        /Ub4kvbg88mZvEgRldRgAECtXBMk1CKzXQNPRYxTSckKffSUVqCEzrPkix/TFVGR
+        QE7iaCAEBvT5aqDo+dMsxkDULnsQGC/4WXcPSwIDAQABAoIBADXVtS19uSb+eDao
+        fCYfMa5GbQwJags5jL0SJ/UXQyyjmEOsXtIrrWNReidkOalL1VaIT99T4df5MNsF
+        d2efqbTpiNMTrc4fcfzoYU5qX0TLH6aHQtVhwiFcWvGfP/hNoDtJajkiVBGufH8J
+        8Xkwqgb4qlhGzJ2+qE39VHat3JW3QpXcuXH/PZoe1IJq4otwDujUdZGYRYSH/ZlF
+        bhyIQfL0RkFknySK3XgtrloEyawPPbPs92ofxNH0mAOvuRYMFExbp00r0fP7QL/Y
+        KyAe5DsWuYOlzlKRusrN0Y3sJFhIyoRr25w0p8Qez2W1km4ryj31v+qarCrlj2le
+        7Dtio0kCgYEA82VZRhdKR5Jti5TOg/WmNL58OUniN1BrfIIHRSOGTFkqI7XkzQXV
+        ETzZoJcXVq8+HBiaKVkTtc4DHxQS9RwXzqxyGkSSiBovixbPKhPc+D/m0FZTaqnP
+        kXGT9QVdY00PapZb3P3gFK3VlXvbh/dDgPFFPFpaRifaIQHvr0VDPGMCgYEA+d2H
+        RlY8iEddjly1nk0qmJa4Bl8MIrdQbmpvakI6q3DizeoMvGduyjK6ciDy++T9Zqb7
+        iYeOqaNFniuqZCmBukOPzVD2QXYHROm9W08P1tQXCxfyAmKcLxLJUA5TrpPt792T
+        2yDpCK7lRATAlRfdip2j4DHwR9NjBVMBw5ISUfkCgYBW/1XOkMqTFIqlRpYeYrJ6
+        zc9XJsp93PfedBenJdB9/6zpQL28bqY+2BItrXPBHzhDEKQhvV4nMLC67hDsnZMA
+        43CRZQs/LKTrwUZhEuJ7tVOKCiEc0f+ITCGHhdhggw3MmlvRfMkYex4JpVDNo5r0
+        PsjxjpYP13THMYr7ifVDYwKBgHWyw2D/iD4Nl+VSiH7MDK+Z94+QwC+uOCX63wan
+        selGIKAsitlIw6hdYvQVzz+Wq0Lqj3xGLY59CXMrUHUkFCbAYoGtjIJjbaMpk3fq
+        cySX/U7NdcNn3fhSmh+q0AJhTmh58Ib9JqhfckGrF2hjuIjuHt6hx3Sd/3vnkOIl
+        8ZlJAoGAJISsNmC58IXZat/BeGGtoVKxCB++F9R5MBszmJdwuMrL+DYeWqpXLC54
+        aIJaQrYj7KjQ/wXP9PM3pndll8RvsbM7kOwJ56FnJk+1wZxGosXENhgHLbkZoBBD
+        HHpT8ePjQ87geH1/X8wbI7YIvAg/Rh8bDMkfDBA/kmIC06zUvFI=
+        -----END RSA PRIVATE KEY-----
+      - "JWT_SECRET=your-jwt-secret-change-this-in-production"
+      - "DATA_ENCRYPTION_KEY=your-base64-encoded-32-byte-key"
+      - "NOFX_BACKEND_PORT=8888"
+      - "NOFX_FRONTEND_PORT=3300"
+      - "LOG_LEVEL=info"
+      - "DB_TYPE=sqlite"
+      - "DB_PATH=data/data.db"
+    volumes:
+      # 源代码挂载实现热更新
+      - ./api:/app/api
+      - ./auth:/app/auth
+      - ./backtest:/app/backtest
+      - ./config:/app/config
+      - ./crypto:/app/crypto
+      - ./debate:/app/debate
+      - ./decision:/app/decision
+      - ./hook:/app/hook
+      - ./kernel:/app/kernel
+      - ./launcher:/app/launcher
+      - ./llm:/app/llm
+      - ./logger:/app/logger
+      - ./manager:/app/manager
+      - ./market:/app/market
+      - ./mcp:/app/mcp
+      - ./provider:/app/provider
+      - ./scripts:/app/scripts
+      - ./security:/app/security
+      - ./setup:/app/setup
+      - ./store:/app/store
+      - ./trader:/app/trader
+      - ./web:/app/web
+      - ./go.mod:/app/go.mod
+      - ./go.sum:/app/go.sum
+      - ./main.go:/app/main.go
+      # 数据持久化
+      - ./storage:/app/storage  # Chrome用户数据和Cookie持久化
+      - ./data:/app/data        # 数据库文件
+      # X11显示支持
+      - type: bind
+        source: /tmp/.X11-unix
+        target: /tmp/.X11-unix
+        read_only: true
+    networks:
+      - nofx-dev-network
+    working_dir: /app
+    restart: unless-stopped
+
+  # 前端服务 - 带热更新功能
+  frontend:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.frontend.dev.watch
+    container_name: nofx-dev-frontend-display
+    ports:
+      - "3300:3300"  # 使用3300端口，避免3000
+    volumes:
+      - ./web:/app
+      - /app/node_modules
+    environment:
+      - NODE_ENV=development
+      - VITE_API_TARGET=http://backend:8888
+    networks:
+      - nofx-dev-network
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+# 网络配置
+networks:
+  nofx-dev-network:
+    driver: bridge
+    name: nofx-dev-network
+
+# 数据卷配置
+volumes:
+  storage-data:
+    driver: local
+  database-data:
+    driver: local

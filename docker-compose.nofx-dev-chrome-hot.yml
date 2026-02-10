@@ -9,14 +9,14 @@ services:
         - HOT_RELOAD=false
     container_name: nofx-binance-proxy
     ports:
-      - "8082:8082"
+      - "8081:8081"
     environment:
       - HOT_RELOAD=false
     networks:
       - dev-net
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8082/health"]
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8081/health"]
       interval: 30s
       timeout: 10s
       retries: 3

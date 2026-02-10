@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"time"
 
+	"os"
+
 	"github.com/sirupsen/logrus"
 )
 
@@ -13,8 +15,19 @@ const (
 	ProviderGuardian       = "guardian"
 	DefaultGuardianBaseURL = "https://chat.deepseek.com"
 	DefaultGuardianModel   = "guardian-ai"
-	GuardianBrowserDataDir = "./storage/guardian_browser_data" // 统一的浏览器数据存储目录
 )
+
+// GetGuardianBrowserDataDir returns the browser data directory path
+// Priority: BROWSER_DATA_DIR env var > default value
+func GetGuardianBrowserDataDir() string {
+	if dir := os.Getenv("BROWSER_DATA_DIR"); dir != "" {
+		return dir
+	}
+	return "./data/browser_data" // 默认值
+}
+
+// GuardianBrowserDataDir is the default browser data directory (deprecated, use GetGuardianBrowserDataDir())
+var GuardianBrowserDataDir = GetGuardianBrowserDataDir()
 
 // GuardianClient represents a client for Guardian AI service
 type GuardianClient struct {

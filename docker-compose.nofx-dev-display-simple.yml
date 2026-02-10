@@ -1,0 +1,54 @@
+version: '3.8'
+
+# NOFX 开发版显示分组服务配置 (简化版)
+# 为 "nofx_dev_display" 标签分组设计的前后端服务
+
+services:
+  # 后端服务 - 带浏览器显示功能
+  backend:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.backend.dev.display
+    container_name: nofx-dev-backend-display
+    ports:
+      - "8888:8888"
+    environment:
+      - CHROME_HEADLESS=false
+      - CHROME_BIN=/usr/bin/chromium-browser
+      - PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
+    volumes:
+      - ./storage:/app/storage
+      - ./data:/app/data
+    networks:
+      - nofx-dev-display-network
+    restart: unless-stopped
+
+  # 前端服务
+  frontend:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.frontend.dev.watch
+    container_name: nofx-dev-frontend-display
+    ports:
+      - "3300:3300"
+    volumes:
+      - ./web:/app
+      - /app/node_modules
+    environment:
+      - NODE_ENV=development
+      - VITE_API_TARGET=http://backend:8888
+    networks:
+      - nofx-dev-display-network
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+networks:
+  nofx-dev-display-network:
+    driver: bridge
+
+volumes:
+  storage-data:
+    driver: local
+  database-data:
+    driver: local

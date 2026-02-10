@@ -1,0 +1,65 @@
+# docker/backend/Dockerfile - Development with Hot Reload (Air Version)
+
+# ═══════════════════════════════════════════════════════════════
+# NOFX Backend Dockerfile (Go + TA-Lib) - Development Watch Version
+# Uses Air for hot reloading during development
+# ═══════════════════════════════════════════════════════════════
+
+ARG GO_VERSION=latest
+
+# ──────────────────────────────────────────────────────────────
+# Backend Build Stage (Go Application with Air)
+# ──────────────────────────────────────────────────────────────
+FROM golang:${GO_VERSION} AS backend-builder
+
+# 配置Go代理
+ENV GOPROXY=https://goproxy.cn,direct
+ENV GOSUMDB=sum.golang.google.cn
+
+# 安装必要的软件包
+RUN apt-get update && apt-get install -y git build-essential curl && \
+    rm -rf /var/lib/apt/lists/*
+
+# 安装Air for hot reloading
+RUN go install github.com/air-verse/air@latest
+
+WORKDIR /app
+
+# Copy go mod files first
+COPY go.mod go.sum ./
+RUN go mod download
+
+# Copy source code
+COPY . .
+
+# Create air configuration
+RUN echo '[build]' > .air.toml && \
+    echo '  bin = "./tmp/main"' >> .air.toml && \
+    echo '  cmd = "go build -o ./tmp/main main.go"' >> .air.toml && \
+    echo '  delay = 1000' >> .air.toml && \
+    echo '  exclude_dir = ["assets", "tmp", "vendor", "node_modules", "web", "trader"]' >> .air.toml && \
+    echo '  exclude_file = []' >> .air.toml && \
+    echo '  exclude_regex = ["_test.go"]' >> .air.toml && \
+    echo '  exclude_unchanged = false' >> .air.toml && \
+    echo '  follow_symlink = false' >> .air.toml && \
+    echo '  full_bin = ""' >> .air.toml && \
+    echo '  include_dir = []' >> .air.toml && \
+    echo '  include_ext = ["go", "tpl", "tmpl", "html", "env"]' >> .air.toml && \
+    echo '  kill_delay = "0s"' >> .air.toml && \
+    echo '  log = "build-errors.log"' >> .air.toml && \
+    echo '  send_interrupt = false' >> .air.toml && \
+    echo '  stop_on_error = false' >> .air.toml && \
+    echo '[color]' >> .air.toml && \
+    echo '  app = ""' >> .air.toml && \
+    echo '  build = "yellow"' >> .air.toml && \
+    echo '  main = "magenta"' >> .air.toml && \
+    echo '  runner = "green"' >> .air.toml && \
+    echo '  watcher = "cyan"' >> .air.toml && \
+    echo '[log]' >> .air.toml && \
+    echo '  time = false' >> .air.toml && \
+    echo '[misc]' >> .air.toml && \
+    echo '  clean_on_exit = false' >> .air.toml
+
+EXPOSE 8888
+
+CMD ["air", "-c", ".air.toml"]

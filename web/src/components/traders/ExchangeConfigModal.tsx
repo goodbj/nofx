@@ -745,6 +745,36 @@ export function ExchangeConfigModal({
                         </div>
                       )}
 
+                      {/* Testnet toggle for Binance */}
+                      {currentExchangeType === 'binance' && (
+                        <div className="flex items-center justify-between p-3 rounded"
+                          style={{
+                            background: '#0B0E11',
+                            border: '1px solid #2B3139',
+                          }}>
+                          <div>
+                            <label
+                              className="block text-sm font-semibold"
+                              style={{ color: '#EAECEF' }}
+                            >
+                              {t('useTestnet', language)}
+                            </label>
+                            <div className="text-xs" style={{ color: '#848E9C' }}>
+                              {t('testnetDescription', language)}
+                            </div>
+                          </div>
+                          <label className="relative inline-flex items-center cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={testnet}
+                              onChange={(e) => setTestnet(e.target.checked)}
+                              className="sr-only peer"
+                            />
+                            <div className="w-11 h-6 bg-gray-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-yellow-500"></div>
+                          </label>
+                        </div>
+                      )}
+
                       {(currentExchangeType === 'okx' || currentExchangeType === 'bitget') && (
                         <div>
                           <label

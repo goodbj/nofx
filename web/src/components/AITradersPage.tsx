@@ -226,6 +226,9 @@ export function AITradersPage({ onTraderSelect }: AITradersPageProps) {
       }
 
       try {
+        // 延迟加载配置，确保认证状态稳定
+        await new Promise(resolve => setTimeout(resolve, 500))
+        
         const [
           modelConfigs,
           exchangeConfigs,
@@ -445,6 +448,9 @@ export function AITradersPage({ onTraderSelect }: AITradersPageProps) {
         success: '保存成功',
         error: '保存失败',
       })
+      
+      // 强制刷新交易所数据，解决初始化问题
+      await mutate('exchanges')
       setShowEditModal(false)
       setEditingTrader(null)
       // Immediately refresh traders list for better UX
@@ -803,6 +809,7 @@ export function AITradersPage({ onTraderSelect }: AITradersPageProps) {
           exchanges: {
             [exchangeId]: {
               enabled: true,
+              account_name: accountName || '',
               api_key: apiKey || '',
               secret_key: secretKey || '',
               passphrase: passphrase || '',

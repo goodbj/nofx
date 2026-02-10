@@ -1,0 +1,56 @@
+version: '3.8'
+
+services:
+  nofx-dev-backend-display:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.backend.dev.chrome.fixed
+    container_name: nofx-dev-backend-display
+    ports:
+      - "8888:8888"
+    environment:
+      - CHROME_HEADLESS=false  # 启用浏览器显示（非无头模式）
+      - CHROME_BIN=/usr/bin/chromium-browser
+      - PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
+      - API_SERVER_PORT=8888
+      - OLLAMA_READ_TIMEOUT=270s
+      - TZ=Asia/Shanghai
+    volumes:
+      # 代码热更新卷 - 这些目录会被实时同步到容器内
+      - ./api:/app/api
+      - ./auth:/app/auth
+      - ./backtest:/app/backtest
+      - ./config:/app/config
+      - ./crypto:/app/crypto
+      - ./debate:/app/debate
+      - ./decision:/app/decision
+      - ./hook:/app/hook
+      - ./kernel:/app/kernel
+      - ./launcher:/app/launcher
+      - ./llm:/app/llm
+      - ./logger:/app/logger
+      - ./manager:/app/manager
+      - ./market:/app/market
+      - ./mcp:/app/mcp
+      - ./provider:/app/provider
+      - ./scripts:/app/scripts
+      - ./security:/app/security
+      - ./setup:/app/setup
+      - ./store:/app/store
+      - ./trader:/app/trader
+      - ./web:/app/web
+      - ./go.mod:/app/go.mod
+      - ./go.sum:/app/go.sum
+      - ./main.go:/app/main.go
+      # Cookie和数据持久化卷
+      - ./data:/app/data  # 数据库文件持久化
+      - ./guardian/chrome_profile:/home/chrome/.config/chromium  # Chrome配置和Cookie持久化
+    networks:
+      - dev-display-net
+    working_dir: /app
+    # 注意：为支持热更新，暂时禁用重启策略
+    # restart: unless-stopped
+
+networks:
+  dev-display-net:
+    driver: bridge

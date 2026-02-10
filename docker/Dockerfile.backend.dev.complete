@@ -1,0 +1,53 @@
+# 使用官方Go镜像作为基础镜像
+FROM golang:1.25-alpine
+
+# 安装必要的依赖（不安装chromium，因为构建时可能有问题）
+RUN apk add --no-cache \
+    ca-certificates \
+    bash \
+    git
+
+# 设置工作目录
+WORKDIR /app
+
+# 复制go.mod和go.sum文件
+COPY go.mod go.sum ./
+
+# 下载依赖（使用代理如果需要）
+RUN go env -w GOPROXY=https://goproxy.cn,direct
+RUN go mod download
+
+# 只复制必要的源代码文件
+COPY main.go ./
+COPY api/ ./api/
+COPY auth/ ./auth/
+COPY backtest/ ./backtest/
+COPY config/ ./config/
+COPY crypto/ ./crypto/
+COPY debate/ ./debate/
+COPY decision/ ./decision/
+COPY experience/ ./experience/
+COPY hook/ ./hook/
+COPY kernel/ ./kernel/
+COPY launcher/ ./launcher/
+COPY llm/ ./llm/
+COPY logger/ ./logger/
+COPY manager/ ./manager/
+COPY market/ ./market/
+COPY mcp/ ./mcp/
+COPY provider/ ./provider/
+COPY scripts/ ./scripts/
+COPY security/ ./security/
+COPY setup/ ./setup/
+COPY store/ ./store/
+COPY trader/ ./trader/
+COPY web/ ./web/
+
+# 构建Go应用程序
+RUN go build -o main .
+
+# 暴露端口
+EXPOSE 8888
+
+# 启动应用
+CMD ["./main"]

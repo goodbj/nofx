@@ -1,62 +1,54 @@
 ﻿version: '3.8'
 
+# NOFX 开发版服务配置
+# 为 "nofx_dev" 标签分组设计的前后端服务
+
 services:
+  # 后端服务
   backend:
-    image: nofx_dev-backend
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.backend.dev.display
     container_name: nofx-dev-backend
     ports:
       - "8888:8888"
-    volumes:
-      - ./api:/app/api
-      - ./auth:/app/auth
-      - ./backtest:/app/backtest
-      - ./config:/app/config
-      - ./crypto:/app/crypto
-      - ./debate:/app/debate
-      - ./decision:/app/decision
-      - ./hook:/app/hook
-      - ./kernel:/app/kernel
-      - ./launcher:/app/launcher
-      - ./llm:/app/llm
-      - ./logger:/app/logger
-      - ./manager:/app/manager
-      - ./market:/app/market
-      - ./mcp:/app/mcp
-      - ./provider:/app/provider
-      - ./scripts:/app/scripts
-      - ./security:/app/security
-      - ./setup:/app/setup
-      - ./store:/app/store
-      - ./trader:/app/trader
-      - ./web:/app/web
-      - ./go.mod:/app/go.mod
-      - ./go.sum:/app/go.sum
-      - ./main.go:/app/main.go
-      - ./data:/app/data # 确保数据目录可读写
     environment:
-      - CHROME_HEADLESS=true
+      - CHROME_HEADLESS=false
       - CHROME_BIN=/usr/bin/chromium-browser
       - PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
-      - LOG_LEVEL=debug
+    volumes:
+      - ./storage:/app/storage
+      - ./data:/app/data
     networks:
-      - dev-net
-    working_dir: /app
+      - nofx-dev-network
+    restart: unless-stopped
 
+  # 前端服务
   frontend:
-    image: setup-nofx-dev-frontend
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.frontend.dev.watch
     container_name: nofx-dev-frontend
     ports:
-      - "3300:5173"
+      - "3300:3300"
     volumes:
       - ./web:/app
       - /app/node_modules
     environment:
       - NODE_ENV=development
-      - VITE_API_TARGET=http://nofx-dev-backend:8888
+      - VITE_API_TARGET=http://backend:8888
     networks:
-      - dev-net
+      - nofx-dev-network
+    depends_on:
+      - backend
     restart: unless-stopped
 
 networks:
-  dev-net:
+  nofx-dev-network:
     driver: bridge
+
+volumes:
+  storage-data:
+    driver: local
+  database-data:
+    driver: local

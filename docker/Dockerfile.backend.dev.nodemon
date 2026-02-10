@@ -1,0 +1,50 @@
+# docker/backend/Dockerfile - Development with Hot Reload (nodemon Version)
+
+# ═══════════════════════════════════════════════════════════════
+# NOFX Backend Dockerfile - Development with nodemon hot reload
+# 使用nodemon实现Go代码热更新
+# ═══════════════════════════════════════════════════════════════
+
+ARG GO_VERSION=latest
+ARG NODE_VERSION=20-alpine
+
+# ──────────────────────────────────────────────────────────────
+# Backend Build Stage (Go Application with nodemon)
+# ──────────────────────────────────────────────────────────────
+FROM golang:${GO_VERSION} AS backend-builder
+
+# 配置Go代理
+ENV GOPROXY=https://goproxy.cn,direct
+ENV GOSUMDB=sum.golang.google.cn
+
+# 安装必要的软件包
+RUN apt-get update && apt-get install -y git build-essential curl && \
+    rm -rf /var/lib/apt/lists/*
+
+# 安装Node.js和nodemon
+RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && \
+    apt-get install -y nodejs
+
+# 安装nodemon全局
+RUN npm install -g nodemon
+
+WORKDIR /app
+
+# Copy go mod files first
+COPY go.mod go.sum ./
+RUN go mod download
+
+# Copy source code
+COPY . .
+
+# 创建nodemon配置文件
+RUN echo '{' > nodemon.json && \
+    echo '  "watch": ["*.go", "*/**/*.go"],' >> nodemon.json && \
+    echo '  "ext": "go",' >> nodemon.json && \
+    echo '  "exec": "go run main.go",' >> nodemon.json && \
+    echo '  "ignore": ["tmp/*", "vendor/*", "node_modules/*"]' >> nodemon.json && \
+    echo '}' >> nodemon.json
+
+EXPOSE 8888
+
+CMD ["nodemon", "--config", "nodemon.json"]

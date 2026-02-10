@@ -1,37 +1,20 @@
-# docker/frontend/Dockerfile
-# NOFX Frontend Dockerfile (Node Build → Nginx Runtime) - Development Version
-# Versions extracted as ARGs for consistency
+# 使用Node.js作为基础镜像
+FROM node:20-alpine
 
-ARG NODE_VERSION=20-alpine
-ARG NGINX_VERSION=alpine
+# 设置工作目录
+WORKDIR /app
 
-# ──────────────────────────────────────────────────────────────
-# Build Stage (Node)
-# ──────────────────────────────────────────────────────────────
-FROM node:${NODE_VERSION} AS builder
-
-# 如果在开发环境中需要，可以设置npm使用国内镜像源
-RUN npm config set registry https://registry.npmmirror.com/
-
-WORKDIR /build
-
+# 复制package.json和package-lock.json（如果存在）
 COPY web/package*.json ./
+
+# 安装依赖
 RUN npm ci
 
+# 复制所有web文件到工作目录
 COPY web/ ./
-RUN npm run build
 
-# ──────────────────────────────────────────────────────────────
-# Runtime Stage (Nginx)
-# ──────────────────────────────────────────────────────────────
-FROM nginx:${NGINX_VERSION}
+# 暴露端口
+EXPOSE 3300
 
-COPY nginx/nginx.conf /etc/nginx/conf.d/default.conf
-COPY --from=builder /build/dist /usr/share/nginx/html
-
-EXPOSE 80
-
-HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-  CMD wget --no-verbose --tries=1 --spider http://localhost/health || exit 1
-
-CMD ["nginx", "-g", "daemon off;"]
+# 启动开发服务器
+CMD ["npm", "run", "dev", "--", "--host", "0.0.0.0", "--port", "3300"]

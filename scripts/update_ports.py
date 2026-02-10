@@ -11,7 +11,7 @@ from pathlib import Path
 def update_ports(new_ports):
     """
     统一更新项目中所有端口配置
-    new_ports: dict, 例如 {"BINANCE_PROXY_PORT": "8081", "BINANCE_PROXY_INTERNAL_PORT": "8082"}
+    new_ports: dict, 例如 {"BINANCE_PROXY_PORT": "8081", "BINANCE_PROXY_INTERNAL_PORT": "8081"}
     """
     project_root = Path(__file__).parent.parent
     
@@ -26,21 +26,21 @@ def update_ports(new_ports):
         {
             "path": project_root / "docker-compose.binance-proxy.yml",
             "patterns": {
-                r'(\s*-\s*"\d+:\d+")': lambda port: f'      - "{new_ports.get("BINANCE_PROXY_PORT", "8081")}:{new_ports.get("BINANCE_PROXY_INTERNAL_PORT", "8082")}"',
-                r'(PORT=)\d+': lambda port: f'PORT={new_ports.get("BINANCE_PROXY_INTERNAL_PORT", "8082")}',
+                r'(\s*-\s*"\d+:\d+")': lambda port: f'      - "{new_ports.get("BINANCE_PROXY_PORT", "8081")}:{new_ports.get("BINANCE_PROXY_INTERNAL_PORT", "8081")}"',
+                r'(PORT=)\d+': lambda port: f'PORT={new_ports.get("BINANCE_PROXY_INTERNAL_PORT", "8081")}',
             }
         },
         {
             "path": project_root / "docker-compose.proxy.yml",
             "patterns": {
-                r'(\s*-\s*"\d+:\d+")': lambda port: f'      - "{new_ports.get("BINANCE_PROXY_PORT", "8081")}:{new_ports.get("BINANCE_PROXY_INTERNAL_PORT", "8082")}"',
-                r'(PORT=)\d+': lambda port: f'PORT={new_ports.get("BINANCE_PROXY_INTERNAL_PORT", "8082")}',
+                r'(\s*-\s*"\d+:\d+")': lambda port: f'      - "{new_ports.get("BINANCE_PROXY_PORT", "8081")}:{new_ports.get("BINANCE_PROXY_INTERNAL_PORT", "8081")}"',
+                r'(PORT=)\d+': lambda port: f'PORT={new_ports.get("BINANCE_PROXY_INTERNAL_PORT", "8081")}',
             }
         },
         {
             "path": project_root / "START_ALL_SERVICES.bat",
             "patterns": {
-                r'(docker run -d --name binance-proxy -p \d+):(\d+)': lambda host, container: f'docker run -d --name binance-proxy -p {new_ports.get("BINANCE_PROXY_PORT", "8081")}:{new_ports.get("BINANCE_PROXY_INTERNAL_PORT", "8082")}',
+                r'(docker run -d --name binance-proxy -p \d+):(\d+)': lambda host, container: f'docker run -d --name binance-proxy -p {new_ports.get("BINANCE_PROXY_PORT", "8081")}:{new_ports.get("BINANCE_PROXY_INTERNAL_PORT", "8081")}',
             }
         },
     ]
@@ -78,7 +78,7 @@ def update_ports(new_ports):
 def main():
     if len(sys.argv) < 3:
         print("使用方法: python update_ports.py <外部端口> <内部端口>")
-        print("例如: python update_ports.py 8081 8082")
+        print("例如: python update_ports.py 8081 8081")
         return
     
     external_port = sys.argv[1]

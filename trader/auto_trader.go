@@ -96,8 +96,8 @@ type AutoTraderConfig struct {
 	// Competition visibility
 	ShowInCompetition bool // Whether to show in competition page
 
-	// Browser automation configuration
-	UseBrowserAutomation bool // Whether to use browser automation instead of API calls
+	// Trader delegates AI model implementation to the AI model itself
+	// Trader should not care about whether AI uses API calls or web automation
 
 	// Strategy configuration (use complete strategy config)
 	StrategyConfig *store.StrategyConfig // Strategy configuration (includes coin sources, indicators, risk control, prompts, etc.)
@@ -215,104 +215,45 @@ func NewAutoTrader(config AutoTraderConfig, st *store.Store, userID string) (*Au
 
 	switch aiModel {
 	case "claude":
-		// Check if bypass is enabled via useBrowserAutomation flag
-		bypassEnabled := config.UseBrowserAutomation
+		// AI model handles its own implementation internally
 		mcpClient = mcp.NewClaudeClient()
-		if bypassEnabled {
-			// Even when using browser automation, we need to set API key for base client validation
-			mcpClient.SetAPIKey("dummy-key-for-browser-automation", config.CustomAPIURL, config.CustomModelName)
-			// For bypass clients, we need to ensure trader ID is passed through
-			if guardianClient, ok := mcpClient.(*mcp.GuardianClient); ok {
-				mcpClient = mcp.NewBypassClientWithTraderID(mcpClient, true, "guardian-ai", guardianClient.GetTraderID())
-			} else {
-				mcpClient = mcp.NewBypassClient(mcpClient, true, "guardian-ai")
-			}
-			logger.Infof("🤖 [%s] Using CLAUDE with Browser Automation Bypass", config.Name)
-		} else {
-			mcpClient.SetAPIKey(config.CustomAPIKey, config.CustomAPIURL, config.CustomModelName)
-			logger.Infof("🤖 [%s] Using Claude AI", config.Name)
-		}
+		mcpClient = mcp.NewClaudeClient()
+		mcpClient.SetAPIKey(config.CustomAPIKey, config.CustomAPIURL, config.CustomModelName)
+		logger.Infof("🤖 [%s] Using Claude AI (delegating implementation to AI model)", config.Name)
 
 	case "kimi":
-		// Check if bypass is enabled via useBrowserAutomation flag
-		bypassEnabled := config.UseBrowserAutomation
+		// AI model handles its own implementation internally
 		mcpClient = mcp.NewKimiClient()
-		if bypassEnabled {
-			// Even when using browser automation, we need to set API key for base client validation
-			mcpClient.SetAPIKey("dummy-key-for-browser-automation", config.CustomAPIURL, config.CustomModelName)
-			// For bypass clients, we need to ensure trader ID is passed through
-			if guardianClient, ok := mcpClient.(*mcp.GuardianClient); ok {
-				mcpClient = mcp.NewBypassClientWithTraderID(mcpClient, true, "guardian-ai", guardianClient.GetTraderID())
-			} else {
-				mcpClient = mcp.NewBypassClient(mcpClient, true, "guardian-ai")
-			}
-			logger.Infof("🤖 [%s] Using KIMI with Browser Automation Bypass", config.Name)
-		} else {
-			mcpClient.SetAPIKey(config.CustomAPIKey, config.CustomAPIURL, config.CustomModelName)
-			logger.Infof("🤖 [%s] Using Kimi (Moonshot) AI", config.Name)
-		}
+		mcpClient = mcp.NewKimiClient()
+		mcpClient.SetAPIKey(config.CustomAPIKey, config.CustomAPIURL, config.CustomModelName)
+		logger.Infof("🤖 [%s] Using Kimi AI (delegating implementation to AI model)", config.Name)
 
 	case "gemini":
-		// Check if bypass is enabled via useBrowserAutomation flag
-		bypassEnabled := config.UseBrowserAutomation
+		// AI model handles its own implementation internally
 		mcpClient = mcp.NewGeminiClient()
-		if bypassEnabled {
-			// Even when using browser automation, we need to set API key for base client validation
-			mcpClient.SetAPIKey("dummy-key-for-browser-automation", config.CustomAPIURL, config.CustomModelName)
-			// For bypass clients, we need to ensure trader ID is passed through
-			if guardianClient, ok := mcpClient.(*mcp.GuardianClient); ok {
-				mcpClient = mcp.NewBypassClientWithTraderID(mcpClient, true, "guardian-ai", guardianClient.GetTraderID())
-			} else {
-				mcpClient = mcp.NewBypassClient(mcpClient, true, "guardian-ai")
-			}
-			logger.Infof("🤖 [%s] Using GEMINI with Browser Automation Bypass", config.Name)
-		} else {
-			mcpClient.SetAPIKey(config.CustomAPIKey, config.CustomAPIURL, config.CustomModelName)
-			logger.Infof("🤖 [%s] Using Google Gemini AI", config.Name)
-		}
+		mcpClient = mcp.NewGeminiClient()
+		mcpClient.SetAPIKey(config.CustomAPIKey, config.CustomAPIURL, config.CustomModelName)
+		logger.Infof("🤖 [%s] Using Google Gemini AI (delegating implementation to AI model)", config.Name)
 
 	case "grok":
-		// Check if bypass is enabled via useBrowserAutomation flag
-		bypassEnabled := config.UseBrowserAutomation
+		// AI model handles its own implementation internally
 		mcpClient = mcp.NewGrokClient()
-		if bypassEnabled {
-			// Even when using browser automation, we need to set API key for base client validation
-			mcpClient.SetAPIKey("dummy-key-for-browser-automation", config.CustomAPIURL, config.CustomModelName)
-			// For bypass clients, we need to ensure trader ID is passed through
-			if guardianClient, ok := mcpClient.(*mcp.GuardianClient); ok {
-				mcpClient = mcp.NewBypassClientWithTraderID(mcpClient, true, "guardian-ai", guardianClient.GetTraderID())
-			} else {
-				mcpClient = mcp.NewBypassClient(mcpClient, true, "guardian-ai")
-			}
-			logger.Infof("🤖 [%s] Using GROK with Browser Automation Bypass", config.Name)
-		} else {
-			mcpClient.SetAPIKey(config.CustomAPIKey, config.CustomAPIURL, config.CustomModelName)
-			logger.Infof("🤖 [%s] Using xAI Grok AI", config.Name)
-		}
+		mcpClient = mcp.NewGrokClient()
+		mcpClient.SetAPIKey(config.CustomAPIKey, config.CustomAPIURL, config.CustomModelName)
+		logger.Infof("🤖 [%s] Using xAI Grok AI (delegating implementation to AI model)", config.Name)
 
 	case "openai":
-		// Check if bypass is enabled via useBrowserAutomation flag
-		bypassEnabled := config.UseBrowserAutomation
+		// AI model handles its own implementation internally
 		mcpClient = mcp.NewOpenAIClient()
-		if bypassEnabled {
-			// Even when using browser automation, we need to set API key for base client validation
-			mcpClient.SetAPIKey("dummy-key-for-browser-automation", config.CustomAPIURL, config.CustomModelName)
-			// For bypass clients, we need to ensure trader ID is passed through
-			if guardianClient, ok := mcpClient.(*mcp.GuardianClient); ok {
-				mcpClient = mcp.NewBypassClientWithTraderID(mcpClient, true, "guardian-ai", guardianClient.GetTraderID())
-			} else {
-				mcpClient = mcp.NewBypassClient(mcpClient, true, "guardian-ai")
-			}
-			logger.Infof("🤖 [%s] Using OPENAI with Browser Automation Bypass", config.Name)
-		} else {
-			mcpClient.SetAPIKey(config.CustomAPIKey, config.CustomAPIURL, config.CustomModelName)
-			logger.Infof("🤖 [%s] Using OpenAI", config.Name)
-		}
+		mcpClient = mcp.NewOpenAIClient()
+		mcpClient.SetAPIKey(config.CustomAPIKey, config.CustomAPIURL, config.CustomModelName)
+		logger.Infof("🤖 [%s] Using OpenAI (delegating implementation to AI model)", config.Name)
 
 	case "qwen":
-		// Check if bypass is enabled via useBrowserAutomation flag
-		bypassEnabled := config.UseBrowserAutomation
+		// AI model handles its own implementation internally
 		mcpClient = mcp.NewQwenClient()
+		// Check if bypass is enabled via custom configuration
+		bypassEnabled := config.CustomModelName == "bypass" || strings.Contains(strings.ToLower(config.CustomAPIURL), "bypass")
 		if bypassEnabled {
 			// Even when using browser automation, we need to set API key for base client validation
 			mcpClient.SetAPIKey("dummy-key-for-browser-automation", config.CustomAPIURL, config.CustomModelName)
@@ -322,14 +263,14 @@ func NewAutoTrader(config AutoTraderConfig, st *store.Store, userID string) (*Au
 			} else {
 				mcpClient = mcp.NewBypassClient(mcpClient, true, "guardian-ai")
 			}
-			logger.Infof("🤖 [%s] Using QWEN with Browser Automation Bypass", config.Name)
+			logger.Infof("🤖 [%%s] Using QWEN with Browser Automation Bypass", config.Name)
 		} else {
 			apiKey := config.QwenKey
 			if apiKey == "" {
 				apiKey = config.CustomAPIKey
 			}
 			mcpClient.SetAPIKey(apiKey, config.CustomAPIURL, config.CustomModelName)
-			logger.Infof("🤖 [%s] Using Alibaba Cloud Qwen AI", config.Name)
+			logger.Infof("🤖 [%%s] Using Alibaba Cloud Qwen AI", config.Name)
 		}
 
 	case "custom":
@@ -377,74 +318,40 @@ func NewAutoTrader(config AutoTraderConfig, st *store.Store, userID string) (*Au
 		}
 
 	case "guardian":
-		// Check if bypass is enabled via useBrowserAutomation flag
-		bypassEnabled := config.UseBrowserAutomation
+		// AI model handles its own implementation internally
 		logger.Warnf("🚨 [GUARDIAN DEBUG] Creating GuardianClient with TraderID: %s", config.ID)
 		mcpClient = mcp.NewGuardianClientWithOptions(
-			mcp.WithTraderID(config.ID), // Pass trader ID for browser data isolation
+			mcp.WithTraderID(config.ID), // Pass trader ID for data isolation
 		)
 		if guardianOriginal, ok := mcpClient.(*mcp.GuardianClient); ok {
 			logger.Warnf("🚨 [GUARDIAN DEBUG] Original GuardianClient TraderID: '%s'", guardianOriginal.GetTraderID())
 		}
-		if bypassEnabled {
-			// Even when using browser automation, we need to set API key for base client validation
-			mcpClient.SetAPIKey("dummy-key-for-browser-automation", config.CustomAPIURL, config.CustomModelName)
-			// For bypass clients, we need to ensure trader ID is passed through
+		if config.CustomAPIURL != "" {
 			if guardianClient, ok := mcpClient.(*mcp.GuardianClient); ok {
-				traderID := guardianClient.GetTraderID()
-				logger.Debugf("🤖 Passing TraderID '%s' to BypassClient", traderID)
-				mcpClient = mcp.NewBypassClientWithTraderID(mcpClient, true, "guardian-ai", traderID)
-			} else {
-				logger.Debug("🤖 GuardianClient type assertion failed, creating bypass client without trader ID")
-				mcpClient = mcp.NewBypassClient(mcpClient, true, "guardian-ai")
+				guardianClient.SetDynamicConfig(config.CustomAPIURL)
 			}
-			logger.Infof("🤖 [%s] Using GUARDIAN with Browser Automation Bypass", config.Name)
-		} else {
-			if config.CustomAPIURL != "" {
-				if guardianClient, ok := mcpClient.(*mcp.GuardianClient); ok {
-					guardianClient.SetDynamicConfig(config.CustomAPIURL)
-				}
-			}
-			logger.Infof("🤖 [%s] Using Guardian AI", config.Name)
 		}
+		logger.Infof("🤖 [%s] Using Guardian AI (delegating implementation to AI model)", config.Name)
 
 	case "guardian-ai":
-		// Create Guardian client with browser automation bypass
+		// Trader delegates to AI model - let the AI model handle its own implementation
 		baseClient := mcp.NewGuardianClientWithOptions(
-			mcp.WithTraderID(config.ID), // Pass trader ID for browser data isolation
+			mcp.WithTraderID(config.ID), // Pass trader ID for data isolation
 		)
-		// Even when using browser automation, we need to set API key for base client validation
-		baseClient.SetAPIKey("dummy-key-for-browser-automation", config.CustomAPIURL, config.CustomModelName)
-		// For bypass clients, we need to ensure trader ID is passed through
-		if guardianClient, ok := baseClient.(*mcp.GuardianClient); ok {
-			mcpClient = mcp.NewBypassClientWithTraderID(baseClient, true, "guardian-ai", guardianClient.GetTraderID())
-		} else {
-			mcpClient = mcp.NewBypassClient(baseClient, true, "guardian-ai")
-		}
-		logger.Infof("🤖 [%s] Using Guardian AI with Browser Automation Bypass", config.Name)
+		// AI model internally decides whether to use browser automation or API calls
+		// Trader just uses the unified interface
+		mcpClient = baseClient
+		logger.Infof("🤖 [%s] Using Guardian AI (delegating to AI model for implementation)", config.Name)
 
 	case "deepseek":
-		// Check if bypass is enabled via useBrowserAutomation flag
-		bypassEnabled := config.UseBrowserAutomation
+		// AI model handles its own implementation internally
 		mcpClient = mcp.NewDeepSeekClient()
-		if bypassEnabled {
-			// Even when using browser automation, we need to set API key for base client validation
-			mcpClient.SetAPIKey("dummy-key-for-browser-automation", config.CustomAPIURL, config.CustomModelName)
-			// For bypass clients, we need to ensure trader ID is passed through
-			if guardianClient, ok := mcpClient.(*mcp.GuardianClient); ok {
-				mcpClient = mcp.NewBypassClientWithTraderID(mcpClient, true, "guardian-ai", guardianClient.GetTraderID())
-			} else {
-				mcpClient = mcp.NewBypassClient(mcpClient, true, "guardian-ai")
-			}
-			logger.Infof("🤖 [%s] Using DEEPSEEK with Browser Automation Bypass", config.Name)
-		} else {
-			apiKey := config.DeepSeekKey
-			if apiKey == "" {
-				apiKey = config.CustomAPIKey
-			}
-			mcpClient.SetAPIKey(apiKey, config.CustomAPIURL, config.CustomModelName)
-			logger.Infof("🤖 [%s] Using DEEPSEEK with Standard API", config.Name)
+		apiKey := config.DeepSeekKey
+		if apiKey == "" {
+			apiKey = config.CustomAPIKey
 		}
+		mcpClient.SetAPIKey(apiKey, config.CustomAPIURL, config.CustomModelName)
+		logger.Infof("🤖 [%s] Using DeepSeek AI (delegating implementation to AI model)", config.Name)
 
 	default: // deepseek or empty
 		mcpClient = mcp.NewDeepSeekClient()
@@ -489,11 +396,13 @@ func NewAutoTrader(config AutoTraderConfig, st *store.Store, userID string) (*Au
 			// 对于代理模式，我们需要连接到代理服务，但告诉代理真正的目标URL
 			proxyURL := os.Getenv("BINANCE_PROXY_URL")
 			if proxyURL == "" {
-				proxyURL = "http://localhost:8082" // 默认代理URL
+				proxyURL = "http://localhost:8081" // 默认代理URL
 			}
 			endpoint = proxyURL
 			// 真正的目标端点应该是自定义API URL或默认的交易所URL
 			targetEndpoint = getBinanceCustomEndpointForAutoTrader(&config)
+			logger.Infof("🔧 [DEBUG] BinanceCustomAPIURL from config: '%s', ExchangeTestnet: %t, targetEndpoint after getBinanceCustomEndpointForAutoTrader: '%s'",
+				config.BinanceCustomAPIURL, config.ExchangeTestnet, targetEndpoint)
 			if targetEndpoint == "" {
 				if config.ExchangeTestnet {
 					targetEndpoint = "https://testnet.binancefuture.com"
@@ -501,18 +410,17 @@ func NewAutoTrader(config AutoTraderConfig, st *store.Store, userID string) (*Au
 					targetEndpoint = "https://fapi.binance.com"
 				}
 			}
+			logger.Infof("🔧 [DEBUG] Final targetEndpoint: '%s'", targetEndpoint)
+
+			// 在代理模式下，创建一个连接到代理服务的交易者实例
+			originalTrader := NewFuturesTraderViaProxy(config.BinanceAPIKey, config.BinanceSecretKey, userID, endpoint, targetEndpoint)
+			trader = NewProxyTraderWrapperWithAuth(originalTrader, "proxy", os.Getenv("BINANCE_PROXY_URL"), config.BinanceAPIKey, config.BinanceSecretKey, targetEndpoint)
 		} else {
 			endpoint = getBinanceCustomEndpointForAutoTrader(&config)
 			targetEndpoint = endpoint
-		}
 
-		// 创建交易者实例（使用适当的端点）
-		originalTrader := NewFuturesTrader(config.BinanceAPIKey, config.BinanceSecretKey, userID, endpoint)
-
-		// 创建代理包装器（始终创建，但根据端点决定行为）
-		if useProxyGlobal {
-			trader = NewProxyTraderWrapperWithAuth(originalTrader, "proxy", os.Getenv("BINANCE_PROXY_URL"), config.BinanceAPIKey, config.BinanceSecretKey, targetEndpoint)
-		} else {
+			// 在非代理模式下，直接连接到真实交易所
+			originalTrader := NewFuturesTrader(config.BinanceAPIKey, config.BinanceSecretKey, userID, endpoint)
 			trader = NewProxyTraderWrapperWithAuth(originalTrader, "native", "", config.BinanceAPIKey, config.BinanceSecretKey, targetEndpoint)
 		}
 	case "bybit":

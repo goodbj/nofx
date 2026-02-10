@@ -63,7 +63,7 @@ RUN chown -R guardian:guardian /app
 USER guardian
 
 # Expose port if needed (though Guardian is primarily a monitoring service)
-EXPOSE 8080
+EXPOSE 8888
 
 # Command to run the binary
 ENTRYPOINT ["./guardian"]

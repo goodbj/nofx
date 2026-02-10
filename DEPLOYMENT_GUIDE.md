@@ -30,7 +30,7 @@
 USE_BINANCE_PROXY=true
 
 # 代理服务地址（由于币安代理运行在Docker中，其他服务运行在宿主机上）
-BINANCE_PROXY_URL=http://localhost:8082
+BINANCE_PROXY_URL=http://localhost:8081
 
 # 后端API服务器端口
 NOFX_BACKEND_PORT=8888

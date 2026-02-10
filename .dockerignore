@@ -1,49 +1,21 @@
-# Git
-.git
-.gitignore
-.github
+# .dockerignore 文件 - 排除构建上下文中的问题文件
 
-# Docker
-Dockerfile
-docker-compose.yml
-.dockerignore
+# 排除浏览器锁文件和缓存文件
+storage/guardian_browser_data_*/*
+storage/guardian_browser_data_*/
+storage/*/Singleton*
+storage/*/Default/Cache/
+storage/*/Default/Code Cache/
+storage/*/Default/GPUCache/
+storage/*/Default/Service Worker/
 
-# IDE
-.idea
-.vscode
-*.swp
-*.swo
-*~
-
-# Build artifacts
-nofx
-nofx_test
-*.exe
-*.dll
-*.so
-*.dylib
-
-# Test files
-*_test.go
-test_*
-
-# Documentation
-*.md
-!README.md
-docs/
-
-# Runtime data
-decision_logs/
+# 排除其他可能有问题的文件
 *.log
-
-# Config files (should be mounted)
-config.json
-
-# Web build artifacts (but include source for multi-stage build)
-web/node_modules/
-web/dist/
-
-# Temporary files
-tmp/
-temp/
 *.tmp
+*.temp
+.DS_Store
+Thumbs.db
+
+# 保留需要的目录结构但排除内容
+storage/
+!storage/

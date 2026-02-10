@@ -1,0 +1,96 @@
+# docker/backend/Dockerfile - Development with Hot Reload (简化版本)
+
+# ═══════════════════════════════════════════════════════════════
+# NOFX Backend Dockerfile (Go + TA-Lib) - Development Watch Version
+# Uses Air for hot reloading during development
+# 简化版本，避免网络问题
+# ═══════════════════════════════════════════════════════════════
+
+ARG GO_VERSION=1.21-alpine
+ARG ALPINE_VERSION=latest
+ARG TA_LIB_VERSION=0.4.0
+
+# ──────────────────────────────────────────────────────────────
+# TA-Lib Build Stage (shared across builds)
+# ──────────────────────────────────────────────────────────────
+FROM alpine:${ALPINE_VERSION} AS ta-lib-builder
+ARG TA_LIB_VERSION
+
+# 使用国内镜像源
+RUN sed -i 's/dl-cdn.alpinelinux.org/mirrors.aliyun.com/g' /etc/apk/repositories && \
+    apk update && apk add --no-cache \
+    curl tar make gcc g++ musl-dev autoconf automake
+
+# 直接使用GitHub原始链接下载TA-Lib
+RUN curl -L https://github.com/TA-Lib/ta-lib/releases/download/v${TA_LIB_VERSION}/ta-lib-${TA_LIB_VERSION}-src.tar.gz -o ta-lib-${TA_LIB_VERSION}-src.tar.gz && \
+    tar -xzf ta-lib-${TA_LIB_VERSION}-src.tar.gz && \
+    cd ta-lib && \
+    if [ "$(uname -m)" = "aarch64" ]; then \
+        CONFIG_GUESS=$(find /usr/share -name config.guess | head -1) && \
+        CONFIG_SUB=$(find /usr/share -name config.sub | head -1) && \
+        cp "$CONFIG_GUESS" config.guess && \
+        cp "$CONFIG_SUB" config.sub && \
+        chmod +x config.guess config.sub; \
+    fi && \
+    ./configure --prefix=/usr/local && \
+    make && make install && \
+    cd .. && rm -rf ta-lib ta-lib-${TA_LIB_VERSION}-src.tar.gz
+
+# ──────────────────────────────────────────────────────────────
+# Backend Build Stage (Go Application with Air)
+# ──────────────────────────────────────────────────────────────
+FROM golang:${GO_VERSION} AS backend-builder
+
+# 配置Go代理
+ENV GOPROXY=https://goproxy.cn,direct
+ENV GOSUMDB=sum.golang.google.cn
+
+# 使用国内镜像源
+RUN sed -i 's/dl-cdn.alpinelinux.org/mirrors.aliyun.com/g' /etc/apk/repositories && \
+    apk update && apk add --no-cache git make gcc g++ musl-dev curl
+
+# 安装Air for hot reloading
+RUN go install github.com/air-verse/air@latest
+
+COPY --from=ta-lib-builder /usr/local /usr/local
+
+WORKDIR /app
+
+# Copy go mod files first
+COPY go.mod go.sum ./
+RUN go mod download
+
+# Copy source code
+COPY . .
+
+# Create air configuration
+RUN echo '[build]' > .air.toml && \
+    echo '  bin = "./tmp/main"' >> .air.toml && \
+    echo '  cmd = "go build -o ./tmp/main main.go"' >> .air.toml && \
+    echo '  delay = 1000' >> .air.toml && \
+    echo '  exclude_dir = ["assets", "tmp", "vendor", "node_modules", "web", "trader"]' >> .air.toml && \
+    echo '  exclude_file = []' >> .air.toml && \
+    echo '  exclude_regex = ["_test.go"]' >> .air.toml && \
+    echo '  exclude_unchanged = false' >> .air.toml && \
+    echo '  follow_symlink = false' >> .air.toml && \
+    echo '  full_bin = ""' >> .air.toml && \
+    echo '  include_dir = []' >> .air.toml && \
+    echo '  include_ext = ["go", "tpl", "tmpl", "html", "env"]' >> .air.toml && \
+    echo '  kill_delay = "0s"' >> .air.toml && \
+    echo '  log = "build-errors.log"' >> .air.toml && \
+    echo '  send_interrupt = false' >> .air.toml && \
+    echo '  stop_on_error = false' >> .air.toml && \
+    echo '[color]' >> .air.toml && \
+    echo '  app = ""' >> .air.toml && \
+    echo '  build = "yellow"' >> .air.toml && \
+    echo '  main = "magenta"' >> .air.toml && \
+    echo '  runner = "green"' >> .air.toml && \
+    echo '  watcher = "cyan"' >> .air.toml && \
+    echo '[log]' >> .air.toml && \
+    echo '  time = false' >> .air.toml && \
+    echo '[misc]' >> .air.toml && \
+    echo '  clean_on_exit = false' >> .air.toml
+
+EXPOSE 8888
+
+CMD ["air", "-c", ".air.toml"]

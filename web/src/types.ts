@@ -218,6 +218,7 @@ export interface UpdateExchangeConfigRequest {
   exchanges: {
     [key: string]: {
       enabled: boolean
+      account_name: string  // User-defined account name
       api_key: string
       secret_key: string
       passphrase?: string

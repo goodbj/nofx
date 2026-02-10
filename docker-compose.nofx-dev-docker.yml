@@ -1,0 +1,94 @@
+version: '3.8'
+
+# NOFX 开发版显示分组服务配置 - Docker版本
+# 为 "nofx_dev" 标签分组设计的前后端服务
+# 严格避免使用 3000 和 8080 端口
+
+services:
+  # 后端服务 - 带浏览器显示功能和热更新
+  backend:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.backend.dev.display.resolved
+    container_name: nofx-dev-backend-display
+    ports:
+      - "8888:8888"
+    environment:
+      - CHROME_HEADLESS=false  # 启用浏览器显示（非无头模式）
+      - CHROME_BIN=/usr/bin/chromium-browser
+      - PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
+      - DISPLAY=:0
+    volumes:
+      # 源代码挂载实现热更新
+      - ./api:/app/api
+      - ./auth:/app/auth
+      - ./backtest:/app/backtest
+      - ./config:/app/config
+      - ./crypto:/app/crypto
+      - ./debate:/app/debate
+      - ./decision:/app/decision
+      - ./hook:/app/hook
+      - ./kernel:/app/kernel
+      - ./launcher:/app/launcher
+      - ./llm:/app/llm
+      - ./logger:/app/logger
+      - ./manager:/app/manager
+      - ./market:/app/market
+      - ./mcp:/app/mcp
+      - ./provider:/app/provider
+      - ./scripts:/app/scripts
+      - ./security:/app/security
+      - ./setup:/app/setup
+      - ./store:/app/store
+      - ./trader:/app/trader
+      - ./web:/app/web
+      - ./go.mod:/app/go.mod
+      - ./go.sum:/app/go.sum
+      - ./main.go:/app/main.go
+      # 数据持久化 - 使用数据卷而非直接挂载
+      - nofx-dev-storage:/app/storage  # Chrome用户数据和Cookie持久化
+      - ./data:/app/data        # 数据库文件
+      # X11显示支持
+      - type: bind
+        source: /tmp/.X11-unix
+        target: /tmp/.X11-unix
+        read_only: true
+    networks:
+      - nofx-dev-network
+    working_dir: /app
+    restart: unless-stopped
+
+  # 前端服务 - 带热更新功能
+  frontend:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.frontend.dev.watch
+    container_name: nofx-dev-frontend-display
+    ports:
+      - "3300:3300"  # 使用3300端口，避免3000
+    volumes:
+      - ./web:/app
+      - /app/node_modules
+    environment:
+      - NODE_ENV=development
+      - VITE_API_TARGET=http://backend:8888
+    networks:
+      - nofx-dev-network
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+# 网络配置
+networks:
+  nofx-dev-network:
+    driver: bridge
+    name: nofx-dev-network
+
+# 数据卷配置
+volumes:
+  nofx-dev-storage:
+    driver: local
+    name: nofx-dev-storage
+  database-data:
+    driver: local
+    name: nofx-dev-database

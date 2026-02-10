@@ -1,0 +1,35 @@
+# docker/backend/Dockerfile - Minimal Development Version (Debian Simple)
+
+# ═══════════════════════════════════════════════════════════════
+# NOFX Backend Dockerfile - Minimal Development Version
+# 简化版Debian镜像
+# ═══════════════════════════════════════════════════════════════
+
+ARG GO_VERSION=latest
+
+# ──────────────────────────────────────────────────────────────
+# Backend Build Stage (Go Application)
+# ──────────────────────────────────────────────────────────────
+FROM golang:${GO_VERSION} AS backend-builder
+
+# 配置Go代理
+ENV GOPROXY=https://goproxy.cn,direct
+ENV GOSUMDB=sum.golang.google.cn
+
+# 安装必要的软件包
+RUN apt-get update && apt-get install -y git build-essential curl && \
+    rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Copy go mod files first
+COPY go.mod go.sum ./
+RUN go mod download
+
+# Copy source code
+COPY . .
+
+EXPOSE 8888
+
+# 直接运行Go应用
+CMD ["go", "run", "main.go"]

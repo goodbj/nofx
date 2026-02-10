@@ -36,6 +36,7 @@
 - **AI Competition Mode**: Multiple AI traders compete in real-time, track performance side by side
 - **Web-Based Config**: No JSON editing - configure everything through the web interface
 - **Real-Time Dashboard**: Live positions, P/L tracking, AI decision logs with Chain of Thought
+- **Transparent Proxy**: Built-in proxy service to bypass regional exchange restrictions
 
 ### Core Team
 
@@ -143,6 +144,51 @@ curl -fsSL https://raw.githubusercontent.com/NoFxAiOS/nofx/main/install.sh | bas
 That's it! Open **http://127.0.0.1:3300** in your browser.
 
 > **Note**: For development environments with port conflicts, you can alternatively use ports 3300/8888 by modifying the environment variables in your local setup.
+
+### Development Environment Quick Start
+
+#### 标准开发版 (无头模式)
+```bash
+# Windows
+start_nofx_dev_docker.bat
+
+# 访问地址
+# 前端: http://localhost:3300
+# 后端: http://localhost:8888
+```
+
+#### 显示分组服务 (带浏览器显示)
+```bash
+# Windows - 快速启动
+quick_start_display.bat
+
+# 或使用完整启动脚本
+start_nofx_dev_display.bat
+
+# 或使用手动启动脚本（推荐，解决端口映射问题）
+start_nofx_dev_display_manual.bat
+
+# 访问地址
+# 前端: http://localhost:3300
+# 后端: http://localhost:8888
+# 浏览器将在容器中显示
+```
+
+#### 透明代理服务
+```bash
+# 启动代理服务
+deploy_proxy_service.bat
+
+# 访问地址
+# 代理: http://localhost:8081
+# 健康检查: http://localhost:8081/health
+```
+
+#### 完整系统部署
+```bash
+# 交互式部署选择
+full_deploy.bat
+```
 
 ### One-Click Cloud Deploy (Railway)
 
@@ -450,6 +496,12 @@ sudo apt-get install libta-lib0-dev
 - Ensure backend is running on http://localhost:8080 (default) or http://localhost:8888 (if using custom ports)
 - Check if port is occupied
 - For development with port conflicts, you can configure custom ports (e.g., 3300 frontend, 8888 backend)
+
+### Exchange access blocked/403 errors
+- Some regions have restrictions accessing exchanges like Binance
+- Use the built-in transparent proxy in the `nofx-docker-proxy` directory
+- Run `deploy_proxy_service.bat` to start the proxy service
+- Configure your exchange API to route through the proxy using the X-Custom-API-URL header
 
 ---
 
