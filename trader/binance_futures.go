@@ -1978,7 +1978,7 @@ func (ct *CustomTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 	// 如果我们正在使用代理，将真实的目标端点添加到请求头中
 	// 这样代理就知道应该将请求转发到哪里
 	if ct.TargetEndpoint != "" {
-		req.Header.Set("X-Custom-API-URL", ct.TargetEndpoint)
+		req.Header.Set("X-Target-URL", ct.TargetEndpoint)
 	}
 	return ct.Transport.RoundTrip(req)
 }

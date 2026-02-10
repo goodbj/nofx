@@ -546,6 +546,7 @@ type UpdateModelConfigRequest struct {
 type UpdateExchangeConfigRequest struct {
 	Exchanges map[string]struct {
 		Enabled                 bool   `json:"enabled"`
+		AccountName             string `json:"account_name"` // User-defined account name
 		APIKey                  string `json:"api_key"`
 		SecretKey               string `json:"secret_key"`
 		Passphrase              string `json:"passphrase"` // OKX specific
@@ -2295,7 +2296,7 @@ func (s *Server) handleUpdateExchangeConfigs(c *gin.Context) {
 
 	// Update each exchange's configuration
 	for exchangeID, exchangeData := range req.Exchanges {
-		err := s.store.Exchange().Update(userID, exchangeID, exchangeData.Enabled, exchangeData.APIKey, exchangeData.SecretKey, exchangeData.Passphrase, exchangeData.Testnet, exchangeData.CustomAPIURL, exchangeData.HyperliquidWalletAddr, exchangeData.AsterUser, exchangeData.AsterSigner, exchangeData.AsterPrivateKey, exchangeData.LighterWalletAddr, exchangeData.LighterPrivateKey, exchangeData.LighterAPIKeyPrivateKey, exchangeData.LighterAPIKeyIndex)
+		err := s.store.Exchange().Update(userID, exchangeID, exchangeData.AccountName, exchangeData.Enabled, exchangeData.APIKey, exchangeData.SecretKey, exchangeData.Passphrase, exchangeData.Testnet, exchangeData.CustomAPIURL, exchangeData.HyperliquidWalletAddr, exchangeData.AsterUser, exchangeData.AsterSigner, exchangeData.AsterPrivateKey, exchangeData.LighterWalletAddr, exchangeData.LighterPrivateKey, exchangeData.LighterAPIKeyPrivateKey, exchangeData.LighterAPIKeyIndex)
 		if err != nil {
 			SafeInternalError(c, fmt.Sprintf("Update exchange %s", exchangeID), err)
 			return
@@ -4557,21 +4558,29 @@ func (s *Server) handleOpenGuardianBrowser(c *gin.Context) {
 // createBinanceTraderWithProxy 创建带代理支持的币安交易者实例
 func createBinanceTraderWithProxy(userID string, exchangeCfg *store.Exchange) trader.Trader {
 	// 确定真实的交易所API URL（用于代理转发）
+	// 根据新规则：完全忽略Testnet开关，只看CustomAPIURL
+	// 但本地代理地址仍需特殊处理，因为它们通常不应该作为最终目标
 	realExchangeEndpoint := ""
-	if exchangeCfg.CustomAPIURL != "" && !strings.Contains(exchangeCfg.CustomAPIURL, "://localhost:") && !strings.Contains(exchangeCfg.CustomAPIURL, "://127.0.0.1:") {
-		// 如果CustomAPIURL不包含本地地址，则使用它作为真实的交易所URL
-		realExchangeEndpoint = exchangeCfg.CustomAPIURL
-	} else if exchangeCfg.Testnet {
-		realExchangeEndpoint = "https://testnet.binancefuture.com"
+	if exchangeCfg.CustomAPIURL != "" && strings.TrimSpace(exchangeCfg.CustomAPIURL) != "" {
+		// 检查是否为本地代理地址
+		isLocalhost := strings.Contains(exchangeCfg.CustomAPIURL, "://localhost:") ||
+			strings.Contains(exchangeCfg.CustomAPIURL, "://127.0.0.1:")
+
+		if isLocalhost {
+			// 如果是本地代理地址，使用默认主网API
+			// 这是因为本地代理通常是中间节点，不是最终目标
+			realExchangeEndpoint = "https://fapi.binance.com" // 默认主网API URL
+		} else {
+			// 如果是有效的非本地地址，则直接使用它
+			realExchangeEndpoint = exchangeCfg.CustomAPIURL
+		}
 	} else {
+		// 如果CustomAPIURL为空，则使用交易所默认API地址
 		realExchangeEndpoint = "https://fapi.binance.com" // 默认主网API URL
 	}
 
 	// 调试日志：记录确定的交易所端点
 	logger.Debugf("🔍 [createBinanceTraderWithProxy] UserID: %s, ExchangeType: %s, Original CustomAPIURL: '%s', Determined realExchangeEndpoint: '%s', Testnet: %t", userID, exchangeCfg.ExchangeType, exchangeCfg.CustomAPIURL, realExchangeEndpoint, exchangeCfg.Testnet)
-
-	// 使用代理包装器根据全局设置决定是否通过代理访问
-	originalTrader := trader.NewFuturesTrader(string(exchangeCfg.APIKey), string(exchangeCfg.SecretKey), userID, realExchangeEndpoint)
 
 	// 检查全局代理开关
 	useProxyGlobal := os.Getenv("USE_BINANCE_PROXY") == "true"
@@ -4586,10 +4595,16 @@ func createBinanceTraderWithProxy(userID string, exchangeCfg *store.Exchange) tr
 			}
 			proxyURL = "http://localhost:" + proxyPort // 默认代理URL
 		}
-		logger.Debugf("🔗 [createBinanceTraderWithProxy] Using proxy mode: proxyURL='%s', realExchangeEndpoint='%s'", proxyURL, realExchangeEndpoint)
+
+		// 在代理模式下，创建一个连接到代理服务的交易者实例
+		// 代理服务将使用X-Target-URL头部中的真实端点信息转发请求
+		logger.Debugf("🔗 [createBinanceTraderWithProxy] Using proxy mode: connecting to proxyURL='%s', realExchangeEndpoint='%s'", proxyURL, realExchangeEndpoint)
+		originalTrader := trader.NewFuturesTraderViaProxy(string(exchangeCfg.APIKey), string(exchangeCfg.SecretKey), userID, proxyURL, realExchangeEndpoint)
 		return trader.NewProxyTraderWrapperWithAuth(originalTrader, "proxy", proxyURL, string(exchangeCfg.APIKey), string(exchangeCfg.SecretKey), realExchangeEndpoint)
 	} else {
-		logger.Debugf("🔗 [createBinanceTraderWithProxy] Using native mode: realExchangeEndpoint='%s'", realExchangeEndpoint)
+		// 在非代理模式下，直接连接到真实交易所
+		logger.Debugf("🔗 [createBinanceTraderWithProxy] Using native mode: connecting directly to realExchangeEndpoint='%s'", realExchangeEndpoint)
+		originalTrader := trader.NewFuturesTrader(string(exchangeCfg.APIKey), string(exchangeCfg.SecretKey), userID, realExchangeEndpoint)
 		return trader.NewProxyTraderWrapperWithAuth(originalTrader, "native", "", string(exchangeCfg.APIKey), string(exchangeCfg.SecretKey), realExchangeEndpoint)
 	}
 }

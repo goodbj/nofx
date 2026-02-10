@@ -22,7 +22,7 @@ type ProxyTraderWrapper struct {
 // NewProxyTraderWrapper 创建代理交易者包装器
 func NewProxyTraderWrapper(originalTrader Trader, dataAccessMethod string, proxyURL string) *ProxyTraderWrapper {
 	if proxyURL == "" {
-		proxyURL = "http://localhost:8082" // 默认代理URL
+		proxyURL = "http://localhost:8081" // 默认代理URL
 	}
 
 	logger.Infof("🔄 Creating ProxyTraderWrapper with method: %s, proxy: %s", dataAccessMethod, proxyURL)
@@ -37,7 +37,7 @@ func NewProxyTraderWrapper(originalTrader Trader, dataAccessMethod string, proxy
 // NewProxyTraderWrapperWithAuth 创建带认证信息的代理交易者包装器
 func NewProxyTraderWrapperWithAuth(originalTrader Trader, dataAccessMethod string, proxyURL, apiKey, secretKey, customAPIURL string) *ProxyTraderWrapper {
 	if proxyURL == "" {
-		proxyURL = "http://localhost:8082" // 默认代理URL
+		proxyURL = "http://localhost:8081" // 默认代理URL
 	}
 
 	logger.Infof("🔄 Creating ProxyTraderWrapper with method: %s, proxy: %s", dataAccessMethod, proxyURL)
@@ -65,9 +65,9 @@ func (p *ProxyTraderWrapper) shouldUseProxy() bool {
 func (p *ProxyTraderWrapper) GetBalance() (map[string]interface{}, error) {
 	if p.shouldUseProxy() {
 		logger.Infof("🏦 [%s] Using proxy for balance query", p.dataAccessMethod)
-		// 在代理模式下，创建一个新的FuturesTrader实例，连接到代理服务，同时告知真正的目标端点
-		proxyTrader := NewFuturesTraderViaProxy(p.apiKey, p.secretKey, p.userId, p.proxyURL, p.customEndpoint)
-		return proxyTrader.GetBalance()
+		// 在代理模式下，直接调用原始交易者的GetBalance方法
+		// 由原始交易者内部处理代理逻辑，避免创建新实例导致循环
+		return p.trader.GetBalance()
 	}
 
 	logger.Infof("🏦 [%s] Using direct connection for balance query", p.dataAccessMethod)
@@ -78,9 +78,8 @@ func (p *ProxyTraderWrapper) GetBalance() (map[string]interface{}, error) {
 func (p *ProxyTraderWrapper) GetPositions() ([]map[string]interface{}, error) {
 	if p.shouldUseProxy() {
 		logger.Infof("📈 [%s] Using proxy for positions query", p.dataAccessMethod)
-		// 在代理模式下，创建一个新的FuturesTrader实例，连接到代理服务，同时告知真正的目标端点
-		proxyTrader := NewFuturesTraderViaProxy(p.apiKey, p.secretKey, p.userId, p.proxyURL, p.customEndpoint)
-		return proxyTrader.GetPositions()
+		// 直接调用原始交易者的GetPositions方法，避免循环创建新实例
+		return p.trader.GetPositions()
 	}
 
 	logger.Infof("📈 [%s] Using direct connection for positions query", p.dataAccessMethod)
@@ -95,9 +94,8 @@ func (p *ProxyTraderWrapper) GetPositions() ([]map[string]interface{}, error) {
 func (p *ProxyTraderWrapper) OpenLong(symbol string, quantity float64, leverage int) (map[string]interface{}, error) {
 	if p.shouldUseProxy() {
 		logger.Infof("📈 [%s] Using proxy for opening long position", p.dataAccessMethod)
-		// 在代理模式下，创建一个新的FuturesTrader实例，连接到代理服务，同时告知真正的目标端点
-		proxyTrader := NewFuturesTraderViaProxy(p.apiKey, p.secretKey, p.userId, p.proxyURL, p.customEndpoint)
-		return proxyTrader.OpenLong(symbol, quantity, leverage)
+		// 直接调用原始交易者的方法，避免循环创建新实例
+		return p.trader.OpenLong(symbol, quantity, leverage)
 	}
 
 	logger.Infof("📈 [%s] Using direct connection for opening long position", p.dataAccessMethod)
@@ -108,9 +106,8 @@ func (p *ProxyTraderWrapper) OpenLong(symbol string, quantity float64, leverage 
 func (p *ProxyTraderWrapper) OpenShort(symbol string, quantity float64, leverage int) (map[string]interface{}, error) {
 	if p.shouldUseProxy() {
 		logger.Infof("📉 [%s] Using proxy for opening short position", p.dataAccessMethod)
-		// 在代理模式下，创建一个新的FuturesTrader实例，连接到代理服务，同时告知真正的目标端点
-		proxyTrader := NewFuturesTraderViaProxy(p.apiKey, p.secretKey, p.userId, p.proxyURL, p.customEndpoint)
-		return proxyTrader.OpenShort(symbol, quantity, leverage)
+		// 直接调用原始交易者的方法，避免循环创建新实例
+		return p.trader.OpenShort(symbol, quantity, leverage)
 	}
 
 	logger.Infof("📉 [%s] Using direct connection for opening short position", p.dataAccessMethod)
@@ -121,9 +118,8 @@ func (p *ProxyTraderWrapper) OpenShort(symbol string, quantity float64, leverage
 func (p *ProxyTraderWrapper) CloseLong(symbol string, quantity float64) (map[string]interface{}, error) {
 	if p.shouldUseProxy() {
 		logger.Infof("📈 [%s] Using proxy for closing long position", p.dataAccessMethod)
-		// 在代理模式下，创建一个新的FuturesTrader实例，连接到代理服务，同时告知真正的目标端点
-		proxyTrader := NewFuturesTraderViaProxy(p.apiKey, p.secretKey, p.userId, p.proxyURL, p.customEndpoint)
-		return proxyTrader.CloseLong(symbol, quantity)
+		// 直接调用原始交易者的方法，避免循环创建新实例
+		return p.trader.CloseLong(symbol, quantity)
 	}
 
 	logger.Infof("📈 [%s] Using direct connection for closing long position", p.dataAccessMethod)
@@ -134,9 +130,8 @@ func (p *ProxyTraderWrapper) CloseLong(symbol string, quantity float64) (map[str
 func (p *ProxyTraderWrapper) CloseShort(symbol string, quantity float64) (map[string]interface{}, error) {
 	if p.shouldUseProxy() {
 		logger.Infof("📉 [%s] Using proxy for closing short position", p.dataAccessMethod)
-		// 在代理模式下，创建一个新的FuturesTrader实例，连接到代理服务，同时告知真正的目标端点
-		proxyTrader := NewFuturesTraderViaProxy(p.apiKey, p.secretKey, p.userId, p.proxyURL, p.customEndpoint)
-		return proxyTrader.CloseShort(symbol, quantity)
+		// 直接调用原始交易者的方法，避免循环创建新实例
+		return p.trader.CloseShort(symbol, quantity)
 	}
 
 	logger.Infof("📉 [%s] Using direct connection for closing short position", p.dataAccessMethod)
@@ -147,9 +142,8 @@ func (p *ProxyTraderWrapper) CloseShort(symbol string, quantity float64) (map[st
 func (p *ProxyTraderWrapper) PartialClose(symbol string, side string, percentage float64) (map[string]interface{}, error) {
 	if p.shouldUseProxy() {
 		logger.Infof("🔄 [%s] Using proxy for partial close", p.dataAccessMethod)
-		// 在代理模式下，创建一个新的FuturesTrader实例，连接到代理服务，同时告知真正的目标端点
-		proxyTrader := NewFuturesTraderViaProxy(p.apiKey, p.secretKey, p.userId, p.proxyURL, p.customEndpoint)
-		return proxyTrader.PartialClose(symbol, side, percentage)
+		// 直接调用原始交易者的方法，避免循环创建新实例
+		return p.trader.PartialClose(symbol, side, percentage)
 	}
 
 	logger.Infof("🔄 [%s] Using direct connection for partial close", p.dataAccessMethod)
@@ -160,9 +154,8 @@ func (p *ProxyTraderWrapper) PartialClose(symbol string, side string, percentage
 func (p *ProxyTraderWrapper) UpdateStopLoss(symbol string, positionSide string, newStopPrice float64) error {
 	if p.shouldUseProxy() {
 		logger.Infof("🛑 [%s] Using proxy for updating stop loss", p.dataAccessMethod)
-		// 在代理模式下，创建一个新的FuturesTrader实例，连接到代理服务，同时告知真正的目标端点
-		proxyTrader := NewFuturesTraderViaProxy(p.apiKey, p.secretKey, p.userId, p.proxyURL, p.customEndpoint)
-		return proxyTrader.UpdateStopLoss(symbol, positionSide, newStopPrice)
+		// 直接调用原始交易者的方法，避免循环创建新实例
+		return p.trader.UpdateStopLoss(symbol, positionSide, newStopPrice)
 	}
 
 	logger.Infof("🛑 [%s] Using direct connection for updating stop loss", p.dataAccessMethod)
@@ -173,9 +166,8 @@ func (p *ProxyTraderWrapper) UpdateStopLoss(symbol string, positionSide string, 
 func (p *ProxyTraderWrapper) UpdateTakeProfit(symbol string, positionSide string, newTakeProfitPrice float64) error {
 	if p.shouldUseProxy() {
 		logger.Infof("🎯 [%s] Using proxy for updating take profit", p.dataAccessMethod)
-		// 在代理模式下，创建一个新的FuturesTrader实例，连接到代理服务，同时告知真正的目标端点
-		proxyTrader := NewFuturesTraderViaProxy(p.apiKey, p.secretKey, p.userId, p.proxyURL, p.customEndpoint)
-		return proxyTrader.UpdateTakeProfit(symbol, positionSide, newTakeProfitPrice)
+		// 直接调用原始交易者的方法，避免循环创建新实例
+		return p.trader.UpdateTakeProfit(symbol, positionSide, newTakeProfitPrice)
 	}
 
 	logger.Infof("🎯 [%s] Using direct connection for updating take profit", p.dataAccessMethod)
@@ -186,9 +178,8 @@ func (p *ProxyTraderWrapper) UpdateTakeProfit(symbol string, positionSide string
 func (p *ProxyTraderWrapper) SetLeverage(symbol string, leverage int) error {
 	if p.shouldUseProxy() {
 		logger.Infof("⚙️ [%s] Using proxy for setting leverage", p.dataAccessMethod)
-		// 在代理模式下，创建一个新的FuturesTrader实例，连接到代理服务，同时告知真正的目标端点
-		proxyTrader := NewFuturesTraderViaProxy(p.apiKey, p.secretKey, p.userId, p.proxyURL, p.customEndpoint)
-		return proxyTrader.SetLeverage(symbol, leverage)
+		// 直接调用原始交易者的方法，避免循环创建新实例
+		return p.trader.SetLeverage(symbol, leverage)
 	}
 
 	logger.Infof("⚙️ [%s] Using direct connection for setting leverage", p.dataAccessMethod)
@@ -199,9 +190,8 @@ func (p *ProxyTraderWrapper) SetLeverage(symbol string, leverage int) error {
 func (p *ProxyTraderWrapper) SetMarginMode(symbol string, isCrossMargin bool) error {
 	if p.shouldUseProxy() {
 		logger.Infof("⚖️ [%s] Using proxy for setting margin mode", p.dataAccessMethod)
-		// 在代理模式下，创建一个新的FuturesTrader实例，连接到代理服务，同时告知真正的目标端点
-		proxyTrader := NewFuturesTraderViaProxy(p.apiKey, p.secretKey, p.userId, p.proxyURL, p.customEndpoint)
-		return proxyTrader.SetMarginMode(symbol, isCrossMargin)
+		// 直接调用原始交易者的方法，避免循环创建新实例
+		return p.trader.SetMarginMode(symbol, isCrossMargin)
 	}
 
 	logger.Infof("⚖️ [%s] Using direct connection for setting margin mode", p.dataAccessMethod)
@@ -212,9 +202,8 @@ func (p *ProxyTraderWrapper) SetMarginMode(symbol string, isCrossMargin bool) er
 func (p *ProxyTraderWrapper) GetMarketPrice(symbol string) (float64, error) {
 	if p.shouldUseProxy() {
 		logger.Infof("💰 [%s] Using proxy for getting market price", p.dataAccessMethod)
-		// 在代理模式下，创建一个新的FuturesTrader实例，连接到代理服务，同时告知真正的目标端点
-		proxyTrader := NewFuturesTraderViaProxy(p.apiKey, p.secretKey, p.userId, p.proxyURL, p.customEndpoint)
-		return proxyTrader.GetMarketPrice(symbol)
+		// 直接调用原始交易者的方法，避免循环创建新实例
+		return p.trader.GetMarketPrice(symbol)
 	}
 
 	logger.Infof("💰 [%s] Using direct connection for getting market price", p.dataAccessMethod)
@@ -225,9 +214,8 @@ func (p *ProxyTraderWrapper) GetMarketPrice(symbol string) (float64, error) {
 func (p *ProxyTraderWrapper) SetStopLoss(symbol string, positionSide string, quantity, stopPrice float64) error {
 	if p.shouldUseProxy() {
 		logger.Infof("🛑 [%s] Using proxy for setting stop loss", p.dataAccessMethod)
-		// 在代理模式下，创建一个新的FuturesTrader实例，连接到代理服务，同时告知真正的目标端点
-		proxyTrader := NewFuturesTraderViaProxy(p.apiKey, p.secretKey, p.userId, p.proxyURL, p.customEndpoint)
-		return proxyTrader.SetStopLoss(symbol, positionSide, quantity, stopPrice)
+		// 直接调用原始交易者的方法，避免循环创建新实例
+		return p.trader.SetStopLoss(symbol, positionSide, quantity, stopPrice)
 	}
 
 	logger.Infof("🛑 [%s] Using direct connection for setting stop loss", p.dataAccessMethod)
@@ -238,9 +226,8 @@ func (p *ProxyTraderWrapper) SetStopLoss(symbol string, positionSide string, qua
 func (p *ProxyTraderWrapper) SetTakeProfit(symbol string, positionSide string, quantity, takeProfitPrice float64) error {
 	if p.shouldUseProxy() {
 		logger.Infof("🎯 [%s] Using proxy for setting take profit", p.dataAccessMethod)
-		// 在代理模式下，创建一个新的FuturesTrader实例，连接到代理服务，同时告知真正的目标端点
-		proxyTrader := NewFuturesTraderViaProxy(p.apiKey, p.secretKey, p.userId, p.proxyURL, p.customEndpoint)
-		return proxyTrader.SetTakeProfit(symbol, positionSide, quantity, takeProfitPrice)
+		// 直接调用原始交易者的方法，避免循环创建新实例
+		return p.trader.SetTakeProfit(symbol, positionSide, quantity, takeProfitPrice)
 	}
 
 	logger.Infof("🎯 [%s] Using direct connection for setting take profit", p.dataAccessMethod)
@@ -251,9 +238,8 @@ func (p *ProxyTraderWrapper) SetTakeProfit(symbol string, positionSide string, q
 func (p *ProxyTraderWrapper) SetTrailingStop(symbol string, positionSide string, quantity, callbackRate, activationPrice float64) error {
 	if p.shouldUseProxy() {
 		logger.Infof("➰ [%s] Using proxy for setting trailing stop", p.dataAccessMethod)
-		// 在代理模式下，创建一个新的FuturesTrader实例，连接到代理服务，同时告知真正的目标端点
-		proxyTrader := NewFuturesTraderViaProxy(p.apiKey, p.secretKey, p.userId, p.proxyURL, p.customEndpoint)
-		return proxyTrader.SetTrailingStop(symbol, positionSide, quantity, callbackRate, activationPrice)
+		// 直接调用原始交易者的方法，避免循环创建新实例
+		return p.trader.SetTrailingStop(symbol, positionSide, quantity, callbackRate, activationPrice)
 	}
 
 	logger.Infof("➰ [%s] Using direct connection for setting trailing stop", p.dataAccessMethod)
@@ -264,9 +250,8 @@ func (p *ProxyTraderWrapper) SetTrailingStop(symbol string, positionSide string,
 func (p *ProxyTraderWrapper) CancelStopLossOrders(symbol string) error {
 	if p.shouldUseProxy() {
 		logger.Infof("🚫 [%s] Using proxy for cancelling stop loss orders", p.dataAccessMethod)
-		// 在代理模式下，创建一个新的FuturesTrader实例，连接到代理服务，同时告知真正的目标端点
-		proxyTrader := NewFuturesTraderViaProxy(p.apiKey, p.secretKey, p.userId, p.proxyURL, p.customEndpoint)
-		return proxyTrader.CancelStopLossOrders(symbol)
+		// 直接调用原始交易者的方法，避免循环创建新实例
+		return p.trader.CancelStopLossOrders(symbol)
 	}
 
 	logger.Infof("🚫 [%s] Using direct connection for cancelling stop loss orders", p.dataAccessMethod)
@@ -277,9 +262,8 @@ func (p *ProxyTraderWrapper) CancelStopLossOrders(symbol string) error {
 func (p *ProxyTraderWrapper) CancelTakeProfitOrders(symbol string) error {
 	if p.shouldUseProxy() {
 		logger.Infof("🚫 [%s] Using proxy for cancelling take profit orders", p.dataAccessMethod)
-		// 在代理模式下，创建一个新的FuturesTrader实例，连接到代理服务，同时告知真正的目标端点
-		proxyTrader := NewFuturesTraderViaProxy(p.apiKey, p.secretKey, p.userId, p.proxyURL, p.customEndpoint)
-		return proxyTrader.CancelTakeProfitOrders(symbol)
+		// 直接调用原始交易者的方法，避免循环创建新实例
+		return p.trader.CancelTakeProfitOrders(symbol)
 	}
 
 	logger.Infof("🚫 [%s] Using direct connection for cancelling take profit orders", p.dataAccessMethod)
@@ -290,9 +274,8 @@ func (p *ProxyTraderWrapper) CancelTakeProfitOrders(symbol string) error {
 func (p *ProxyTraderWrapper) CancelAllOrders(symbol string) error {
 	if p.shouldUseProxy() {
 		logger.Infof("🚫 [%s] Using proxy for cancelling all orders", p.dataAccessMethod)
-		// 在代理模式下，创建一个新的FuturesTrader实例，连接到代理服务，同时告知真正的目标端点
-		proxyTrader := NewFuturesTraderViaProxy(p.apiKey, p.secretKey, p.userId, p.proxyURL, p.customEndpoint)
-		return proxyTrader.CancelAllOrders(symbol)
+		// 直接调用原始交易者的方法，避免循环创建新实例
+		return p.trader.CancelAllOrders(symbol)
 	}
 
 	logger.Infof("🚫 [%s] Using direct connection for cancelling all orders", p.dataAccessMethod)
@@ -303,9 +286,8 @@ func (p *ProxyTraderWrapper) CancelAllOrders(symbol string) error {
 func (p *ProxyTraderWrapper) CancelStopOrders(symbol string) error {
 	if p.shouldUseProxy() {
 		logger.Infof("🚫 [%s] Using proxy for cancelling stop orders", p.dataAccessMethod)
-		// 在代理模式下，创建一个新的FuturesTrader实例，连接到代理服务，同时告知真正的目标端点
-		proxyTrader := NewFuturesTraderViaProxy(p.apiKey, p.secretKey, p.userId, p.proxyURL, p.customEndpoint)
-		return proxyTrader.CancelStopOrders(symbol)
+		// 直接调用原始交易者的方法，避免循环创建新实例
+		return p.trader.CancelStopOrders(symbol)
 	}
 
 	logger.Infof("🚫 [%s] Using direct connection for cancelling stop orders", p.dataAccessMethod)
@@ -323,9 +305,8 @@ func (p *ProxyTraderWrapper) FormatQuantity(symbol string, quantity float64) (st
 func (p *ProxyTraderWrapper) GetOrderStatus(symbol string, orderID string) (map[string]interface{}, error) {
 	if p.shouldUseProxy() {
 		logger.Infof("📋 [%s] Using proxy for getting order status", p.dataAccessMethod)
-		// 在代理模式下，创建一个新的FuturesTrader实例，连接到代理服务，同时告知真正的目标端点
-		proxyTrader := NewFuturesTraderViaProxy(p.apiKey, p.secretKey, p.userId, p.proxyURL, p.customEndpoint)
-		return proxyTrader.GetOrderStatus(symbol, orderID)
+		// 直接调用原始交易者的方法，避免循环创建新实例
+		return p.trader.GetOrderStatus(symbol, orderID)
 	}
 
 	logger.Infof("📋 [%s] Using direct connection for getting order status", p.dataAccessMethod)
@@ -336,9 +317,8 @@ func (p *ProxyTraderWrapper) GetOrderStatus(symbol string, orderID string) (map[
 func (p *ProxyTraderWrapper) GetClosedPnL(startTime time.Time, limit int) ([]ClosedPnLRecord, error) {
 	if p.shouldUseProxy() {
 		logger.Infof("📊 [%s] Using proxy for getting closed PnL", p.dataAccessMethod)
-		// 在代理模式下，创建一个新的FuturesTrader实例，连接到代理服务，同时告知真正的目标端点
-		proxyTrader := NewFuturesTraderViaProxy(p.apiKey, p.secretKey, p.userId, p.proxyURL, p.customEndpoint)
-		return proxyTrader.GetClosedPnL(startTime, limit)
+		// 直接调用原始交易者的方法，避免循环创建新实例
+		return p.trader.GetClosedPnL(startTime, limit)
 	}
 
 	logger.Infof("📊 [%s] Using direct connection for getting closed PnL", p.dataAccessMethod)
@@ -349,9 +329,8 @@ func (p *ProxyTraderWrapper) GetClosedPnL(startTime time.Time, limit int) ([]Clo
 func (p *ProxyTraderWrapper) GetOpenOrders(symbol string) ([]OpenOrder, error) {
 	if p.shouldUseProxy() {
 		logger.Infof("🛒 [%s] Using proxy for getting open orders", p.dataAccessMethod)
-		// 在代理模式下，创建一个新的FuturesTrader实例，连接到代理服务，同时告知真正的目标端点
-		proxyTrader := NewFuturesTraderViaProxy(p.apiKey, p.secretKey, p.userId, p.proxyURL, p.customEndpoint)
-		return proxyTrader.GetOpenOrders(symbol)
+		// 直接调用原始交易者的方法，避免循环创建新实例
+		return p.trader.GetOpenOrders(symbol)
 	}
 
 	logger.Infof("🛒 [%s] Using direct connection for getting open orders", p.dataAccessMethod)
