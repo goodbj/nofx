@@ -414,7 +414,6 @@ export const translations = {
     configureExchanges: 'Configure Exchanges',
     aiScanInterval: 'AI Scan Decision Interval (minutes)',
     scanIntervalRecommend: 'Recommended: 3-10 minutes',
-    useTestnet: 'Use Testnet',
     enabled: 'Enabled',
     save: 'Save',
 

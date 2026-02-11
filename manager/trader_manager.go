@@ -693,7 +693,7 @@ func (tm *TraderManager) addTraderFromStore(traderCfg *store.Trader, aiModelCfg 
 		BinanceAPIKey:         "",
 		BinanceSecretKey:      "",
 		HyperliquidPrivateKey: "",
-		HyperliquidTestnet:    exchangeCfg.Testnet,
+		HyperliquidTestnet:    false, // Testnet field removed
 		UseQwen:               aiModelCfg.Provider == "qwen",
 		DeepSeekKey:           "",
 		QwenKey:               "",
@@ -701,7 +701,7 @@ func (tm *TraderManager) addTraderFromStore(traderCfg *store.Trader, aiModelCfg 
 		CustomModelName:       aiModelCfg.CustomModelName,
 		// Trader does not need to know AI model implementation details
 		// AI model handles browser automation internally
-		ExchangeTestnet:   exchangeCfg.Testnet,
+		ExchangeTestnet:   false, // Testnet field removed
 		ScanInterval:      time.Duration(traderCfg.ScanIntervalMinutes) * time.Minute,
 		InitialBalance:    traderCfg.InitialBalance,
 		IsCrossMargin:     traderCfg.IsCrossMargin,
@@ -718,9 +718,8 @@ func (tm *TraderManager) addTraderFromStore(traderCfg *store.Trader, aiModelCfg 
 		traderConfig.BinanceAPIKey = string(exchangeCfg.APIKey)
 		traderConfig.BinanceSecretKey = string(exchangeCfg.SecretKey)
 		traderConfig.BinanceCustomAPIURL = exchangeCfg.CustomAPIURL
-		traderConfig.ExchangeTestnet = exchangeCfg.Testnet
-		logger.Infof("🔧 [TRADER MANAGER DEBUG] Setting BinanceCustomAPIURL to: '%s' (from exchangeCfg.CustomAPIURL: '%s'), ExchangeTestnet: %t",
-			traderConfig.BinanceCustomAPIURL, exchangeCfg.CustomAPIURL, traderConfig.ExchangeTestnet)
+		logger.Infof("🔧 [TRADER MANAGER DEBUG] Setting BinanceCustomAPIURL to: '%s' (from exchangeCfg.CustomAPIURL: '%s')",
+			traderConfig.BinanceCustomAPIURL, exchangeCfg.CustomAPIURL)
 	case "bybit":
 		traderConfig.BybitAPIKey = string(exchangeCfg.APIKey)
 		traderConfig.BybitSecretKey = string(exchangeCfg.SecretKey)
@@ -744,7 +743,7 @@ func (tm *TraderManager) addTraderFromStore(traderCfg *store.Trader, aiModelCfg 
 		traderConfig.LighterWalletAddr = exchangeCfg.LighterWalletAddr
 		traderConfig.LighterAPIKeyPrivateKey = string(exchangeCfg.LighterAPIKeyPrivateKey)
 		traderConfig.LighterAPIKeyIndex = exchangeCfg.LighterAPIKeyIndex
-		traderConfig.LighterTestnet = exchangeCfg.Testnet
+		traderConfig.LighterTestnet = false // Testnet field removed
 	}
 
 	// Set API keys based on AI model (convert EncryptedString to string)

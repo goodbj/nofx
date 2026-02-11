@@ -13,7 +13,6 @@ type Config struct {
 	SecretKey      string        `json:"secret_key"`
 	BaseURL        string        `json:"base_url"`
 	ProxyURL       string        `json:"proxy_url,omitempty"`
-	Testnet        bool          `json:"testnet"`
 	Timeout        time.Duration `json:"timeout"`
 	MaxRetries     int           `json:"max_retries"`
 	RetryDelay     time.Duration `json:"retry_delay"`
@@ -42,13 +41,11 @@ func NewConfig(apiKey, secretKey string, opts ...ConfigOption) *Config {
 		opt(config)
 	}
 
-	// Auto-detect testnet based on URL if not explicitly set
-	if !config.Testnet {
-		config.Testnet = strings.Contains(config.BaseURL, "testnet")
-	}
+	// Auto-detect testnet based on URL
+	isTestnet := strings.Contains(config.BaseURL, "testnet")
 
 	// Set testnet URL if needed
-	if config.Testnet && !strings.Contains(config.BaseURL, "testnet") {
+	if isTestnet && !strings.Contains(config.BaseURL, "testnet") {
 		config.BaseURL = "https://testnet.binancefuture.com"
 	}
 
@@ -66,18 +63,6 @@ func WithBaseURL(url string) ConfigOption {
 func WithProxyURL(proxyURL string) ConfigOption {
 	return func(c *Config) {
 		c.ProxyURL = proxyURL
-	}
-}
-
-// WithTestnet enables testnet mode
-func WithTestnet(testnet bool) ConfigOption {
-	return func(c *Config) {
-		c.Testnet = testnet
-		if testnet {
-			c.BaseURL = "https://testnet.binancefuture.com"
-		} else {
-			c.BaseURL = "https://fapi.binance.com"
-		}
 	}
 }
 
@@ -111,7 +96,6 @@ func FromEnvironment() *Config {
 		os.Getenv("BINANCE_SECRET_KEY"),
 		WithBaseURL(os.Getenv("BINANCE_BASE_URL")),
 		WithProxyURL(os.Getenv("BINANCE_PROXY_URL")),
-		WithTestnet(os.Getenv("BINANCE_TESTNET") == "true"),
 		WithTimeout(parseDuration(os.Getenv("BINANCE_TIMEOUT"), 30*time.Second)),
 		WithRetries(
 			parseInt(os.Getenv("BINANCE_MAX_RETRIES"), 3),

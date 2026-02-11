@@ -690,7 +690,7 @@ func (s *Server) handleCreateTrader(c *gin.Context) {
 			tempTrader, createErr = trader.NewHyperliquidTrader(
 				string(exchangeCfg.APIKey), // private key
 				exchangeCfg.HyperliquidWalletAddr,
-				exchangeCfg.Testnet,
+				false, // Testnet field removed
 			)
 		case "aster":
 			tempTrader, createErr = trader.NewAsterTrader(
@@ -1569,7 +1569,7 @@ func (s *Server) handleSyncBalance(c *gin.Context) {
 		tempTrader, createErr = trader.NewHyperliquidTrader(
 			string(exchangeCfg.APIKey),
 			exchangeCfg.HyperliquidWalletAddr,
-			exchangeCfg.Testnet,
+			false, // Testnet field removed
 		)
 	case "aster":
 		tempTrader, createErr = trader.NewAsterTrader(
@@ -1721,7 +1721,7 @@ func (s *Server) handleClosePosition(c *gin.Context) {
 		tempTrader, createErr = trader.NewHyperliquidTrader(
 			string(exchangeCfg.APIKey),
 			exchangeCfg.HyperliquidWalletAddr,
-			exchangeCfg.Testnet,
+			false, // Testnet field removed
 		)
 	case "aster":
 		tempTrader, createErr = trader.NewAsterTrader(
@@ -2245,7 +2245,7 @@ func (s *Server) handleGetExchangeConfigs(c *gin.Context) {
 			Name:                  exchange.Name,
 			Type:                  exchange.Type,
 			Enabled:               exchange.Enabled,
-			Testnet:               exchange.Testnet,
+			Testnet:               false, // Testnet field removed
 			CustomAPIURL:          exchange.CustomAPIURL,
 			HyperliquidWalletAddr: exchange.HyperliquidWalletAddr,
 			AsterUser:             exchange.AsterUser,
@@ -2319,7 +2319,7 @@ func (s *Server) handleUpdateExchangeConfigs(c *gin.Context) {
 
 	// Update each exchange's configuration
 	for exchangeID, exchangeData := range req.Exchanges {
-		err := s.store.Exchange().Update(userID, exchangeID, exchangeData.AccountName, exchangeData.Enabled, exchangeData.APIKey, exchangeData.SecretKey, exchangeData.Passphrase, exchangeData.Testnet, exchangeData.CustomAPIURL, exchangeData.HyperliquidWalletAddr, exchangeData.AsterUser, exchangeData.AsterSigner, exchangeData.AsterPrivateKey, exchangeData.LighterWalletAddr, exchangeData.LighterPrivateKey, exchangeData.LighterAPIKeyPrivateKey, exchangeData.LighterAPIKeyIndex)
+		err := s.store.Exchange().Update(userID, exchangeID, exchangeData.AccountName, exchangeData.Enabled, exchangeData.APIKey, exchangeData.SecretKey, exchangeData.Passphrase, exchangeData.CustomAPIURL, exchangeData.HyperliquidWalletAddr, exchangeData.AsterUser, exchangeData.AsterSigner, exchangeData.AsterPrivateKey, exchangeData.LighterWalletAddr, exchangeData.LighterPrivateKey, exchangeData.LighterAPIKeyPrivateKey, exchangeData.LighterAPIKeyIndex)
 		if err != nil {
 			SafeInternalError(c, fmt.Sprintf("Update exchange %s", exchangeID), err)
 			return
@@ -2421,7 +2421,7 @@ func (s *Server) handleCreateExchange(c *gin.Context) {
 	// Create new exchange account
 	id, err := s.store.Exchange().Create(
 		userID, req.ExchangeType, req.AccountName, req.Enabled,
-		req.APIKey, req.SecretKey, req.Passphrase, req.Testnet, req.CustomAPIURL,
+		req.APIKey, req.SecretKey, req.Passphrase, req.CustomAPIURL,
 		req.HyperliquidWalletAddr, req.AsterUser, req.AsterSigner, req.AsterPrivateKey,
 		req.LighterWalletAddr, req.LighterPrivateKey, req.LighterAPIKeyPrivateKey, req.LighterAPIKeyIndex,
 	)
@@ -4790,7 +4790,7 @@ func createBinanceTraderWithProxy(userID string, exchangeCfg *store.Exchange) tr
 	}
 
 	// 调试日志：记录确定的交易所端点
-	logger.Debugf("🔍 [createBinanceTraderWithProxy] UserID: %s, ExchangeType: %s, Original CustomAPIURL: '%s', Determined realExchangeEndpoint: '%s', Testnet: %t", userID, exchangeCfg.ExchangeType, exchangeCfg.CustomAPIURL, realExchangeEndpoint, exchangeCfg.Testnet)
+	logger.Debugf("🔍 [createBinanceTraderWithProxy] UserID: %s, ExchangeType: %s, Original CustomAPIURL: '%s', Determined realExchangeEndpoint: '%s'", userID, exchangeCfg.ExchangeType, exchangeCfg.CustomAPIURL, realExchangeEndpoint)
 
 	// 检查全局代理开关
 	useProxyGlobal := os.Getenv("USE_BINANCE_PROXY") == "true"

@@ -66,7 +66,6 @@ export function ExchangeConfigModal({
   const [apiKey, setApiKey] = useState('')
   const [secretKey, setSecretKey] = useState('')
   const [passphrase, setPassphrase] = useState('')
-  const [testnet, setTestnet] = useState(false)
   const [customApiUrl, setCustomApiUrl] = useState('')
   const [showGuide, setShowGuide] = useState(false)
   const [serverIP, setServerIP] = useState<{
@@ -140,7 +139,6 @@ export function ExchangeConfigModal({
       setApiKey(selectedExchange.apiKey || '')
       setSecretKey(selectedExchange.secretKey || '')
       setPassphrase('') // Don't load existing passphrase for security
-      setTestnet(selectedExchange.testnet || false)
       setCustomApiUrl(selectedExchange.customApiUrl || '')
 
       // Aster 字段
@@ -284,7 +282,7 @@ export function ExchangeConfigModal({
       // 根据交易所类型验证不同字段
       if (currentExchangeType === 'binance') {
         if (!apiKey.trim() || !secretKey.trim()) return
-        await onSave(exchangeId, exchangeType, trimmedAccountName, apiKey.trim(), secretKey.trim(), '', testnet, customApiUrl)
+        await onSave(exchangeId, exchangeType, trimmedAccountName, apiKey.trim(), secretKey.trim(), '', false, customApiUrl)
       } else if (currentExchangeType === 'okx') {
         if (!apiKey.trim() || !secretKey.trim() || !passphrase.trim()) return
         await onSave(exchangeId, exchangeType, trimmedAccountName, apiKey.trim(), secretKey.trim(), passphrase.trim(), testnet, '')
@@ -300,7 +298,7 @@ export function ExchangeConfigModal({
           apiKey.trim(),
           '',
           '',
-          testnet,
+          false,
           '',
           hyperliquidWalletAddr.trim(),
           undefined,
@@ -321,7 +319,7 @@ export function ExchangeConfigModal({
           '',
           '',
           '',
-          testnet,
+          false,
           '',
           undefined,
           asterUser.trim(),
@@ -341,7 +339,7 @@ export function ExchangeConfigModal({
           '', // apiKey not used for Lighter
           '',
           '',
-          testnet,
+          false,
           '',
           undefined, // hyperliquidWalletAddr
           undefined, // asterUser
@@ -745,35 +743,7 @@ export function ExchangeConfigModal({
                         </div>
                       )}
 
-                      {/* Testnet toggle for Binance */}
-                      {currentExchangeType === 'binance' && (
-                        <div className="flex items-center justify-between p-3 rounded"
-                          style={{
-                            background: '#0B0E11',
-                            border: '1px solid #2B3139',
-                          }}>
-                          <div>
-                            <label
-                              className="block text-sm font-semibold"
-                              style={{ color: '#EAECEF' }}
-                            >
-                              {t('useTestnet', language)}
-                            </label>
-                            <div className="text-xs" style={{ color: '#848E9C' }}>
-                              {t('testnetDescription', language)}
-                            </div>
-                          </div>
-                          <label className="relative inline-flex items-center cursor-pointer">
-                            <input
-                              type="checkbox"
-                              checked={testnet}
-                              onChange={(e) => setTestnet(e.target.checked)}
-                              className="sr-only peer"
-                            />
-                            <div className="w-11 h-6 bg-gray-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-yellow-500"></div>
-                          </label>
-                        </div>
-                      )}
+                      
 
                       {(currentExchangeType === 'okx' || currentExchangeType === 'bitget') && (
                         <div>
