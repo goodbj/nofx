@@ -1,11 +1,12 @@
 import { useState, useEffect } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import { useLanguage } from '../contexts/LanguageContext'
-import { Zap, Settings, Activity, BarChart3, Shield, Target, FileText, Globe, Eye, Play, Loader2, RefreshCw, Clock, Bot, Terminal, Code, Send, Download, Upload, Clipboard, ClipboardCheck, ClipboardPaste, UserPlus } from 'lucide-react'
+import { Zap, Settings, Activity, BarChart3, Shield, Target, FileText, Globe, Eye, Play, Loader2, RefreshCw, Clock, Bot, Terminal, Code, Send, Download, Upload, Clipboard, ClipboardCheck, ClipboardPaste, UserPlus, Key } from 'lucide-react'
 import type { Strategy, StrategyConfig, AIModel } from '../types'
 import { confirmToast, notify } from '../lib/notify'
 import { DeepVoidBackground } from '../components/DeepVoidBackground'
 import AutoLoginTestPage from './AutoLoginTestPage'
+import { EnvVariablesManager } from '../components/EnvVariablesManager'
 
 const API_BASE = import.meta.env.VITE_API_BASE || ''
 
@@ -13,7 +14,7 @@ export function ToolsPage() {
   const { token } = useAuth()
   const { language } = useLanguage()
   
-  const [activeTool, setActiveTool] = useState<'ai-semi-auto' | 'auto-login'>('ai-semi-auto')
+  const [activeTool, setActiveTool] = useState<'ai-semi-auto' | 'auto-login' | 'env-manager'>('ai-semi-auto')
   const [aiModels, setAiModels] = useState<AIModel[]>([])
   const [selectedModelId, setSelectedModelId] = useState<string>('')
   
@@ -47,6 +48,8 @@ export function ToolsPage() {
       otherTool: { zh: '其他工具', en: 'Other Tools' },
       aiManualWorkflow: { zh: 'AI 手动工作流', en: 'AI Manual Workflow' },
       aiManualWorkflowDesc: { zh: '手动复制Prompt到AI服务，粘贴决策结果', en: 'Manually copy prompt to AI service, paste decision result' },
+      envManager: { zh: '环境变量管理', en: 'Environment Variables Manager' },
+      envManagerDesc: { zh: '查看和管理所有环境变量配置', en: 'View and manage all environment variables' },
       generatePrompt: { zh: '生成 Prompt', en: 'Generate Prompt' },
       submitDecision: { zh: '提交决策', en: 'Submit Decision' },
       loadPrompt: { zh: '生成 Prompt', en: 'Generate Prompt' },
@@ -237,6 +240,17 @@ export function ToolsPage() {
               >
                 <UserPlus className="w-4 h-4" />
                 <span>{t('autoLogin')}</span>
+              </button>
+              <button
+                onClick={() => setActiveTool('env-manager')}
+                className={`w-full flex items-center gap-2 px-3 py-2.5 rounded-lg text-sm transition-colors ${
+                  activeTool === 'env-manager'
+                    ? 'ring-1 ring-blue-500/50 bg-blue-500/10 text-blue-400'
+                    : 'hover:bg-white/5 text-nofx-text-muted'
+                }`}
+              >
+                <Key className="w-4 h-4" />
+                <span>{t('envManager')}</span>
               </button>
             </div>
           </div>
@@ -453,6 +467,12 @@ ${promptPreview.user_prompt}`
           {activeTool === 'auto-login' && (
             <div className="p-4 h-full">
               <AutoLoginTestPage />
+            </div>
+          )}
+          
+          {activeTool === 'env-manager' && (
+            <div className="p-4 h-full overflow-auto">
+              <EnvVariablesManager />
             </div>
           )}
         </div>

@@ -277,6 +277,10 @@ func (s *Server) setupRoutes() {
 			protected.POST("/test/submit-ai-decision", s.handleSubmitAIDecision)     // 🔥 提交AI决策JSON（手动粘贴）
 			protected.POST("/test/get-scan-data", s.handleGetScanData)               // 🔥 获取手动扫描数据（在AI调用前截断）
 
+			// Environment variables management
+			protected.GET("/env-variables", s.handleGetEnvVariables)
+			protected.PUT("/env-variables", s.handleUpdateEnvVariables)
+
 			// Register Guardian-related routes
 			s.registerGuardianRoutes(api)
 
