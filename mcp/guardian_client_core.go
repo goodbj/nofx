@@ -23,7 +23,7 @@ func GetGuardianBrowserDataDir() string {
 	if dir := os.Getenv("BROWSER_DATA_DIR"); dir != "" {
 		return dir
 	}
-	return "./data/browser_data" // 默认值
+	return "./data/Chrome_browser_data" // 默认值
 }
 
 // GuardianBrowserDataDir is the default browser data directory (deprecated, use GetGuardianBrowserDataDir())

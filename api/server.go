@@ -25,6 +25,7 @@ import (
 	"nofx/trader"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -463,6 +464,21 @@ func (s *Server) getTraderFromQuery(c *gin.Context) (*manager.TraderManager, str
 		}
 	}
 
+	// Verify that the specific trader exists in memory, if not try to reload
+	_, err = s.traderManager.GetTrader(traderID)
+	if err != nil {
+		logger.Infof("?? Trader %s not found in memory, attempting reload...", traderID)
+		err = s.traderManager.LoadUserTradersFromStore(s.store, userID)
+		if err != nil {
+			logger.Infof("?? Failed to reload traders for user %s: %v", userID, err)
+		}
+		// Try again after reload
+		_, err = s.traderManager.GetTrader(traderID)
+		if err != nil {
+			return nil, "", fmt.Errorf("trader %s not found after reload: %w", traderID, err)
+		}
+	}
+
 	return s.traderManager, traderID, nil
 }
 
@@ -797,8 +813,9 @@ func (s *Server) handleCreateTrader(c *gin.Context) {
 
 // createTraderBrowserDataDir 创建交易员的浏览器数据目录
 func (s *Server) createTraderBrowserDataDir(traderID string) error {
-	// 创建交易员专属的浏览器数据目录
-	dirName := fmt.Sprintf("%s_%s", mcp.GuardianBrowserDataDir, traderID)
+	// 创建交易员专属的浏览器数据目录，路径为: GuardianBrowserDataDir/traderID
+	baseDir := mcp.GuardianBrowserDataDir
+	dirName := filepath.Join(baseDir, traderID)
 	if err := os.MkdirAll(dirName, 0755); err != nil {
 		logger.Errorf("Failed to create browser data directory for trader %s: %v", traderID, err)
 		return fmt.Errorf("failed to create browser data directory: %w", err)
@@ -837,7 +854,7 @@ func (s *Server) ensureAllTraderBrowserDataDirs() error {
 	}
 
 	for _, trader := range allTraders {
-		dirName := fmt.Sprintf("%s_%s", mcp.GuardianBrowserDataDir, trader.ID)
+		dirName := filepath.Join(mcp.GuardianBrowserDataDir, trader.ID)
 		if _, err := os.Stat(dirName); os.IsNotExist(err) {
 			logger.Infof("?? Browser data directory for trader %s does not exist, creating it", trader.ID)
 			if err := s.createTraderBrowserDataDir(trader.ID); err != nil {
@@ -989,7 +1006,7 @@ func (s *Server) handleUpdateTrader(c *gin.Context) {
 	}
 
 	// 检查并创建交易员的浏览器数据目录（如果不存在）
-	dirName := fmt.Sprintf("%s_%s", mcp.GuardianBrowserDataDir, traderID)
+	dirName := filepath.Join(mcp.GuardianBrowserDataDir, traderID)
 	if _, statErr := os.Stat(dirName); os.IsNotExist(statErr) {
 		logger.Infof("?? Browser data directory for trader %s does not exist, creating it", traderID)
 		err = s.createTraderBrowserDataDir(traderID)
@@ -2572,21 +2589,50 @@ func (s *Server) handleStatus(c *gin.Context) {
 
 // handleAccount Account information
 func (s *Server) handleAccount(c *gin.Context) {
-	_, traderID, err := s.getTraderFromQuery(c)
-	if err != nil {
-		SafeBadRequest(c, "Invalid trader ID")
+	userID := c.GetString("user_id")
+	traderID := c.Query("trader_id")
+
+	if traderID == "" {
+		SafeBadRequest(c, "Missing trader_id parameter")
 		return
 	}
 
+	// First, ensure user's traders are loaded into memory
+	err := s.traderManager.LoadUserTradersFromStore(s.store, userID)
+	if err != nil {
+		logger.Infof("?? Failed to load traders for user %s: %v", userID, err)
+		SafeInternalError(c, "Failed to load traders", err)
+		return
+	}
+
+	// Attempt to get the trader
 	trader, err := s.traderManager.GetTrader(traderID)
 	if err != nil {
-		SafeNotFound(c, "Trader")
-		return
+		// If trader is not found, it might be because it was just created and not fully initialized
+		// Let's wait a bit and retry
+		logger.Infof("?? Trader %s not found in memory, reloading user traders...", traderID)
+
+		// Reload user traders to ensure the trader is loaded
+		err = s.traderManager.LoadUserTradersFromStore(s.store, userID)
+		if err != nil {
+			logger.Infof("?? Failed to reload traders for user %s: %v", userID, err)
+			SafeInternalError(c, "Failed to reload traders", err)
+			return
+		}
+
+		// Retry getting the trader
+		trader, err = s.traderManager.GetTrader(traderID)
+		if err != nil {
+			logger.Infof("?? Trader %s still not found after reload: %v", traderID, err)
+			SafeNotFound(c, "Trader not found after reload")
+			return
+		}
 	}
 
 	logger.Infof("?? Received account info request [%s]", trader.GetName())
 	account, err := trader.GetAccountInfo()
 	if err != nil {
+		logger.Infof("?? Get account info failed for trader %s: %v", trader.GetName(), err)
 		SafeInternalError(c, "Get account info", err)
 		return
 	}
