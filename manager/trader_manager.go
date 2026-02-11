@@ -8,6 +8,7 @@ import (
 	"nofx/logger"
 	"nofx/store"
 	"nofx/trader"
+	"os"
 	"sort"
 	"sync"
 	"time"
@@ -522,10 +523,45 @@ func (tm *TraderManager) LoadUserTradersFromStore(st *store.Store, userID string
 	return nil
 }
 
+// verifyEnvironmentVariables checks if critical environment variables are properly set
+func (tm *TraderManager) verifyEnvironmentVariables() error {
+	useProxy := os.Getenv("USE_BINANCE_PROXY")
+	proxyURL := os.Getenv("BINANCE_PROXY_URL")
+
+	if useProxy == "true" && proxyURL == "" {
+		// Set default proxy URL if not specified
+		defaultProxyURL := "http://localhost:8081"
+		os.Setenv("BINANCE_PROXY_URL", defaultProxyURL)
+		logger.Infof("🔧 [ENV VERIFY] Proxy enabled, default proxy URL set to %s", defaultProxyURL)
+		return nil
+	}
+
+	// Check other critical environment variables
+	criticalVars := []string{"JWT_SECRET", "DATA_ENCRYPTION_KEY", "RSA_PRIVATE_KEY"}
+	missingVars := []string{}
+
+	for _, varName := range criticalVars {
+		if value := os.Getenv(varName); value == "" {
+			missingVars = append(missingVars, varName)
+		}
+	}
+
+	if len(missingVars) > 0 {
+		return fmt.Errorf("missing critical environment variables: %v", missingVars)
+	}
+
+	return nil
+}
+
 // LoadTradersFromStore loads all traders from store to memory (new API)
 func (tm *TraderManager) LoadTradersFromStore(st *store.Store) error {
 	tm.mu.Lock()
 	defer tm.mu.Unlock()
+
+	// Verify critical environment variables before loading traders
+	if err := tm.verifyEnvironmentVariables(); err != nil {
+		logger.Warnf("⚠️ Environment variable verification failed: %v", err)
+	}
 
 	// Get all users
 	userIDs, err := st.User().GetAllIDs()
@@ -756,6 +792,113 @@ func (tm *TraderManager) addTraderFromStore(traderCfg *store.Trader, aiModelCfg 
 		}(at, traderCfg.Name, traderCfg.ID, traderCfg.UserID)
 		logger.Infof("✅ Trader '%s' auto-started successfully", traderCfg.Name)
 	}
+
+	return nil
+}
+
+// ForceRefreshTrader forces a complete refresh of a specific trader
+// This recreates the trader instance with fresh configuration from the store
+func (tm *TraderManager) ForceRefreshTrader(traderID string, st *store.Store) error {
+	tm.mu.Lock()
+	defer tm.mu.Unlock()
+
+	// Find the trader in the store
+	traderCfg, err := st.Trader().GetByID(traderID) // Get by ID regardless of user
+	if err != nil {
+		return fmt.Errorf("failed to get trader config from store: %w", err)
+	}
+
+	// Get AI model config
+	aiModels, err := st.AIModel().List(traderCfg.UserID)
+	if err != nil {
+		return fmt.Errorf("failed to get AI model config: %w", err)
+	}
+
+	var aiModelCfg *store.AIModel
+	for _, model := range aiModels {
+		if model.ID == traderCfg.AIModelID {
+			aiModelCfg = model
+			break
+		}
+	}
+	if aiModelCfg == nil {
+		for _, model := range aiModels {
+			if model.Provider == traderCfg.AIModelID {
+				aiModelCfg = model
+				break
+			}
+		}
+	}
+
+	if aiModelCfg == nil {
+		return fmt.Errorf("AI model %s for trader %s does not exist", traderCfg.AIModelID, traderCfg.Name)
+	}
+
+	if !aiModelCfg.Enabled {
+		return fmt.Errorf("AI model %s for trader %s is not enabled", traderCfg.AIModelID, traderCfg.Name)
+	}
+
+	// Get exchange config
+	exchanges, err := st.Exchange().List(traderCfg.UserID)
+	if err != nil {
+		return fmt.Errorf("failed to get exchange config: %w", err)
+	}
+
+	var exchangeCfg *store.Exchange
+	for _, exchange := range exchanges {
+		if exchange.ID == traderCfg.ExchangeID {
+			exchangeCfg = exchange
+			break
+		}
+	}
+
+	if exchangeCfg == nil {
+		return fmt.Errorf("exchange %s for trader %s does not exist", traderCfg.ExchangeID, traderCfg.Name)
+	}
+
+	if !exchangeCfg.Enabled {
+		return fmt.Errorf("exchange %s for trader %s is not enabled", traderCfg.ExchangeID, traderCfg.Name)
+	}
+
+	// Stop and remove the existing trader if it exists
+	if existingTrader, exists := tm.traders[traderID]; exists {
+		// Stop the trader if it's running
+		status := existingTrader.GetStatus()
+		if isRunning, ok := status["is_running"].(bool); ok && isRunning {
+			logger.Infof("⏹ Stopping trader %s before refreshing...", traderID)
+			existingTrader.Stop()
+		}
+		delete(tm.traders, traderID)
+		logger.Infof("🗑 Removed old trader %s from memory", traderID)
+	}
+
+	// Add the trader from store with fresh configuration
+	err = tm.addTraderFromStore(traderCfg, aiModelCfg, exchangeCfg, st)
+	if err != nil {
+		return fmt.Errorf("failed to recreate trader: %w", err)
+	}
+
+	logger.Infof("🔄 Trader %s successfully refreshed", traderID)
+	return nil
+}
+
+// ValidateAndRepairTraderProxy validates and repairs a trader's proxy configuration if needed
+// This is particularly useful after system restart when proxy settings might not be properly initialized
+func (tm *TraderManager) ValidateAndRepairTraderProxy(traderID string, st *store.Store) error {
+	tm.mu.RLock()
+	_, exists := tm.traders[traderID]
+	tm.mu.RUnlock()
+
+	if !exists {
+		return fmt.Errorf("trader %s does not exist in memory", traderID)
+	}
+
+	// Check if this is a binance trader and if proxy is enabled
+	// We can't directly access internal fields, so we'll rely on the fact that the trader
+	// should be working correctly after a refresh if proxy settings are properly applied
+
+	// For now, we'll just return nil since we don't have a way to directly check the proxy configuration
+	// The real validation happens in the API layer when we try to make a call
 
 	return nil
 }

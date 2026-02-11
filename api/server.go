@@ -215,6 +215,8 @@ func (s *Server) setupRoutes() {
 			protected.POST("/traders/:id/sync-balance", s.handleSyncBalance)
 			protected.POST("/traders/:id/close-position", s.handleClosePosition)
 			protected.PUT("/traders/:id/competition", s.handleToggleCompetition)
+			protected.POST("/traders/:id/refresh", s.handleForceRefreshTrader)
+			protected.GET("/traders/:id/status-detail", s.handleCheckTraderStatus)
 
 			// AI model configuration
 			protected.GET("/models", s.handleGetModelConfigs)
@@ -2634,11 +2636,73 @@ func (s *Server) handleAccount(c *gin.Context) {
 	}
 
 	logger.Infof("?? Received account info request [%s]", trader.GetName())
+
+	// Get trader's full configuration to determine the correct endpoint
+	// Direct approach: force refresh for any non-empty CustomAPIURL
+	fullConfig, configErr := s.store.Trader().GetFullConfig(userID, traderID)
+	if configErr == nil && fullConfig != nil && fullConfig.Exchange != nil && fullConfig.Exchange.CustomAPIURL != "" {
+		targetEndpoint := strings.TrimSpace(fullConfig.Exchange.CustomAPIURL)
+
+		// Force refresh for any non-empty CustomAPIURL
+		// This mimics the successful "save modification" behavior regardless of URL type
+		logger.Infof("?? Detected non-empty CustomAPIURL '%s' for trader %s, forcing refresh for proper initialization", targetEndpoint, traderID)
+		refreshErr := s.traderManager.ForceRefreshTrader(traderID, s.store)
+		if refreshErr != nil {
+			logger.Warnf("?? Failed to force refresh trader %s: %v", traderID, refreshErr)
+			// Continue with original trader if refresh fails
+		} else {
+			// Try to get the refreshed trader
+			refreshedTrader, refreshGetErr := s.traderManager.GetTrader(traderID)
+			if refreshGetErr == nil {
+				trader = refreshedTrader
+				logger.Infof("?? Successfully refreshed trader %s with CustomAPIURL '%s'", traderID, targetEndpoint)
+			}
+		}
+	}
+
+	// Try to get account info with potential retry if proxy configuration is not ready
 	account, err := trader.GetAccountInfo()
 	if err != nil {
 		logger.Infof("?? Get account info failed for trader %s: %v", trader.GetName(), err)
-		SafeInternalError(c, "Get account info", err)
-		return
+
+		// If the error is related to API key format or proxy issues, try to force refresh the trader
+		errMsg := err.Error()
+		if strings.Contains(errMsg, "API-key format invalid") || strings.Contains(errMsg, "401") {
+			logger.Infof("?? Detected API key or proxy issue, attempting to force refresh trader %s", traderID)
+
+			// Force refresh the trader to ensure proxy configuration is properly set
+			refreshErr := s.traderManager.ForceRefreshTrader(traderID, s.store)
+			if refreshErr != nil {
+				logger.Infof("?? Force refresh failed: %v", refreshErr)
+				// Still try to get account info one more time
+				account, err = trader.GetAccountInfo()
+				if err != nil {
+					logger.Infof("?? Second attempt to get account info failed: %v", err)
+					SafeInternalError(c, "Get account info", err)
+					return
+				}
+			} else {
+				// Retry getting the trader after refresh
+				refreshedTrader, getErr := s.traderManager.GetTrader(traderID)
+				if getErr != nil {
+					logger.Infof("?? Could not get refreshed trader: %v", getErr)
+					SafeInternalError(c, "Get account info", err)
+					return
+				}
+
+				// Try to get account info with the refreshed trader
+				account, err = refreshedTrader.GetAccountInfo()
+				if err != nil {
+					logger.Infof("?? Get account info failed even after refresh: %v", err)
+					SafeInternalError(c, "Get account info", err)
+					return
+				}
+			}
+		} else {
+			// For other errors, just return the error
+			SafeInternalError(c, "Get account info", err)
+			return
+		}
 	}
 
 	logger.Infof("??Returning account info [%s]: equity=%.2f, available=%.2f, pnl=%.2f (%.2f%%)",
@@ -2648,6 +2712,102 @@ func (s *Server) handleAccount(c *gin.Context) {
 		account["total_pnl"],
 		account["total_pnl_pct"])
 	c.JSON(http.StatusOK, account)
+}
+
+// handleForceRefreshTrader forces a complete refresh of a specific trader
+// This is useful when trader's proxy configuration is not properly initialized
+func (s *Server) handleForceRefreshTrader(c *gin.Context) {
+	userID := c.GetString("user_id")
+	traderID := c.Param("id")
+
+	// Verify the trader belongs to the user
+	traders, err := s.store.Trader().List(userID)
+	if err != nil {
+		SafeInternalError(c, "Failed to get trader list", err)
+		return
+	}
+
+	traderExists := false
+	for _, t := range traders {
+		if t.ID == traderID {
+			traderExists = true
+			break
+		}
+	}
+
+	if !traderExists {
+		SafeNotFound(c, "Trader not found for this user")
+		return
+	}
+
+	logger.Infof("🔄 Force refreshing trader %s for user %s", traderID, userID)
+
+	// Force refresh the trader
+	err = s.traderManager.ForceRefreshTrader(traderID, s.store)
+	if err != nil {
+		logger.Infof("?? Force refresh trader %s failed: %v", traderID, err)
+		SafeInternalError(c, "Failed to refresh trader", err)
+		return
+	}
+
+	logger.Infof("?? Trader %s successfully refreshed", traderID)
+	c.JSON(http.StatusOK, gin.H{
+		"message":   "Trader refreshed successfully",
+		"trader_id": traderID,
+		"details":   "This refresh re-initializes the trader with fresh configuration, including proxy settings and API credentials",
+	})
+}
+
+// handleCheckTraderStatus checks the status of a specific trader including proxy configuration
+func (s *Server) handleCheckTraderStatus(c *gin.Context) {
+	userID := c.GetString("user_id")
+	traderID := c.Param("id")
+
+	// Verify the trader belongs to the user
+	traders, err := s.store.Trader().List(userID)
+	if err != nil {
+		SafeInternalError(c, "Failed to get trader list", err)
+		return
+	}
+
+	traderExists := false
+	for _, t := range traders {
+		if t.ID == traderID {
+			traderExists = true
+			break
+		}
+	}
+
+	if !traderExists {
+		SafeNotFound(c, "Trader not found for this user")
+		return
+	}
+
+	// Try to get the trader from memory
+	trader, err := s.traderManager.GetTrader(traderID)
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{
+			"trader_id": traderID,
+			"status":    "not_loaded",
+			"message":   "Trader is not currently loaded in memory",
+		})
+		return
+	}
+
+	// Get trader status
+	status := trader.GetStatus()
+
+	c.JSON(http.StatusOK, gin.H{
+		"trader_id":  traderID,
+		"status":     "loaded",
+		"name":       trader.GetName(),
+		"is_running": status["is_running"],
+		"call_count": status["call_count"],
+		"last_error": status["last_error"],
+		"exchange":   trader.GetExchange(),
+		"ai_model":   trader.GetAIModel(),
+		"message":    "Trader is loaded in memory",
+	})
 }
 
 // handlePositions Position list

@@ -141,9 +141,13 @@ func NewLighterTraderV2(walletAddr, apiKeyPrivateKeyHex string, apiKeyIndex int,
 		marketIndexMap:   make(map[string]uint16),
 	}
 
-	// 5. Initialize account (get account index)
+	// 5. Initialize account (get account index) - with fallback for startup scenarios
 	if err := trader.initializeAccount(); err != nil {
-		return nil, fmt.Errorf("failed to initialize account: %w", err)
+		// Don't fail completely during startup - allow trader to be created with default values
+		// This enables the trader to work after manual refresh via "save modification"
+		logger.Warnf("⚠️  Lighter account initialization failed during startup (will retry later): %v", err)
+		logger.Warnf("⚠️  Trader will be created with default account index 0")
+		trader.accountIndex = 0 // Set default value to allow creation
 	}
 
 	// 6. Create TxClient (for signing transactions)

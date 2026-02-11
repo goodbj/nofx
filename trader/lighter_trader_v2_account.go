@@ -12,6 +12,14 @@ import (
 
 // getFullAccountInfo Fetch full account info from Lighter API (includes balance and positions)
 func (t *LighterTraderV2) getFullAccountInfo() (*AccountInfo, error) {
+	// Ensure account is initialized before making API call
+	if t.accountIndex == 0 {
+		logger.Infof("🔄 Lighter account index is 0 in getFullAccountInfo, attempting to re-initialize...")
+		if err := t.initializeAccount(); err != nil {
+			return nil, fmt.Errorf("failed to initialize account in getFullAccountInfo: %w", err)
+		}
+	}
+
 	endpoint := fmt.Sprintf("%s/api/v1/account?by=l1_address&value=%s", t.baseURL, t.walletAddr)
 
 	req, err := http.NewRequest("GET", endpoint, nil)
@@ -55,6 +63,14 @@ func (t *LighterTraderV2) getFullAccountInfo() (*AccountInfo, error) {
 
 // GetBalance Get account balance (implements Trader interface)
 func (t *LighterTraderV2) GetBalance() (map[string]interface{}, error) {
+	// Ensure account is initialized before getting balance
+	if t.accountIndex == 0 {
+		logger.Infof("🔄 Lighter account index is 0, attempting to re-initialize...")
+		if err := t.initializeAccount(); err != nil {
+			return nil, fmt.Errorf("failed to initialize account before getting balance: %w", err)
+		}
+	}
+
 	balance, err := t.GetAccountBalance()
 	if err != nil {
 		return nil, err
@@ -66,8 +82,8 @@ func (t *LighterTraderV2) GetBalance() (map[string]interface{}, error) {
 	// Return in standard format compatible with auto_trader.go
 	// (totalEquity = totalWalletBalance + totalUnrealizedProfit)
 	return map[string]interface{}{
-		"totalWalletBalance":    walletBalance,           // Wallet balance (excluding unrealized PnL)
-		"totalUnrealizedProfit": balance.UnrealizedPnL,   // Unrealized PnL
+		"totalWalletBalance":    walletBalance,            // Wallet balance (excluding unrealized PnL)
+		"totalUnrealizedProfit": balance.UnrealizedPnL,    // Unrealized PnL
 		"availableBalance":      balance.AvailableBalance, // Available balance
 		// Keep additional fields for reference
 		"total_equity":       balance.TotalEquity,
@@ -78,6 +94,14 @@ func (t *LighterTraderV2) GetBalance() (map[string]interface{}, error) {
 
 // GetAccountBalance Get detailed account balance information
 func (t *LighterTraderV2) GetAccountBalance() (*AccountBalance, error) {
+	// Ensure account is initialized before getting account info
+	if t.accountIndex == 0 {
+		logger.Infof("🔄 Lighter account index is 0 in GetAccountBalance, attempting to re-initialize...")
+		if err := t.initializeAccount(); err != nil {
+			return nil, fmt.Errorf("failed to initialize account in GetAccountBalance: %w", err)
+		}
+	}
+
 	// Get full account info from Lighter API
 	accountInfo, err := t.getFullAccountInfo()
 	if err != nil {
@@ -130,6 +154,14 @@ func (t *LighterTraderV2) GetAccountBalance() (*AccountBalance, error) {
 
 // GetPositions Get all positions (implements Trader interface)
 func (t *LighterTraderV2) GetPositions() ([]map[string]interface{}, error) {
+	// Ensure account is initialized before getting positions
+	if t.accountIndex == 0 {
+		logger.Infof("🔄 Lighter account index is 0, attempting to re-initialize...")
+		if err := t.initializeAccount(); err != nil {
+			return nil, fmt.Errorf("failed to initialize account before getting positions: %w", err)
+		}
+	}
+
 	positions, err := t.GetPositionsRaw("")
 	if err != nil {
 		return nil, err
@@ -177,7 +209,7 @@ func (t *LighterTraderV2) GetPositionsRaw(symbol string) ([]Position, error) {
 		}
 
 		// Parse fields from Lighter API response
-		size, _ := strconv.ParseFloat(lPos.Position, 64)        // API returns "position" not "size"
+		size, _ := strconv.ParseFloat(lPos.Position, 64)            // API returns "position" not "size"
 		entryPrice, _ := strconv.ParseFloat(lPos.AvgEntryPrice, 64) // API returns "avg_entry_price"
 		positionValue, _ := strconv.ParseFloat(lPos.PositionValue, 64)
 		liqPrice, _ := strconv.ParseFloat(lPos.LiquidationPrice, 64)

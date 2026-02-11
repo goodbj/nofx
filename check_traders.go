@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"nofx/config"
-	"nofx/manager"
 	"nofx/store"
 )
 
@@ -25,23 +24,20 @@ func main() {
 	}
 	defer s.Close()
 
-	// 初始化交易员管理器
-	traderManager := manager.NewTraderManager()
-
-	// 加载所有交易员配置
-	users, err := s.User().List()
+	// 获取所有用户ID
+	userIDs, err := s.User().GetAllIDs()
 	if err != nil {
-		fmt.Printf("❌ 获取用户列表失败: %v\n", err)
+		fmt.Printf("❌ 获取用户ID列表失败: %v\n", err)
 		return
 	}
 
-	fmt.Printf("📊 找到 %d 个用户\n", len(users))
+	fmt.Printf("📊 找到 %d 个用户\n", len(userIDs))
 
-	for _, user := range users {
-		fmt.Printf("\n📋 用户: %s\n", user.Email)
+	for _, userID := range userIDs {
+		fmt.Printf("\n📋 用户ID: %s\n", userID)
 
 		// 加载该用户的所有交易员
-		traders, err := s.Trader().FindByUserID(user.ID)
+		traders, err := s.Trader().List(userID)
 		if err != nil {
 			fmt.Printf("   ❌ 获取交易员失败: %v\n", err)
 			continue
@@ -54,7 +50,7 @@ func main() {
 			fmt.Printf("       AI Model: %s\n", trader.AIModelID)
 			fmt.Printf("       Exchange ID: %s\n", trader.ExchangeID)
 			fmt.Printf("       Strategy ID: %s\n", trader.StrategyID)
-			fmt.Printf("       Enabled: %t\n", trader.Enabled)
+			fmt.Printf("       Enabled: %t\n", trader.IsRunning) // 使用IsRunning字段
 			fmt.Println()
 		}
 	}

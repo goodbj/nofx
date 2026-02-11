@@ -15,6 +15,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"syscall"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/joho/godotenv"
@@ -109,10 +110,49 @@ func main() {
 		logger.Warnf("⚠️ Failed to restore backtest history: %v", err)
 	}
 
+	// Verify and ensure all environment variables are properly set before loading traders
+	logger.Info("🔧 Initializing environment variables...")
+
+	// Proxy settings verification
+	useProxy := os.Getenv("USE_BINANCE_PROXY")
+	proxyURL := os.Getenv("BINANCE_PROXY_URL")
+
+	if useProxy == "true" {
+		if proxyURL == "" {
+			// Set default proxy URL if not specified
+			defaultProxyURL := "http://localhost:8081"
+			os.Setenv("BINANCE_PROXY_URL", defaultProxyURL)
+			proxyURL = defaultProxyURL
+			logger.Infof("🔧 Proxy enabled, default proxy URL set to %s", defaultProxyURL)
+		}
+		logger.Infof("🔧 Proxy configuration: USE_BINANCE_PROXY=%s, BINANCE_PROXY_URL=%s", useProxy, proxyURL)
+	} else {
+		logger.Info("🔧 Proxy disabled or not configured")
+	}
+
+	// Ensure other critical environment variables are set
+	criticalEnvVars := []string{
+		"JWT_SECRET",
+		"DATA_ENCRYPTION_KEY",
+		"RSA_PRIVATE_KEY",
+	}
+
+	for _, envVar := range criticalEnvVars {
+		if value := os.Getenv(envVar); value == "" {
+			logger.Warnf("⚠️ Environment variable %s is not set", envVar)
+		}
+	}
+
+	// Small delay to ensure environment variables are fully propagated
+	time.Sleep(100 * time.Millisecond)
+	logger.Info("🔧 Environment variables initialization completed")
+
 	// Load all traders from database to memory (may auto-start traders with IsRunning=true)
+	logger.Info("🔄 Loading traders from database...")
 	if err := traderManager.LoadTradersFromStore(st); err != nil {
 		logger.Fatalf("❌ Failed to load traders: %v", err)
 	}
+	logger.Info("✅ Traders loaded successfully")
 
 	// Display loaded trader information
 	traders, err := st.Trader().List("default")

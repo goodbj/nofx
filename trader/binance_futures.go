@@ -220,13 +220,31 @@ func (t *FuturesTrader) setDualSidePosition() error {
 		Do(ctx)
 
 	if err != nil {
+		errMsg := err.Error()
+
 		// If error message contains "No need to change", it means already in dual-side position mode
-		if strings.Contains(err.Error(), "No need to change position side") {
+		if strings.Contains(errMsg, "No need to change position side") {
 			logger.Infof("  ✓ Account is already in dual-side position mode (Hedge Mode)")
 			return nil
 		}
-		// Other errors are returned (but won't interrupt initialization in the caller)
-		return err
+
+		// If error is code -4067 (Position side cannot be changed if there exists open orders),
+		// this is a common scenario and shouldn't interrupt initialization
+		if strings.Contains(errMsg, "code=-4067") || strings.Contains(errMsg, "Position side cannot be changed if there exists open orders") {
+			logger.Infof("  ⚠️ Account has open orders, cannot change position mode now (this is normal). Will retry after orders are closed.")
+			logger.Infof("  ℹ️  Dual-side position mode is typically set once during initial account setup.")
+			return nil
+		}
+
+		// If error is related to API key issues, log specifically for debugging
+		if strings.Contains(errMsg, "API-key") {
+			logger.Errorf("  ❌ API key error when setting dual-side position mode: %v", err)
+			return err // Return this error as it indicates a fundamental authentication problem
+		}
+
+		// For other errors, log but don't necessarily interrupt initialization
+		logger.Warnf("  ⚠️ Failed to set dual-side position mode: %v", err)
+		return nil // Don't interrupt initialization for non-critical errors
 	}
 
 	logger.Infof("  ✓ Account has been switched to dual-side position mode (Hedge Mode)")
