@@ -1774,7 +1774,7 @@ ${promptPreview.user_prompt}`
             {/* Decisions List - Scrollable */}
             <div
               className="space-y-4 overflow-y-auto pr-2 custom-scrollbar"
-              style={{ maxHeight: 'calc(360vh - 280px)' }}
+              style={{ maxHeight: 'calc(240vh - 280px)' }}
             >
               {decisions && decisions.length > 0 ? (
                 decisions.map((decision, i) => (
