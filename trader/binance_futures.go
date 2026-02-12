@@ -50,8 +50,8 @@ func getBrOrderID() string {
 
 // FuturesTrader Binance futures trader
 type FuturesTrader struct {
-	client *futures.Client
-
+	client           *futures.Client
+	precisionHandler *PrecisionHandler
 	// Balance cache
 	cachedBalance     map[string]interface{}
 	balanceCacheTime  time.Time
@@ -136,8 +136,9 @@ func NewFuturesTrader(apiKey, secretKey, userId, customEndpoint string) *Futures
 	// Sync time to avoid "Timestamp ahead" error
 	syncBinanceServerTime(client)
 	trader := &FuturesTrader{
-		client:        client,
-		cacheDuration: 30 * time.Second, // 30-second cache for better performance
+		client:           client,
+		cacheDuration:    15 * time.Second, // 15-second cache
+		precisionHandler: NewPrecisionHandler(client),
 	}
 
 	// Set dual-side position mode (Hedge Mode)
@@ -197,8 +198,9 @@ func NewFuturesTraderViaProxy(apiKey, secretKey, userId, proxyURL, targetEndpoin
 	// Sync time to avoid "Timestamp ahead" error
 	syncBinanceServerTime(client)
 	trader := &FuturesTrader{
-		client:        client,
-		cacheDuration: 30 * time.Second, // 30-second cache for better performance
+		client:           client,
+		cacheDuration:    15 * time.Second, // 15-second cache
+		precisionHandler: NewPrecisionHandler(client),
 	}
 
 	// Set dual-side position mode (Hedge Mode)
@@ -685,7 +687,7 @@ func (t *FuturesTrader) OpenLong(symbol string, quantity float64, leverage int) 
 
 	// Note: Margin mode should be set by the caller (AutoTrader) before opening position via SetMarginMode
 
-	// Format quantity to correct precision
+	// Format quantity to correct precision with validation
 	quantityStr, err := t.FormatQuantity(symbol, quantity)
 	if err != nil {
 		return nil, err
@@ -695,6 +697,14 @@ func (t *FuturesTrader) OpenLong(symbol string, quantity float64, leverage int) 
 	quantityFloat, parseErr := strconv.ParseFloat(quantityStr, 64)
 	if parseErr != nil || quantityFloat <= 0 {
 		return nil, fmt.Errorf("position size too small, rounded to 0 (original: %.8f -> formatted: %s). Suggest increasing position amount or selecting a lower-priced coin", quantity, quantityStr)
+	}
+
+	// Validate quantity using precision handler if available
+	if t.precisionHandler != nil {
+		// 使用ValidateOrder方法验证，传入0作为价格占位符
+		if err := t.precisionHandler.ValidateOrder(symbol, quantityFloat, 0); err != nil {
+			return nil, fmt.Errorf("quantity validation failed: %w", err)
+		}
 	}
 
 	// Check minimum notional value (Binance requires at least 10 USDT)
@@ -743,7 +753,7 @@ func (t *FuturesTrader) OpenShort(symbol string, quantity float64, leverage int)
 
 	// Note: Margin mode should be set by the caller (AutoTrader) before opening position via SetMarginMode
 
-	// Format quantity to correct precision
+	// Format quantity to correct precision with validation
 	quantityStr, err := t.FormatQuantity(symbol, quantity)
 	if err != nil {
 		return nil, err
@@ -753,6 +763,14 @@ func (t *FuturesTrader) OpenShort(symbol string, quantity float64, leverage int)
 	quantityFloat, parseErr := strconv.ParseFloat(quantityStr, 64)
 	if parseErr != nil || quantityFloat <= 0 {
 		return nil, fmt.Errorf("position size too small, rounded to 0 (original: %.8f -> formatted: %s). Suggest increasing position amount or selecting a lower-priced coin", quantity, quantityStr)
+	}
+
+	// Validate quantity using precision handler if available
+	if t.precisionHandler != nil {
+		// 使用ValidateOrder方法验证，传入0作为价格占位符
+		if err := t.precisionHandler.ValidateOrder(symbol, quantityFloat, 0); err != nil {
+			return nil, fmt.Errorf("quantity validation failed: %w", err)
+		}
 	}
 
 	// Check minimum notional value (Binance requires at least 10 USDT)
@@ -821,10 +839,22 @@ func (t *FuturesTrader) CloseLong(symbol string, quantity float64) (map[string]i
 		}
 	}
 
-	// Format quantity
+	// Format quantity with validation
 	quantityStr, err := t.FormatQuantity(symbol, quantity)
 	if err != nil {
 		return nil, err
+	}
+
+	// Validate quantity using precision handler if available
+	quantityFloat, parseErr := strconv.ParseFloat(quantityStr, 64)
+	if parseErr != nil {
+		return nil, fmt.Errorf("failed to parse formatted quantity: %w", parseErr)
+	}
+	if t.precisionHandler != nil {
+		// 使用ValidateOrder方法验证，传入0作为价格占位符
+		if err := t.precisionHandler.ValidateOrder(symbol, quantityFloat, 0); err != nil {
+			return nil, fmt.Errorf("quantity validation failed: %w", err)
+		}
 	}
 
 	// Create market sell order (close long, using br ID)
@@ -892,10 +922,22 @@ func (t *FuturesTrader) CloseShort(symbol string, quantity float64) (map[string]
 		}
 	}
 
-	// Format quantity
+	// Format quantity with validation
 	quantityStr, err := t.FormatQuantity(symbol, quantity)
 	if err != nil {
 		return nil, err
+	}
+
+	// Validate quantity using precision handler if available
+	quantityFloat, parseErr := strconv.ParseFloat(quantityStr, 64)
+	if parseErr != nil {
+		return nil, fmt.Errorf("failed to parse formatted quantity: %w", parseErr)
+	}
+	if t.precisionHandler != nil {
+		// 使用ValidateOrder方法验证，传入0作为价格占位符
+		if err := t.precisionHandler.ValidateOrder(symbol, quantityFloat, 0); err != nil {
+			return nil, fmt.Errorf("quantity validation failed: %w", err)
+		}
 	}
 
 	// Create market buy order (close short, using br ID)
@@ -1748,6 +1790,16 @@ func trimTrailingZeros(s string) string {
 
 // FormatQuantity formats quantity to correct precision
 func (t *FuturesTrader) FormatQuantity(symbol string, quantity float64) (string, error) {
+	if t.precisionHandler != nil {
+		return t.precisionHandler.FormatQuantity(symbol, quantity)
+	}
+
+	// Fallback to original implementation
+	return t.formatQuantityLegacy(symbol, quantity)
+}
+
+// formatQuantityLegacy 保留原始的格式化实现作为降级方案
+func (t *FuturesTrader) formatQuantityLegacy(symbol string, quantity float64) (string, error) {
 	precision, err := t.GetSymbolPrecision(symbol)
 	if err != nil {
 		// If retrieval fails, use default format
@@ -2234,4 +2286,35 @@ func (ct *CustomTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 		req.Header.Set("X-Target-URL", ct.TargetEndpoint)
 	}
 	return ct.Transport.RoundTrip(req)
+}
+
+// GetPrecisionCacheSize 获取精度缓存大小
+func (t *FuturesTrader) GetPrecisionCacheSize() int {
+	if t.precisionHandler != nil {
+		return t.precisionHandler.GetCacheSize()
+	}
+	return 0
+}
+
+// ClearPrecisionCache 清除精度缓存
+func (t *FuturesTrader) ClearPrecisionCache() {
+	if t.precisionHandler != nil {
+		t.precisionHandler.ClearCache()
+	}
+}
+
+// GetSymbolPrecisionInfo 获取交易对精度信息
+func (t *FuturesTrader) GetSymbolPrecisionInfo(symbol string) (*SymbolPrecisionInfo, error) {
+	if t.precisionHandler != nil {
+		return t.precisionHandler.GetSymbolPrecision(symbol)
+	}
+	return nil, fmt.Errorf("precision handler not initialized")
+}
+
+// ValidateOrder 验证订单参数是否符合精度要求
+func (t *FuturesTrader) ValidateOrder(symbol string, quantity, price float64) error {
+	if t.precisionHandler != nil {
+		return t.precisionHandler.ValidateOrder(symbol, quantity, price)
+	}
+	return nil // 降级方案：不验证
 }

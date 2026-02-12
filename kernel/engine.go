@@ -1717,23 +1717,9 @@ func parseFullDecisionResponse(aiResponse string, accountEquity float64, btcEthL
 }
 
 func extractCoTTrace(response string) string {
-	if match := reReasoningTag.FindStringSubmatch(response); match != nil && len(match) > 1 {
-		logger.Infof("✓ Extracted reasoning chain using <reasoning> tag")
-		return strings.TrimSpace(match[1])
-	}
-
-	if decisionIdx := strings.Index(response, "<decision>"); decisionIdx > 0 {
-		logger.Infof("✓ Extracted content before <decision> tag as reasoning chain")
-		return strings.TrimSpace(response[:decisionIdx])
-	}
-
-	jsonStart := strings.Index(response, "[")
-	if jsonStart > 0 {
-		logger.Infof("⚠️  Extracted reasoning chain using old format ([ character separator)")
-		return strings.TrimSpace(response[:jsonStart])
-	}
-
-	return strings.TrimSpace(response)
+	// 返回完整的AI响应内容，确保思维链中保留所有内容，包括JSON
+	logger.Infof("✓ Preserving complete AI response including JSON in reasoning chain")
+	return response
 }
 
 func extractDecisions(response string) ([]Decision, error) {
