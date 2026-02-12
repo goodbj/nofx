@@ -4819,54 +4819,8 @@ func createBinanceTraderWithProxy(userID string, exchangeCfg *store.Exchange) tr
 	}
 }
 
-// handleCleanInvalidDecisions 清理无效的决策记录（纯错误，没有计算结果）
-func (s *Server) handleCleanInvalidDecisions(c *gin.Context) {
-	userID := c.GetString("user_id")
-	traderID := c.Query("trader_id")
-	if traderID == "" {
-		SafeBadRequest(c, "Trader ID is required")
-		return
-	}
-
-	// Verify trader belongs to current user
-	_, err := s.store.Trader().GetFullConfig(userID, traderID)
-	if err != nil {
-		logger.Errorf("User %s trying to clean decisions from unauthorized trader %s: %v", userID, traderID, err)
-		c.JSON(http.StatusForbidden, gin.H{"error": "No access permission"})
-		return
-	}
-
-	// Define criteria for invalid records:
-	// 1. Has error message
-	// 2. No valid decision result (no decision_json, no calculated signals)
-	var count int64
-	err = s.store.GormDB().
-		Model(&store.DecisionRecordDB{}).
-		Where("trader_id = ? AND error_message != '' AND error_message IS NOT NULL AND decision_json IS NULL AND decision_json = ''", traderID).
-		Count(&count).Error
-	if err != nil {
-		SafeInternalError(c, "Count invalid records", err)
-		return
-	}
-
-	// Perform the deletion
-	result := s.store.GormDB().
-		Where("trader_id = ? AND error_message != '' AND error_message IS NOT NULL AND decision_json IS NULL AND decision_json = ''", traderID).
-		Delete(&store.DecisionRecordDB{})
-	if result.Error != nil {
-		SafeInternalError(c, "Delete invalid records", result.Error)
-		return
-	}
-
-	logger.Infof("✅ Cleaned %d invalid decision records for trader %s", result.RowsAffected, traderID)
-	c.JSON(http.StatusOK, gin.H{
-		"message":         "Invalid decision records cleaned successfully",
-		"deleted_count":   result.RowsAffected,
-		"matched_records": count,
-		"affected_trader": traderID,
-	})
-}
-
-// ============================================================================
+// ============================================================
+================
 // End of Server Implementation
-// ============================================================================
+// ============================================================
+================
