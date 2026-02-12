@@ -420,10 +420,18 @@ func parseFullDecisionResponse(aiResponse string, accountEquity float64, btcEthL
 	}, nil
 }
 
-// extractCoTTrace 提取思维链分析（保留完整的AI响应，包括JSON内容）
+// extractCoTTrace 提取思维链分析
 func extractCoTTrace(response string) string {
-	// 返回完整的AI响应内容，确保思维链中保留所有内容，包括JSON
-	return response
+	// 查找JSON数组的开始位置
+	jsonStart := strings.Index(response, "[")
+
+	if jsonStart > 0 {
+		// 思维链是JSON数组之前的内容
+		return strings.TrimSpace(response[:jsonStart])
+	}
+
+	// 如果找不到JSON，整个响应都是思维链
+	return strings.TrimSpace(response)
 }
 
 // extractDecisions 提取JSON决策列表

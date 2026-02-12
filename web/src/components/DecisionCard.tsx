@@ -2,94 +2,7 @@ import { useState } from 'react'
 import type { DecisionRecord, DecisionAction } from '../types'
 import { t, type Language } from '../i18n/translations'
 
-// AI思维链内容组件 - 智能识别和格式化JSON内容
-function CoTContent({ content }: { content: string }) {
-  // 检测并提取JSON内容
-  const extractJSONSections = (text: string) => {
-    const sections = []
-    let lastIndex = 0
-    
-    // 匹配JSON对象或数组
-    const jsonRegex = /\{[^{}]*\{[^{}]*\}[^{}]*\}|\[[^\[\]]*\[[^\[\]]*\][^\[\]]*\]|\{[^{}]*\}|\[[^\[\]]*\]/g
-    let match
-    
-    while ((match = jsonRegex.exec(text)) !== null) {
-      // 添加JSON之前的内容
-      if (match.index > lastIndex) {
-        sections.push({
-          type: 'text',
-          content: text.substring(lastIndex, match.index)
-        })
-      }
-      
-      // 添加JSON内容
-      try {
-        const parsed = JSON.parse(match[0])
-        sections.push({
-          type: 'json',
-          content: match[0],
-          parsed: parsed
-        })
-      } catch (e) {
-        // 如果JSON解析失败，当作普通文本处理
-        sections.push({
-          type: 'text',
-          content: match[0]
-        })
-      }
-      
-      lastIndex = match.index + match[0].length
-    }
-    
-    // 添加剩余内容
-    if (lastIndex < text.length) {
-      sections.push({
-        type: 'text',
-        content: text.substring(lastIndex)
-      })
-    }
-    
-    return sections
-  }
 
-  const sections = extractJSONSections(content)
-
-  return (
-    <div className="font-mono text-sm leading-relaxed">
-      {sections.map((section, index) => (
-        <div key={index} className="mb-2 last:mb-0">
-          {section.type === 'json' ? (
-            <div className="bg-gray-800/50 rounded p-3 border border-gray-700">
-              <div className="flex items-center gap-2 mb-2">
-                <span className="text-yellow-400 text-xs font-bold">📊 JSON DATA</span>
-                <button
-                  onClick={() => {
-                    try {
-                      navigator.clipboard.writeText(JSON.stringify(section.parsed, null, 2))
-                      alert('JSON copied to clipboard!')
-                    } catch (err) {
-                      console.error('Failed to copy:', err)
-                    }
-                  }}
-                  className="text-xs px-2 py-0.5 rounded bg-blue-500/20 text-blue-400 hover:bg-blue-500/30 transition-colors"
-                >
-                  📋 Copy
-                </button>
-              </div>
-              <pre className="text-gray-300 overflow-x-auto text-xs">
-                {JSON.stringify(section.parsed, null, 2)}
-              </pre>
-            </div>
-          ) : (
-            <div className="text-gray-300 whitespace-pre-wrap">
-              {section.content}
-            </div>
-          )}
-        </div>
-      ))}
-    </div>
-  )
-}
 
 interface DecisionCardProps {
   decision: DecisionRecord
@@ -310,7 +223,6 @@ function ActionCard({ action, language, onSymbolClick }: { action: DecisionActio
 export function DecisionCard({ decision, language, onSymbolClick, onDelete }: DecisionCardProps) {
   const [showSystemPrompt, setShowSystemPrompt] = useState(false)
   const [showInputPrompt, setShowInputPrompt] = useState(false)
-  const [showJSON, setShowJSON] = useState(false)
   const [showCoT, setShowCoT] = useState(false)
 
   // Copy text to clipboard
@@ -528,131 +440,7 @@ export function DecisionCard({ decision, language, onSymbolClick, onDelete }: De
           </div>
         )}
 
-        {/* JSON Content */}
-        {decision.decision_json && (
-          <div>
-            <div className="flex items-center gap-2 justify-between mt-3">
-              <button
-                onClick={() => setShowJSON(!showJSON)}
-                className="flex items-center gap-2 text-sm transition-colors w-full p-2 rounded hover:bg-white/5"
-              >
-                <div className="flex items-center gap-2">
-                  <span className="text-base">📋</span>
-                  <span className="font-semibold" style={{ color: '#10B981' }}>
-                    JSON Decision
-                  </span>
-                </div>
-                <span
-                  className="text-xs px-2 py-0.5 rounded"
-                  style={{ background: 'rgba(16, 185, 129, 0.15)', color: '#10B981' }}
-                >
-                  {showJSON ? t('collapse', language) : t('expand', language)}
-                </span>
-              </button>
-              <div className="flex items-center gap-2 ml-2">
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    copyToClipboard(decision.decision_json, 'JSON Decision')
-                  }}
-                  className="text-xs px-2.5 py-1 rounded hover:opacity-80 transition-opacity flex items-center gap-1"
-                  style={{ background: 'rgba(16, 185, 129, 0.2)', color: '#10B981', border: '1px solid rgba(16, 185, 129, 0.3)' }}
-                  title="Copy to clipboard"
-                >
-                  <span>📋</span>
-                </button>
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    downloadAsFile(decision.decision_json, `json-decision-cycle-${decision.cycle_number}.json`)
-                  }}
-                  className="text-xs px-2.5 py-1 rounded hover:opacity-80 transition-opacity flex items-center gap-1"
-                  style={{ background: 'rgba(16, 185, 129, 0.2)', color: '#10B981', border: '1px solid rgba(16, 185, 129, 0.3)' }}
-                  title="Download as file"
-                >
-                  <span>💾</span>
-                </button>
-              </div>
-            </div>
-            {showJSON && (
-              <div
-                className="mt-2 rounded-lg p-4 text-sm font-mono whitespace-pre-wrap max-h-96 overflow-y-auto"
-                style={{
-                  background: '#0B0E11',
-                  border: '1px solid #2B3139',
-                  color: '#EAECEF',
-                }}
-              >
-                <pre className="text-green-400 overflow-x-auto">
-                  {JSON.stringify(JSON.parse(decision.decision_json), null, 2)}
-                </pre>
-              </div>
-            )}
-          </div>
-        )}
 
-        {/* JSON Content */}
-        {decision.decision_json && (
-          <div>
-            <div className="flex items-center gap-2 justify-between mt-3">
-              <button
-                onClick={() => setShowJSON(!showJSON)}
-                className="flex items-center gap-2 text-sm transition-colors w-full p-2 rounded hover:bg-white/5"
-              >
-                <div className="flex items-center gap-2">
-                  <span className="text-base">📋</span>
-                  <span className="font-semibold" style={{ color: '#10B981' }}>
-                    JSON Decision
-                  </span>
-                </div>
-                <span
-                  className="text-xs px-2 py-0.5 rounded"
-                  style={{ background: 'rgba(16, 185, 129, 0.15)', color: '#10B981' }}
-                >
-                  {showJSON ? t('collapse', language) : t('expand', language)}
-                </span>
-              </button>
-              <div className="flex items-center gap-2 ml-2">
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    copyToClipboard(decision.decision_json, 'JSON Decision')
-                  }}
-                  className="text-xs px-2.5 py-1 rounded hover:opacity-80 transition-opacity flex items-center gap-1"
-                  style={{ background: 'rgba(16, 185, 129, 0.2)', color: '#10B981', border: '1px solid rgba(16, 185, 129, 0.3)' }}
-                  title="Copy to clipboard"
-                >
-                  <span>📋</span>
-                </button>
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    downloadAsFile(decision.decision_json, `json-decision-cycle-${decision.cycle_number}.json`)
-                  }}
-                  className="text-xs px-2.5 py-1 rounded hover:opacity-80 transition-opacity flex items-center gap-1"
-                  style={{ background: 'rgba(16, 185, 129, 0.2)', color: '#10B981', border: '1px solid rgba(16, 185, 129, 0.3)' }}
-                  title="Download as file"
-                >
-                  <span>💾</span>
-                </button>
-              </div>
-            </div>
-            {showJSON && (
-              <div
-                className="mt-2 rounded-lg p-4 text-sm font-mono whitespace-pre-wrap max-h-96 overflow-y-auto"
-                style={{
-                  background: '#0B0E11',
-                  border: '1px solid #2B3139',
-                  color: '#EAECEF',
-                }}
-              >
-                <pre className="text-green-400 overflow-x-auto">
-                  {JSON.stringify(JSON.parse(decision.decision_json), null, 2)}
-                </pre>
-              </div>
-            )}
-          </div>
-        )}
 
         {/* AI Thinking */}
         {decision.cot_trace && (
@@ -676,13 +464,14 @@ export function DecisionCard({ decision, language, onSymbolClick, onDelete }: De
             </button>
             {showCoT && (
               <div
-                className="mt-2 rounded-lg p-4 text-sm max-h-96 overflow-y-auto"
+                className="mt-2 rounded-lg p-4 text-sm font-mono whitespace-pre-wrap max-h-96 overflow-y-auto"
                 style={{
                   background: '#0B0E11',
                   border: '1px solid #2B3139',
+                  color: '#EAECEF',
                 }}
               >
-                <CoTContent content={decision.cot_trace} />
+                {decision.cot_trace}
               </div>
             )}
           </div>
