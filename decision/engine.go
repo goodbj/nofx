@@ -84,8 +84,8 @@ type Decision struct {
 	MaxPositionUSD  float64 `json:"max_position_usd,omitempty"`  // 最大仓位金额限制
 	MaxDailyLoss    float64 `json:"max_daily_loss,omitempty"`    // 最大日亏损限制
 	TimeInForce     string  `json:"time_in_force,omitempty"`     // 订单时效类型（GTC, IOC, FOK等）
-	Confidence      int     `json:"confidence,omitempty"` // 信心度 (0-100)
-	RiskUSD         float64 `json:"risk_usd,omitempty"`   // 最大美元风险
+	Confidence      int     `json:"confidence,omitempty"`        // 信心度 (0-100)
+	RiskUSD         float64 `json:"risk_usd,omitempty"`          // 最大美元风险
 	Reasoning       string  `json:"reasoning"`
 }
 
@@ -420,18 +420,10 @@ func parseFullDecisionResponse(aiResponse string, accountEquity float64, btcEthL
 	}, nil
 }
 
-// extractCoTTrace 提取思维链分析
+// extractCoTTrace 提取思维链分析（保留完整的AI响应，包括JSON内容）
 func extractCoTTrace(response string) string {
-	// 查找JSON数组的开始位置
-	jsonStart := strings.Index(response, "[")
-
-	if jsonStart > 0 {
-		// 思维链是JSON数组之前的内容
-		return strings.TrimSpace(response[:jsonStart])
-	}
-
-	// 如果找不到JSON，整个响应都是思维链
-	return strings.TrimSpace(response)
+	// 返回完整的AI响应内容，确保思维链中保留所有内容，包括JSON
+	return response
 }
 
 // extractDecisions 提取JSON决策列表
@@ -510,15 +502,15 @@ func findMatchingBracket(s string, start int) int {
 func validateDecision(d *Decision, accountEquity float64, btcEthLeverage, altcoinLeverage int) error {
 	// 验证action
 	validActions := map[string]bool{
-		"open_long":         true,
-		"open_short":        true,
-		"close_long":        true,
-		"close_short":       true,
-		"hold":              true,
-		"wait":              true,
-		"update_stop_loss":  true,
+		"open_long":          true,
+		"open_short":         true,
+		"close_long":         true,
+		"close_short":        true,
+		"hold":               true,
+		"wait":               true,
+		"update_stop_loss":   true,
 		"update_take_profit": true,
-		"partial_close":     true,
+		"partial_close":      true,
 	}
 
 	if !validActions[d.Action] {
