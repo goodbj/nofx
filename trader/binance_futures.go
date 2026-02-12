@@ -1,4 +1,4 @@
-package trader
+﻿package trader
 
 import (
 	"context"
@@ -62,7 +62,7 @@ type FuturesTrader struct {
 	positionsCacheTime  time.Time
 	positionsCacheMutex sync.RWMutex
 
-	// Cache validity period (15 seconds)
+	// Cache validity period (30 seconds for better performance)
 	cacheDuration time.Duration
 }
 
@@ -137,7 +137,7 @@ func NewFuturesTrader(apiKey, secretKey, userId, customEndpoint string) *Futures
 	syncBinanceServerTime(client)
 	trader := &FuturesTrader{
 		client:        client,
-		cacheDuration: 15 * time.Second, // 15-second cache
+		cacheDuration: 30 * time.Second, // 30-second cache for better performance
 	}
 
 	// Set dual-side position mode (Hedge Mode)
@@ -198,7 +198,7 @@ func NewFuturesTraderViaProxy(apiKey, secretKey, userId, proxyURL, targetEndpoin
 	syncBinanceServerTime(client)
 	trader := &FuturesTrader{
 		client:        client,
-		cacheDuration: 15 * time.Second, // 15-second cache
+		cacheDuration: 30 * time.Second, // 30-second cache for better performance
 	}
 
 	// Set dual-side position mode (Hedge Mode)
@@ -213,7 +213,7 @@ func NewFuturesTraderViaProxy(apiKey, secretKey, userId, proxyURL, targetEndpoin
 // setDualSidePosition sets dual-side position mode (called during initialization)
 func (t *FuturesTrader) setDualSidePosition() error {
 	// Try to set dual-side position mode
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	err := t.client.NewChangePositionModeService().
 		DualSide(true). // true = dual-side position (Hedge Mode)
@@ -254,7 +254,7 @@ func (t *FuturesTrader) setDualSidePosition() error {
 
 // syncBinanceServerTime syncs Binance server time to ensure request timestamps are valid
 func syncBinanceServerTime(client *futures.Client) {
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	serverTime, err := client.NewServerTimeService().Do(ctx)
 	if err != nil {
@@ -268,7 +268,7 @@ func syncBinanceServerTime(client *futures.Client) {
 	logger.Infof("⏱ Binance server time synced, offset %dms", offset)
 }
 
-// GetBalance gets account balance (with cache and retry logic)
+// GetBalance gets account balance (with cache and smart retry logic)
 func (t *FuturesTrader) GetBalance() (map[string]interface{}, error) {
 	// First check if cache is valid
 	t.balanceCacheMutex.RLock()
@@ -280,40 +280,79 @@ func (t *FuturesTrader) GetBalance() (map[string]interface{}, error) {
 	}
 	t.balanceCacheMutex.RUnlock()
 
-	// Cache expired or doesn't exist, call API with retry
+	// Cache expired or doesn't exist, call API with smart retry
 	logger.Infof("🔄 Cache expired, calling Binance API to get account balance...")
 
 	var account *futures.Account
 	var err error
-	maxRetries := 3
 
-	for attempt := 1; attempt <= maxRetries; attempt++ {
-		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
-		account, err = t.client.NewGetAccountService().Do(ctx)
-		cancel()
+	// Try once with shorter timeout for fast response
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	account, err = t.client.NewGetAccountService().Do(ctx)
+	cancel()
 
-		if err == nil {
-			break // Success, exit retry loop
+	if err == nil {
+		// Success on first try, no need for retry
+		result := make(map[string]interface{})
+		result["totalWalletBalance"], _ = strconv.ParseFloat(account.TotalWalletBalance, 64)
+		result["availableBalance"], _ = strconv.ParseFloat(account.AvailableBalance, 64)
+		result["totalUnrealizedProfit"], _ = strconv.ParseFloat(account.TotalUnrealizedProfit, 64)
+
+		logger.Infof("✓ Binance API returned: total balance=%s, available=%s, unrealized PnL=%s",
+			account.TotalWalletBalance,
+			account.AvailableBalance,
+			account.TotalUnrealizedProfit)
+
+		// Update cache
+		t.balanceCacheMutex.Lock()
+		t.cachedBalance = result
+		t.balanceCacheTime = time.Now()
+		t.balanceCacheMutex.Unlock()
+
+		return result, nil
+	}
+
+	// If first attempt failed with network error, try with retry logic
+	isRetryable := strings.Contains(err.Error(), "EOF") ||
+		strings.Contains(err.Error(), "connection reset") ||
+		strings.Contains(err.Error(), "timeout") ||
+		strings.Contains(err.Error(), "i/o timeout")
+
+	if isRetryable {
+		// Perform retry logic only for network-related errors
+		maxRetries := 2 // Reduced retry count to improve performance
+
+		for attempt := 1; attempt <= maxRetries; attempt++ {
+			logger.Infof("❌ Binance API call failed (attempt %d/%d): %v", attempt, maxRetries, err)
+
+			// Wait before retry (shorter backoff)
+			waitTime := time.Duration(attempt) * 500 * time.Millisecond
+			logger.Infof("⏱ Retrying in %v...", waitTime)
+			time.Sleep(waitTime)
+
+			ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+			account, err = t.client.NewGetAccountService().Do(ctx)
+			cancel()
+
+			if err == nil {
+				break // Success, exit retry loop
+			}
+
+			// Check again if error is still retryable
+			isRetryable = strings.Contains(err.Error(), "EOF") ||
+				strings.Contains(err.Error(), "connection reset") ||
+				strings.Contains(err.Error(), "timeout") ||
+				strings.Contains(err.Error(), "i/o timeout")
+
+			if !isRetryable {
+				// Non-retryable error, break retry loop
+				break
+			}
 		}
+	}
 
-		// Log error details
-		logger.Infof("❌ Binance API call failed (attempt %d/%d): %v", attempt, maxRetries, err)
-
-		// Check if error is EOF or connection-related
-		isRetryable := strings.Contains(err.Error(), "EOF") ||
-			strings.Contains(err.Error(), "connection reset") ||
-			strings.Contains(err.Error(), "timeout") ||
-			strings.Contains(err.Error(), "i/o timeout")
-
-		if !isRetryable || attempt == maxRetries {
-			// Non-retryable error or final attempt failed
-			return nil, fmt.Errorf("failed to get account info after %d attempts: %w", attempt, err)
-		}
-
-		// Wait before retry (exponential backoff)
-		waitTime := time.Duration(attempt) * time.Second
-		logger.Infof("⏳ Retrying in %v...", waitTime)
-		time.Sleep(waitTime)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get account info: %w", err)
 	}
 
 	result := make(map[string]interface{})
@@ -335,7 +374,7 @@ func (t *FuturesTrader) GetBalance() (map[string]interface{}, error) {
 	return result, nil
 }
 
-// GetPositions gets all positions (with cache and retry logic)
+// GetPositions gets all positions (with cache and smart retry logic)
 func (t *FuturesTrader) GetPositions() ([]map[string]interface{}, error) {
 	// First check if cache is valid
 	t.positionsCacheMutex.RLock()
@@ -347,40 +386,96 @@ func (t *FuturesTrader) GetPositions() ([]map[string]interface{}, error) {
 	}
 	t.positionsCacheMutex.RUnlock()
 
-	// Cache expired or doesn't exist, call API with retry
+	// Cache expired or doesn't exist, call API with smart retry
 	logger.Infof("🔄 Cache expired, calling Binance API to get position information...")
 
 	var positions []*futures.PositionRisk
 	var err error
-	maxRetries := 3
 
-	for attempt := 1; attempt <= maxRetries; attempt++ {
-		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
-		positions, err = t.client.NewGetPositionRiskService().Do(ctx)
-		cancel()
+	// Try once with shorter timeout for fast response
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	positions, err = t.client.NewGetPositionRiskService().Do(ctx)
+	cancel()
 
-		if err == nil {
-			break // Success, exit retry loop
+	if err == nil {
+		// Success on first try, no need for retry
+		var result []map[string]interface{}
+		for _, pos := range positions {
+			posAmt, _ := strconv.ParseFloat(pos.PositionAmt, 64)
+			if posAmt == 0 {
+				continue // Skip positions with zero amount
+			}
+
+			posMap := make(map[string]interface{})
+			posMap["symbol"] = pos.Symbol
+			posMap["positionAmt"], _ = strconv.ParseFloat(pos.PositionAmt, 64)
+			posMap["entryPrice"], _ = strconv.ParseFloat(pos.EntryPrice, 64)
+			posMap["markPrice"], _ = strconv.ParseFloat(pos.MarkPrice, 64)
+			posMap["unRealizedProfit"], _ = strconv.ParseFloat(pos.UnRealizedProfit, 64)
+			posMap["leverage"], _ = strconv.ParseFloat(pos.Leverage, 64)
+			posMap["liquidationPrice"], _ = strconv.ParseFloat(pos.LiquidationPrice, 64)
+			// Note: Binance SDK doesn't expose updateTime field, will fallback to local tracking
+
+			// Determine direction
+			if posAmt > 0 {
+				posMap["side"] = "long"
+			} else {
+				posMap["side"] = "short"
+			}
+
+			result = append(result, posMap)
 		}
 
-		// Log error details
-		logger.Infof("❌ Binance API call failed (attempt %d/%d): %v", attempt, maxRetries, err)
+		// Update cache
+		t.positionsCacheMutex.Lock()
+		t.cachedPositions = result
+		t.positionsCacheTime = time.Now()
+		t.positionsCacheMutex.Unlock()
 
-		// Check if error is EOF or connection-related
-		isRetryable := strings.Contains(err.Error(), "EOF") ||
-			strings.Contains(err.Error(), "connection reset") ||
-			strings.Contains(err.Error(), "timeout") ||
-			strings.Contains(err.Error(), "i/o timeout")
+		return result, nil
+	}
 
-		if !isRetryable || attempt == maxRetries {
-			// Non-retryable error or final attempt failed
-			return nil, fmt.Errorf("failed to get positions after %d attempts: %w", attempt, err)
+	// If first attempt failed with network error, try with retry logic
+	isRetryable := strings.Contains(err.Error(), "EOF") ||
+		strings.Contains(err.Error(), "connection reset") ||
+		strings.Contains(err.Error(), "timeout") ||
+		strings.Contains(err.Error(), "i/o timeout")
+
+	if isRetryable {
+		// Perform retry logic only for network-related errors
+		maxRetries := 2 // Reduced retry count to improve performance
+
+		for attempt := 1; attempt <= maxRetries; attempt++ {
+			logger.Infof("❌ Binance API call failed (attempt %d/%d): %v", attempt, maxRetries, err)
+
+			// Wait before retry (shorter backoff)
+			waitTime := time.Duration(attempt) * 500 * time.Millisecond
+			logger.Infof("⏱ Retrying in %v...", waitTime)
+			time.Sleep(waitTime)
+
+			ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+			positions, err = t.client.NewGetPositionRiskService().Do(ctx)
+			cancel()
+
+			if err == nil {
+				break // Success, exit retry loop
+			}
+
+			// Check again if error is still retryable
+			isRetryable = strings.Contains(err.Error(), "EOF") ||
+				strings.Contains(err.Error(), "connection reset") ||
+				strings.Contains(err.Error(), "timeout") ||
+				strings.Contains(err.Error(), "i/o timeout")
+
+			if !isRetryable {
+				// Non-retryable error, break retry loop
+				break
+			}
 		}
+	}
 
-		// Wait before retry (exponential backoff)
-		waitTime := time.Duration(attempt) * time.Second
-		logger.Infof("⏳ Retrying in %v...", waitTime)
-		time.Sleep(waitTime)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get positions: %w", err)
 	}
 
 	var result []map[string]interface{}
@@ -429,7 +524,7 @@ func (t *FuturesTrader) SetMarginMode(symbol string, isCrossMargin bool) error {
 	}
 
 	// Try to set margin mode
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	err := t.client.NewChangeMarginTypeService().
 		Symbol(symbol).
@@ -508,8 +603,8 @@ func (t *FuturesTrader) SetLeverage(symbol string, leverage int) error {
 		return nil
 	}
 
-	// Change leverage
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	// Change leverage with optimized timeout
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	_, err = t.client.NewChangeLeverageService().
 		Symbol(symbol).
@@ -599,7 +694,7 @@ func (t *FuturesTrader) OpenLong(symbol string, quantity float64, leverage int) 
 	// Check if formatted quantity is 0 (prevent rounding errors)
 	quantityFloat, parseErr := strconv.ParseFloat(quantityStr, 64)
 	if parseErr != nil || quantityFloat <= 0 {
-		return nil, fmt.Errorf("position size too small, rounded to 0 (original: %.8f → formatted: %s). Suggest increasing position amount or selecting a lower-priced coin", quantity, quantityStr)
+		return nil, fmt.Errorf("position size too small, rounded to 0 (original: %.8f -> formatted: %s). Suggest increasing position amount or selecting a lower-priced coin", quantity, quantityStr)
 	}
 
 	// Check minimum notional value (Binance requires at least 10 USDT)
@@ -608,7 +703,7 @@ func (t *FuturesTrader) OpenLong(symbol string, quantity float64, leverage int) 
 	}
 
 	// Create market buy order (using br ID)
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	order, err := t.client.NewCreateOrderService().
 		Symbol(symbol).
@@ -657,7 +752,7 @@ func (t *FuturesTrader) OpenShort(symbol string, quantity float64, leverage int)
 	// Check if formatted quantity is 0 (prevent rounding errors)
 	quantityFloat, parseErr := strconv.ParseFloat(quantityStr, 64)
 	if parseErr != nil || quantityFloat <= 0 {
-		return nil, fmt.Errorf("position size too small, rounded to 0 (original: %.8f → formatted: %s). Suggest increasing position amount or selecting a lower-priced coin", quantity, quantityStr)
+		return nil, fmt.Errorf("position size too small, rounded to 0 (original: %.8f -> formatted: %s). Suggest increasing position amount or selecting a lower-priced coin", quantity, quantityStr)
 	}
 
 	// Check minimum notional value (Binance requires at least 10 USDT)
@@ -666,7 +761,7 @@ func (t *FuturesTrader) OpenShort(symbol string, quantity float64, leverage int)
 	}
 
 	// Create market sell order (using br ID)
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	order, err := t.client.NewCreateOrderService().
 		Symbol(symbol).
@@ -733,7 +828,7 @@ func (t *FuturesTrader) CloseLong(symbol string, quantity float64) (map[string]i
 	}
 
 	// Create market sell order (close long, using br ID)
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	order, err := t.client.NewCreateOrderService().
 		Symbol(symbol).
@@ -804,7 +899,7 @@ func (t *FuturesTrader) CloseShort(symbol string, quantity float64) (map[string]
 	}
 
 	// Create market buy order (close short, using br ID)
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	order, err := t.client.NewCreateOrderService().
 		Symbol(symbol).
@@ -840,7 +935,7 @@ func (t *FuturesTrader) CancelStopLossOrders(symbol string) error {
 	var cancelErrors []error
 
 	// 1. Cancel legacy stop-loss orders
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	orders, err := t.client.NewListOpenOrdersService().
 		Symbol(symbol).
@@ -853,7 +948,7 @@ func (t *FuturesTrader) CancelStopLossOrders(symbol string) error {
 			// Only cancel stop-loss orders (don't cancel take-profit orders)
 			// Use string comparison since OrderType constants were removed in v2.8.9
 			if orderType == "STOP_MARKET" || orderType == "STOP" {
-				ctx1, cancel1 := context.WithTimeout(context.Background(), 20*time.Second)
+				ctx1, cancel1 := context.WithTimeout(context.Background(), 15*time.Second)
 				defer cancel1()
 				_, err := t.client.NewCancelOrderService().
 					Symbol(symbol).
@@ -874,7 +969,7 @@ func (t *FuturesTrader) CancelStopLossOrders(symbol string) error {
 	}
 
 	// 2. Cancel Algo stop-loss orders
-	ctx2, cancel2 := context.WithTimeout(context.Background(), 20*time.Second)
+	ctx2, cancel2 := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel2()
 	algoOrders, err := t.client.NewListOpenAlgoOrdersService().
 		Symbol(symbol).
@@ -884,7 +979,7 @@ func (t *FuturesTrader) CancelStopLossOrders(symbol string) error {
 		for _, algoOrder := range algoOrders {
 			// Only cancel stop-loss orders
 			if algoOrder.OrderType == futures.AlgoOrderTypeStopMarket || algoOrder.OrderType == futures.AlgoOrderTypeStop {
-				ctx3, cancel3 := context.WithTimeout(context.Background(), 20*time.Second)
+				ctx3, cancel3 := context.WithTimeout(context.Background(), 15*time.Second)
 				defer cancel3()
 				_, err := t.client.NewCancelAlgoOrderService().
 					AlgoID(algoOrder.AlgoId).
@@ -924,7 +1019,7 @@ func (t *FuturesTrader) CancelTakeProfitOrders(symbol string) error {
 	var cancelErrors []error
 
 	// 1. Cancel legacy take-profit orders
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	orders, err := t.client.NewListOpenOrdersService().
 		Symbol(symbol).
@@ -937,7 +1032,7 @@ func (t *FuturesTrader) CancelTakeProfitOrders(symbol string) error {
 			// Only cancel take-profit orders (don't cancel stop-loss orders)
 			// Use string comparison since OrderType constants were removed in v2.8.9
 			if orderType == "TAKE_PROFIT_MARKET" || orderType == "TAKE_PROFIT" {
-				ctx1, cancel1 := context.WithTimeout(context.Background(), 20*time.Second)
+				ctx1, cancel1 := context.WithTimeout(context.Background(), 15*time.Second)
 				defer cancel1()
 				_, err := t.client.NewCancelOrderService().
 					Symbol(symbol).
@@ -958,7 +1053,7 @@ func (t *FuturesTrader) CancelTakeProfitOrders(symbol string) error {
 	}
 
 	// 2. Cancel Algo take-profit orders
-	ctx2, cancel2 := context.WithTimeout(context.Background(), 20*time.Second)
+	ctx2, cancel2 := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel2()
 	algoOrders, err := t.client.NewListOpenAlgoOrdersService().
 		Symbol(symbol).
@@ -968,7 +1063,7 @@ func (t *FuturesTrader) CancelTakeProfitOrders(symbol string) error {
 		for _, algoOrder := range algoOrders {
 			// Only cancel take-profit orders
 			if algoOrder.OrderType == futures.AlgoOrderTypeTakeProfitMarket || algoOrder.OrderType == futures.AlgoOrderTypeTakeProfit {
-				ctx3, cancel3 := context.WithTimeout(context.Background(), 20*time.Second)
+				ctx3, cancel3 := context.WithTimeout(context.Background(), 15*time.Second)
 				defer cancel3()
 				_, err := t.client.NewCancelAlgoOrderService().
 					AlgoID(algoOrder.AlgoId).
@@ -1005,7 +1100,7 @@ func (t *FuturesTrader) CancelTakeProfitOrders(symbol string) error {
 // Now uses both legacy API and new Algo Order API
 func (t *FuturesTrader) CancelAllOrders(symbol string) error {
 	// 1. Cancel all legacy orders
-	ctx1, cancel1 := context.WithTimeout(context.Background(), 20*time.Second)
+	ctx1, cancel1 := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel1()
 	err := t.client.NewCancelAllOpenOrdersService().
 		Symbol(symbol).
@@ -1018,7 +1113,7 @@ func (t *FuturesTrader) CancelAllOrders(symbol string) error {
 	}
 
 	// 2. Cancel all Algo orders
-	ctx2, cancel2 := context.WithTimeout(context.Background(), 20*time.Second)
+	ctx2, cancel2 := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel2()
 	err = t.client.NewCancelAllAlgoOpenOrdersService().
 		Symbol(symbol).
@@ -1043,7 +1138,7 @@ func (t *FuturesTrader) CancelStopOrders(symbol string) error {
 	var cancelErrors []error
 
 	// 1. Cancel legacy stop-loss and take-profit orders
-	ctx1, cancel1 := context.WithTimeout(context.Background(), 20*time.Second)
+	ctx1, cancel1 := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel1()
 	orders, err := t.client.NewListOpenOrdersService().
 		Symbol(symbol).
@@ -1055,7 +1150,7 @@ func (t *FuturesTrader) CancelStopOrders(symbol string) error {
 
 			// Cancel both stop-loss and take-profit orders
 			if orderType == "STOP_MARKET" || orderType == "STOP" || orderType == "TAKE_PROFIT_MARKET" || orderType == "TAKE_PROFIT" {
-				ctx2, cancel2 := context.WithTimeout(context.Background(), 20*time.Second)
+				ctx2, cancel2 := context.WithTimeout(context.Background(), 15*time.Second)
 				defer cancel2()
 				_, err := t.client.NewCancelOrderService().
 					Symbol(symbol).
@@ -1076,7 +1171,7 @@ func (t *FuturesTrader) CancelStopOrders(symbol string) error {
 	}
 
 	// 2. Cancel Algo stop-loss and take-profit orders
-	ctx3, cancel3 := context.WithTimeout(context.Background(), 20*time.Second)
+	ctx3, cancel3 := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel3()
 	algoOrders, err := t.client.NewListOpenAlgoOrdersService().
 		Symbol(symbol).
@@ -1090,7 +1185,7 @@ func (t *FuturesTrader) CancelStopOrders(symbol string) error {
 				algoOrder.OrderType == futures.AlgoOrderTypeTakeProfitMarket ||
 				algoOrder.OrderType == futures.AlgoOrderTypeTakeProfit {
 
-				ctx4, cancel4 := context.WithTimeout(context.Background(), 20*time.Second)
+				ctx4, cancel4 := context.WithTimeout(context.Background(), 15*time.Second)
 				defer cancel4()
 				_, err := t.client.NewCancelAlgoOrderService().
 					AlgoID(algoOrder.AlgoId).
@@ -1146,7 +1241,7 @@ func (t *FuturesTrader) PartialClose(symbol string, side string, percentage floa
 	}
 
 	if currentPos == nil {
-		return nil, fmt.Errorf("未找到 %s 的%s仓位", symbol, side)
+		return nil, fmt.Errorf("未找到 %s 的 %s 仓位", symbol, side)
 	}
 
 	// 计算部分平仓数量
@@ -1186,7 +1281,7 @@ func (t *FuturesTrader) PartialClose(symbol string, side string, percentage floa
 		posSideType = futures.PositionSideTypeShort
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	order, err = t.client.NewCreateOrderService().
 		Symbol(symbol).
@@ -1249,7 +1344,7 @@ func (t *FuturesTrader) UpdateStopLoss(symbol string, positionSide string, newSt
 	}
 
 	if currentQty == 0 {
-		return fmt.Errorf("未找到 %s 的%s仓位", symbol, positionSide)
+		return fmt.Errorf("未找到 %s 的 %s 仓位", symbol, positionSide)
 	}
 
 	// 设置新的止损单
@@ -1294,7 +1389,7 @@ func (t *FuturesTrader) UpdateTakeProfit(symbol string, positionSide string, new
 	}
 
 	if currentQty == 0 {
-		return fmt.Errorf("未找到 %s 的%s仓位", symbol, positionSide)
+		return fmt.Errorf("未找到 %s 的 %s 仓位", symbol, positionSide)
 	}
 
 	// 设置新的止盈单
@@ -1303,7 +1398,7 @@ func (t *FuturesTrader) UpdateTakeProfit(symbol string, positionSide string, new
 
 // GetMarketPrice 获取市场价格
 func (t *FuturesTrader) GetMarketPrice(symbol string) (float64, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	prices, err := t.client.NewListPricesService().Symbol(symbol).Do(ctx)
 	if err != nil {
@@ -1351,7 +1446,7 @@ func (t *FuturesTrader) SetStopLoss(symbol string, positionSide string, quantity
 	}
 
 	// Use new Algo Order API
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	_, err = t.client.NewCreateAlgoOrderService().
 		Symbol(symbol).
@@ -1400,7 +1495,7 @@ func (t *FuturesTrader) SetTakeProfit(symbol string, positionSide string, quanti
 
 	// Use new Algo Order API
 	// Note: Using Quantity instead of ClosePosition for consistency and best practices
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	_, err = t.client.NewCreateAlgoOrderService().
 		Symbol(symbol).
@@ -1467,7 +1562,7 @@ func (t *FuturesTrader) SetTrailingStop(symbol string, positionSide string, quan
 	// Use new Algo Order API with trailing stop parameters
 	// Note: TRAILING_STOP_MARKET does not support ClosePosition parameter
 	// Must use Quantity instead
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	_, err = t.client.NewCreateAlgoOrderService().
 		Symbol(symbol).
@@ -1517,11 +1612,77 @@ func (t *FuturesTrader) CheckMinNotional(symbol string, quantity float64) error 
 
 // GetSymbolPrecision gets the quantity precision for a trading pair
 func (t *FuturesTrader) GetSymbolPrecision(symbol string) (int, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
-	defer cancel()
-	exchangeInfo, err := t.client.NewExchangeInfoService().Do(ctx)
+	// Try to get exchange info with retry logic for network errors
+	var exchangeInfo *futures.ExchangeInfo
+	var err error
+
+	// First try with shorter timeout for quick response
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	exchangeInfo, err = t.client.NewExchangeInfoService().Do(ctx)
+	cancel()
+
+	if err == nil {
+		// Success on first try, no need for retry
+		for _, s := range exchangeInfo.Symbols {
+			if s.Symbol == symbol {
+				// Get precision from LOT_SIZE filter
+				for _, filter := range s.Filters {
+					if filter["filterType"] == "LOT_SIZE" {
+						stepSize := filter["stepSize"].(string)
+						precision := calculatePrecision(stepSize)
+						logger.Infof("  %s quantity precision: %d (stepSize: %s)", symbol, precision, stepSize)
+						return precision, nil
+					}
+				}
+			}
+		}
+
+		logger.Infof("  ⚠ %s precision information not found, using default precision 3", symbol)
+		return 3, nil // Default precision is 3
+	}
+
+	// If first attempt failed with network error, try with retry logic
+	isRetryable := strings.Contains(err.Error(), "EOF") ||
+		strings.Contains(err.Error(), "connection reset") ||
+		strings.Contains(err.Error(), "timeout") ||
+		strings.Contains(err.Error(), "i/o timeout")
+
+	if isRetryable {
+		// Perform retry logic only for network-related errors
+		maxRetries := 2
+
+		for attempt := 1; attempt <= maxRetries; attempt++ {
+			logger.Infof("❌ Exchange info API call failed (attempt %d/%d): %v", attempt, maxRetries, err)
+
+			// Wait before retry (shorter backoff)
+			waitTime := time.Duration(attempt) * 500 * time.Millisecond
+			logger.Infof("⏳ Retrying in %v...", waitTime)
+			time.Sleep(waitTime)
+
+			ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+			exchangeInfo, err = t.client.NewExchangeInfoService().Do(ctx)
+			cancel()
+
+			if err == nil {
+				break // Success, exit retry loop
+			}
+
+			// Check again if error is still retryable
+			isRetryable = strings.Contains(err.Error(), "EOF") ||
+				strings.Contains(err.Error(), "connection reset") ||
+				strings.Contains(err.Error(), "timeout") ||
+				strings.Contains(err.Error(), "i/o timeout")
+
+			if !isRetryable {
+				// Non-retryable error, break retry loop
+				break
+			}
+		}
+	}
+
 	if err != nil {
-		return 0, fmt.Errorf("failed to get trading rules: %w", err)
+		logger.Warnf("⚠️ Failed to get exchange info for %s, using default precision 3: %v", symbol, err)
+		return 3, nil // Return default precision instead of error to prevent failure
 	}
 
 	for _, s := range exchangeInfo.Symbols {
@@ -1590,20 +1751,90 @@ func (t *FuturesTrader) FormatQuantity(symbol string, quantity float64) (string,
 	precision, err := t.GetSymbolPrecision(symbol)
 	if err != nil {
 		// If retrieval fails, use default format
-		return fmt.Sprintf("%.3f", quantity), nil
+		formatted := fmt.Sprintf("%.3f", quantity)
+		logger.Warnf("⚠️ Using default precision for %s, formatted quantity: %s", symbol, formatted)
+		return formatted, nil
 	}
 
 	format := fmt.Sprintf("%%.%df", precision)
-	return fmt.Sprintf(format, quantity), nil
+	formatted := fmt.Sprintf(format, quantity)
+	logger.Debugf("Formatted quantity for %s: %s (precision: %d)", symbol, formatted, precision)
+	return formatted, nil
 }
 
 // GetPricePrecision gets the price precision for a trading pair
 func (t *FuturesTrader) GetPricePrecision(symbol string) (int, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
-	defer cancel()
-	exchangeInfo, err := t.client.NewExchangeInfoService().Do(ctx)
+	// Try to get exchange info with retry logic for network errors
+	var exchangeInfo *futures.ExchangeInfo
+	var err error
+
+	// First try with shorter timeout for quick response
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	exchangeInfo, err = t.client.NewExchangeInfoService().Do(ctx)
+	cancel()
+
+	if err == nil {
+		// Success on first try, no need for retry
+		for _, s := range exchangeInfo.Symbols {
+			if s.Symbol == symbol {
+				// Get precision from PRICE_FILTER
+				for _, filter := range s.Filters {
+					if filter["filterType"] == "PRICE_FILTER" {
+						tickSize := filter["tickSize"].(string)
+						precision := calculatePrecision(tickSize)
+						logger.Infof("  %s price precision: %d (tickSize: %s)", symbol, precision, tickSize)
+						return precision, nil
+					}
+				}
+			}
+		}
+
+		logger.Infof("  ⚠ %s price precision information not found, using default precision 2", symbol)
+		return 2, nil // Default price precision is 2
+	}
+
+	// If first attempt failed with network error, try with retry logic
+	isRetryable := strings.Contains(err.Error(), "EOF") ||
+		strings.Contains(err.Error(), "connection reset") ||
+		strings.Contains(err.Error(), "timeout") ||
+		strings.Contains(err.Error(), "i/o timeout")
+
+	if isRetryable {
+		// Perform retry logic only for network-related errors
+		maxRetries := 2
+
+		for attempt := 1; attempt <= maxRetries; attempt++ {
+			logger.Infof("❌ Exchange info API call failed (attempt %d/%d): %v", attempt, maxRetries, err)
+
+			// Wait before retry (shorter backoff)
+			waitTime := time.Duration(attempt) * 500 * time.Millisecond
+			logger.Infof("⏳ Retrying in %v...", waitTime)
+			time.Sleep(waitTime)
+
+			ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+			exchangeInfo, err = t.client.NewExchangeInfoService().Do(ctx)
+			cancel()
+
+			if err == nil {
+				break // Success, exit retry loop
+			}
+
+			// Check again if error is still retryable
+			isRetryable = strings.Contains(err.Error(), "EOF") ||
+				strings.Contains(err.Error(), "connection reset") ||
+				strings.Contains(err.Error(), "timeout") ||
+				strings.Contains(err.Error(), "i/o timeout")
+
+			if !isRetryable {
+				// Non-retryable error, break retry loop
+				break
+			}
+		}
+	}
+
 	if err != nil {
-		return 0, fmt.Errorf("failed to get trading rules: %w", err)
+		logger.Warnf("⚠️ Failed to get price precision for %s, using default precision 2: %v", symbol, err)
+		return 2, nil // Return default precision instead of error to prevent failure
 	}
 
 	for _, s := range exchangeInfo.Symbols {
@@ -1621,7 +1852,7 @@ func (t *FuturesTrader) GetPricePrecision(symbol string) (int, error) {
 	}
 
 	logger.Infof("  ⚠ %s price precision information not found, using default precision 2", symbol)
-	return 2, nil // Default precision is 2
+	return 2, nil // Default price precision is 2
 }
 
 // FormatPrice formats price to correct precision
@@ -1629,11 +1860,15 @@ func (t *FuturesTrader) FormatPrice(symbol string, price float64) (string, error
 	precision, err := t.GetPricePrecision(symbol)
 	if err != nil {
 		// If retrieval fails, use default format
-		return fmt.Sprintf("%.2f", price), nil
+		formatted := fmt.Sprintf("%.2f", price)
+		logger.Warnf("⚠️ Using default precision for %s, formatted price: %s", symbol, formatted)
+		return formatted, nil
 	}
 
 	format := fmt.Sprintf("%%.%df", precision)
-	return fmt.Sprintf(format, price), nil
+	formatted := fmt.Sprintf(format, price)
+	logger.Debugf("Formatted price for %s: %s (precision: %d)", symbol, formatted, precision)
+	return formatted, nil
 }
 
 // Helper functions
@@ -1658,7 +1893,7 @@ func (t *FuturesTrader) GetOrderStatus(symbol string, orderID string) (map[strin
 		return nil, fmt.Errorf("invalid order ID: %s", orderID)
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	order, err := t.client.NewGetOrderService().
 		Symbol(symbol).
@@ -1761,7 +1996,7 @@ func (t *FuturesTrader) GetTrades(startTime time.Time, limit int) ([]TradeRecord
 	}
 
 	// Use Income API to get REALIZED_PNL records (all symbols)
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	incomes, err := t.client.NewGetIncomeHistoryService().
 		IncomeType("REALIZED_PNL").
@@ -1805,7 +2040,7 @@ func (t *FuturesTrader) GetTradesForSymbol(symbol string, startTime time.Time, l
 		limit = 1000
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	accountTrades, err := t.client.NewListAccountTradeService().
 		Symbol(symbol).
@@ -1850,7 +2085,7 @@ func (t *FuturesTrader) GetTradesForSymbolFromID(symbol string, fromID int64, li
 		limit = 1000
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	accountTrades, err := t.client.NewListAccountTradeService().
 		Symbol(symbol).
@@ -1888,7 +2123,7 @@ func (t *FuturesTrader) GetTradesForSymbolFromID(symbol string, fromID int64, li
 // GetCommissionSymbols returns symbols that have new commission records since lastSyncTime
 // COMMISSION income is generated for every trade, so this is more reliable than REALIZED_PNL
 func (t *FuturesTrader) GetCommissionSymbols(lastSyncTime time.Time) ([]string, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	incomes, err := t.client.NewGetIncomeHistoryService().
 		IncomeType("COMMISSION").
@@ -1917,7 +2152,7 @@ func (t *FuturesTrader) GetCommissionSymbols(lastSyncTime time.Time) ([]string, 
 // GetPnLSymbols returns symbols that have REALIZED_PNL records since lastSyncTime
 // This is a fallback when COMMISSION detection fails (VIP users, BNB fee discount)
 func (t *FuturesTrader) GetPnLSymbols(lastSyncTime time.Time) ([]string, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	incomes, err := t.client.NewGetIncomeHistoryService().
 		IncomeType("REALIZED_PNL").
@@ -1945,7 +2180,7 @@ func (t *FuturesTrader) GetPnLSymbols(lastSyncTime time.Time) ([]string, error) 
 
 // GetOpenOrders gets all open/pending orders for a symbol
 func (t *FuturesTrader) GetOpenOrders(symbol string) ([]OpenOrder, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	orders, err := t.client.NewListOpenOrdersService().
 		Symbol(symbol).
