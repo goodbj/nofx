@@ -198,29 +198,38 @@ func (gc *GuardianClient) performBrowserAutomation(prompt string) (string, error
 	opts := append(chromedp.DefaultExecAllocatorOptions[:],
 		chromedp.Flag("headless", false),             // 非无头模式以便观察
 		chromedp.Flag("disable-web-security", false), // 启用网络安全以支持正常网站功能
-		chromedp.Flag("disable-features", "VizDisplayCompositor"),
+		chromedp.Flag("disable-features", "VizDisplayCompositor,TranslateUI"),
 		chromedp.Flag("no-sandbox", true),
 		chromedp.Flag("disable-dev-shm-usage", true),
-		chromedp.Flag("disable-gpu", false),                    // 启用GPU加速
-		chromedp.Flag("blink-settings", "imagesEnabled=true"),  // 启用图片加载以支持验证码等功能
-		chromedp.Flag("enable-automation", false),              // 防止被网站检测为自动化
-		chromedp.Flag("exclude-switches", "enable-automation"), // 排除自动化开关
-		chromedp.Flag("disable-extensions", false),             // 启用扩展
-		chromedp.Flag("disable-plugins-discovery", false),      // 启用插件发现
-		chromedp.Flag("incognito", false),                      // 不使用隐身模式
+		chromedp.Flag("disable-gpu", false), // 启用GPU加速
+		chromedp.Flag("disable-software-rasterizer", true),
+		chromedp.Flag("disable-backgrounding-occluded-windows", false), // 确保窗口可见
+		chromedp.Flag("disable-background-timer-throttling", true),     // 防止定时器节流
+		chromedp.Flag("disable-background-networking", false),          // 允许后台网络活动
+		chromedp.Flag("disable-renderer-backgrounding", true),          // 防止后台渲染
+		chromedp.Flag("blink-settings", "imagesEnabled=true"),          // 启用图片加载以支持验证码等功能
+		chromedp.Flag("enable-automation", false),                      // 防止被网站检测为自动化
+		chromedp.Flag("exclude-switches", "enable-automation"),         // 排除自动化开关
+		chromedp.Flag("disable-extensions", false),                     // 启用扩展
+		chromedp.Flag("disable-plugins-discovery", false),              // 启用插件发现
+		chromedp.Flag("disable-plugins", true),
+		chromedp.Flag("disable-image-animation-resampling", true),
+		chromedp.Flag("disable-session-crashed-bubble", true),
+		chromedp.Flag("disable-breakpad", true),
+		chromedp.Flag("disable-field-trial-config", true),
+		chromedp.Flag("disable-ipc-flooding-protection", false),
+		chromedp.Flag("incognito", false), // 不使用隐身模式
 		chromedp.Flag("user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"), // 设置正常用户代理
 		chromedp.Flag("disable-blink-features", "AutomationControlled"),                                                                                // 禁用自动化控制特征
 		chromedp.Flag("renderer-process-limit", "1"),
-		chromedp.Flag("max_old_space_size", "4096"),
-		chromedp.Flag("no-first-run", "true"),
-		chromedp.Flag("no-default-browser-check", "true"),
-		chromedp.Flag("disable-backgrounding-occluded-windows", "false"), // 确保窗口可见
-		chromedp.Flag("disable-renderer-backgrounding", "true"),          // 防止后台渲染
-		chromedp.Flag("disable-background-timer-throttling", "true"),     // 防止定时器节流
-		chromedp.Flag("disable-background-networking", "false"),          // 允许后台网络活动
-		chromedp.Flag("window-size", "1000,850"),                         // 设置浏览器窗口尺寸为1000x850
-		chromedp.Flag("user-data-dir", userDir),                          // 每个实例使用独立的用户数据目录
-		chromedp.Flag("profile-directory", "Default"),                    // 使用默认配置文件
+		chromedp.Flag("max-old-space-size", "4096"),
+		chromedp.Flag("no-first-run", true),
+		chromedp.Flag("no-default-browser-check", true),
+		chromedp.Flag("disable-default-apps", true),
+		chromedp.Flag("window-size", "1000,850"),       // 设置浏览器窗口尺寸为1000x850
+		chromedp.Flag("user-data-dir", userDir),        // 每个实例使用独立的用户数据目录
+		chromedp.Flag("profile-directory", "Default"),  // 使用默认配置文件
+		chromedp.Flag("remote-debugging-port", "9222"), // 启用远程调试端口
 	)
 
 	allocCtx, allocCancel := chromedp.NewExecAllocator(context.Background(), opts...)

@@ -267,7 +267,10 @@ func (s *Server) setupRoutes() {
 			protected.GET("/open-orders", s.handleOpenOrders)      // Open orders from exchange (pending SL/TP)
 			protected.GET("/decisions", s.handleDecisions)
 			protected.GET("/decisions/latest", s.handleLatestDecisions)
-			protected.DELETE("/decisions/:id", s.handleDeleteDecision) // 🔥 删除单个决策记录
+			protected.DELETE("/decisions/:id", s.handleDeleteDecision)                  // 🔥 删除单个决策记录
+			protected.DELETE("/decisions/clean-errors", s.handleCleanErrorDecisions)    // 🔥 清理错误决策记录
+			protected.DELETE("/decisions/clean-before-time", s.handleCleanBeforeTime)   // 🔥 清理指定时间前的决策记录
+			protected.DELETE("/decisions/clean-invalid", s.handleCleanInvalidDecisions) // 🔥 清理无效决策记录（纯错误，没有计算结果）
 			protected.GET("/statistics", s.handleStatistics)
 
 			// Test API endpoint
@@ -4817,6 +4820,188 @@ func createBinanceTraderWithProxy(userID string, exchangeCfg *store.Exchange) tr
 		originalTrader := trader.NewFuturesTrader(string(exchangeCfg.APIKey), string(exchangeCfg.SecretKey), userID, realExchangeEndpoint)
 		return trader.NewProxyTraderWrapperWithAuth(originalTrader, "native", "", string(exchangeCfg.APIKey), string(exchangeCfg.SecretKey), realExchangeEndpoint)
 	}
+}
+
+// handleCleanErrorDecisions 清理错误的决策记录
+func (s *Server) handleCleanErrorDecisions(c *gin.Context) {
+	userID := c.GetString("user_id")
+	traderID := c.Query("trader_id")
+	if traderID == "" {
+		SafeBadRequest(c, "Trader ID is required")
+		return
+	}
+
+	// Verify trader belongs to current user
+	_, err := s.store.Trader().GetFullConfig(userID, traderID)
+	if err != nil {
+		logger.Errorf("User %s trying to clean decisions from unauthorized trader %s: %v", userID, traderID, err)
+		c.JSON(http.StatusForbidden, gin.H{"error": "No access permission"})
+		return
+	}
+
+	// Define error patterns to identify bad records
+	errorPatterns := []string{
+		"AI API call failed",
+		"guardian browser automation failed",
+		"context canceled",
+		"Invalid API-key",
+		"IP, or permissions",
+		"failed to retrieve AI response",
+		"failed to get positions",
+	}
+
+	// Build the query to find records with error messages containing the patterns
+	var queryConditions []string
+	var queryParams []interface{}
+
+	for i, pattern := range errorPatterns {
+		if i == 0 {
+			queryConditions = append(queryConditions, "error_message LIKE ?")
+		} else {
+			queryConditions = append(queryConditions, "OR error_message LIKE ?")
+		}
+		queryParams = append(queryParams, "%"+pattern+"%")
+	}
+
+	// Combine all conditions
+	finalQuery := "(" + strings.Join(queryConditions, " ") + ") AND trader_id = ?"
+	queryParams = append(queryParams, traderID)
+
+	// Count records that will be deleted
+	var count int64
+	err = s.store.GormDB().
+		Model(&store.DecisionRecordDB{}).
+		Where(finalQuery, queryParams...).
+		Count(&count).Error
+	if err != nil {
+		SafeInternalError(c, "Count error records", err)
+		return
+	}
+
+	// Perform the deletion
+	result := s.store.GormDB().
+		Where(finalQuery, queryParams...).
+		Delete(&store.DecisionRecordDB{})
+	if result.Error != nil {
+		SafeInternalError(c, "Delete error records", result.Error)
+		return
+	}
+
+	logger.Infof("✅ Cleaned %d error decision records for trader %s", result.RowsAffected, traderID)
+	c.JSON(http.StatusOK, gin.H{
+		"message":         "Error decision records cleaned successfully",
+		"deleted_count":   result.RowsAffected,
+		"matched_records": count,
+		"affected_trader": traderID,
+	})
+}
+
+// handleCleanBeforeTime 清理指定时间前的决策记录
+func (s *Server) handleCleanBeforeTime(c *gin.Context) {
+	userID := c.GetString("user_id")
+	traderID := c.Query("trader_id")
+	if traderID == "" {
+		SafeBadRequest(c, "Trader ID is required")
+		return
+	}
+
+	timeStr := c.Query("before_time")
+	if timeStr == "" {
+		SafeBadRequest(c, "before_time parameter is required (format: 2006-01-02T15:04:05Z)")
+		return
+	}
+
+	// Parse the time string
+	beforeTime, err := time.Parse(time.RFC3339, timeStr)
+	if err != nil {
+		SafeBadRequest(c, "Invalid time format, use RFC3339 format: 2006-01-02T15:04:05Z")
+		return
+	}
+
+	// Verify trader belongs to current user
+	_, err = s.store.Trader().GetFullConfig(userID, traderID)
+	if err != nil {
+		logger.Errorf("User %s trying to clean decisions from unauthorized trader %s: %v", userID, traderID, err)
+		c.JSON(http.StatusForbidden, gin.H{"error": "No access permission"})
+		return
+	}
+
+	// Count records that will be deleted
+	var count int64
+	err = s.store.GormDB().
+		Model(&store.DecisionRecordDB{}).
+		Where("trader_id = ? AND timestamp < ?", traderID, beforeTime).
+		Count(&count).Error
+	if err != nil {
+		SafeInternalError(c, "Count records before time", err)
+		return
+	}
+
+	// Perform the deletion
+	result := s.store.GormDB().
+		Where("trader_id = ? AND timestamp < ?", traderID, beforeTime).
+		Delete(&store.DecisionRecordDB{})
+	if result.Error != nil {
+		SafeInternalError(c, "Delete records before time", result.Error)
+		return
+	}
+
+	logger.Infof("✅ Cleaned %d decision records before %v for trader %s", result.RowsAffected, beforeTime, traderID)
+	c.JSON(http.StatusOK, gin.H{
+		"message":         "Decision records cleaned successfully",
+		"deleted_count":   result.RowsAffected,
+		"matched_records": count,
+		"affected_trader": traderID,
+		"before_time":     beforeTime,
+	})
+}
+
+// handleCleanInvalidDecisions 清理无效的决策记录（纯错误，没有计算结果）
+func (s *Server) handleCleanInvalidDecisions(c *gin.Context) {
+	userID := c.GetString("user_id")
+	traderID := c.Query("trader_id")
+	if traderID == "" {
+		SafeBadRequest(c, "Trader ID is required")
+		return
+	}
+
+	// Verify trader belongs to current user
+	_, err := s.store.Trader().GetFullConfig(userID, traderID)
+	if err != nil {
+		logger.Errorf("User %s trying to clean decisions from unauthorized trader %s: %v", userID, traderID, err)
+		c.JSON(http.StatusForbidden, gin.H{"error": "No access permission"})
+		return
+	}
+
+	// Define criteria for invalid records:
+	// 1. Has error message
+	// 2. No valid decision result (no decision_json, no calculated signals)
+	var count int64
+	err = s.store.GormDB().
+		Model(&store.DecisionRecordDB{}).
+		Where("trader_id = ? AND error_message != '' AND error_message IS NOT NULL AND decision_json IS NULL AND decision_json = ''", traderID).
+		Count(&count).Error
+	if err != nil {
+		SafeInternalError(c, "Count invalid records", err)
+		return
+	}
+
+	// Perform the deletion
+	result := s.store.GormDB().
+		Where("trader_id = ? AND error_message != '' AND error_message IS NOT NULL AND decision_json IS NULL AND decision_json = ''", traderID).
+		Delete(&store.DecisionRecordDB{})
+	if result.Error != nil {
+		SafeInternalError(c, "Delete invalid records", result.Error)
+		return
+	}
+
+	logger.Infof("✅ Cleaned %d invalid decision records for trader %s", result.RowsAffected, traderID)
+	c.JSON(http.StatusOK, gin.H{
+		"message":         "Invalid decision records cleaned successfully",
+		"deleted_count":   result.RowsAffected,
+		"matched_records": count,
+		"affected_trader": traderID,
+	})
 }
 
 // ============================================================================
