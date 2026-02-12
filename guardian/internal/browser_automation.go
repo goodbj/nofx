@@ -1,4 +1,4 @@
-package guardian
+﻿package guardian
 
 import (
 	"context"
@@ -12,16 +12,16 @@ import (
 	"github.com/chromedp/chromedp"
 )
 
-// BrowserAutomation 浏览器自动化控制器
+// BrowserAutomation 娴忚鍣ㄨ嚜鍔ㄥ寲鎺у埗鍣?
 type BrowserAutomation struct {
 	config  *config.BrowserConfig
 	ctx     context.Context
 	cancel  context.CancelFunc
-	browser context.Context // chromedp浏览器上下文
+	browser context.Context // chromedp娴忚鍣ㄤ笂涓嬫枃
 	isReady bool
 }
 
-// NewBrowserAutomation 创建浏览器自动化实例
+// NewBrowserAutomation 鍒涘缓娴忚鍣ㄨ嚜鍔ㄥ寲瀹炰緥
 func NewBrowserAutomation(browserConfig *config.BrowserConfig) (*BrowserAutomation, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 
@@ -32,7 +32,7 @@ func NewBrowserAutomation(browserConfig *config.BrowserConfig) (*BrowserAutomati
 		isReady: false,
 	}
 
-	// 初始化浏览器
+	// 鍒濆鍖栨祻瑙堝櫒
 	err := ba.InitBrowser()
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize browser: %w", err)
@@ -41,18 +41,18 @@ func NewBrowserAutomation(browserConfig *config.BrowserConfig) (*BrowserAutomati
 	return ba, nil
 }
 
-// InitBrowser 初始化浏览器
+// InitBrowser 鍒濆鍖栨祻瑙堝櫒
 func (ba *BrowserAutomation) InitBrowser() error {
-	log.Println("🌐 Initializing browser automation...")
+	log.Println("馃寪 Initializing browser automation...")
 
-	// 设置chromedp选项
+	// 璁剧疆chromedp閫夐」
 	options := []chromedp.ExecAllocatorOption{}
 
 	if ba.config.ExecutablePath != "" {
 		options = append(options, chromedp.ExecPath(ba.config.ExecutablePath))
 	}
 
-	// 添加规避检测的选项
+	// 娣诲姞瑙勯伩妫€娴嬬殑閫夐」
 	options = append(options,
 		chromedp.Flag("disable-blink-features", "AutomationControlled"),
 		chromedp.Flag("exclude-switches", "enable-automation"),
@@ -102,24 +102,24 @@ func (ba *BrowserAutomation) InitBrowser() error {
 		options = append(options, chromedp.Flag("disable-javascript", true))
 	}
 
-	// 添加额外参数
+	// 娣诲姞棰濆鍙傛暟
 	for _, arg := range ba.config.AdditionalArgs {
 		options = append(options, chromedp.Flag(strings.Split(arg, "=")[0], strings.Split(arg, "=")[1]))
 	}
 
-	// 创建分配器上下文
+	// 鍒涘缓鍒嗛厤鍣ㄤ笂涓嬫枃
 	allocatorCtx, browserCancel := chromedp.NewExecAllocator(context.Background(), options...)
 	ba.browser, ba.cancel = chromedp.NewContext(allocatorCtx)
 	ba.cancel = browserCancel // Override with allocator cancel to close browser properly
 
-	// 启动浏览器
+	// 鍚姩娴忚鍣?
 	if err := chromedp.Run(ba.browser); err != nil {
 		return fmt.Errorf("failed to start browser: %w", err)
 	}
 
 	ba.isReady = true
-	log.Println("✅ Browser automation ready")
-	// 注入JavaScript来隐藏webdriver属性
+	log.Println("鉁?Browser automation ready")
+	// 娉ㄥ叆JavaScript鏉ラ殣钘弚ebdriver灞炴€?
 	go func() {
 		chromedp.Run(ba.browser,
 			chromedp.Evaluate(
@@ -143,85 +143,85 @@ func (ba *BrowserAutomation) InitBrowser() error {
 	return nil
 }
 
-// ProcessPrompt 处理提示词，发送到浏览器AI服务并获取响应
+// ProcessPrompt 澶勭悊鎻愮ず璇嶏紝鍙戦€佸埌娴忚鍣ˋI鏈嶅姟骞惰幏鍙栧搷搴?
 func (ba *BrowserAutomation) ProcessPrompt(systemPrompt, userPrompt string) (string, error) {
 	if !ba.isReady {
 		return "", fmt.Errorf("browser automation not ready")
 	}
 
-	log.Println("💬 Processing prompt in browser AI service...")
+	log.Println("馃挰 Processing prompt in browser AI service...")
 
-	// 导航到AI服务页面
+	// 瀵艰埅鍒癆I鏈嶅姟椤甸潰
 	err := ba.navigateToPage()
 	if err != nil {
 		return "", fmt.Errorf("failed to navigate to AI page: %w", err)
 	}
 
-	// 清空输入框（如果存在之前的对话）
+	// 娓呯┖杈撳叆妗嗭紙濡傛灉瀛樺湪涔嬪墠鐨勫璇濓級
 	err = ba.clearChat()
 	if err != nil {
-		log.Printf("⚠️ Could not clear chat: %v", err)
-		// 继续执行，不清空可能也无妨
+		log.Printf("鈿狅笍 Could not clear chat: %v", err)
+		// 缁х画鎵ц锛屼笉娓呯┖鍙兘涔熸棤濡?
 	}
 
-	// 发送提示词到AI服务
+	// 鍙戦€佹彁绀鸿瘝鍒癆I鏈嶅姟
 	err = ba.sendPrompt(systemPrompt, userPrompt)
 	if err != nil {
 		return "", fmt.Errorf("failed to send prompt: %w", err)
 	}
 
-	// 等待AI响应
+	// 绛夊緟AI鍝嶅簲
 	response, err := ba.waitForResponse()
 	if err != nil {
 		return "", fmt.Errorf("failed to get AI response: %w", err)
 	}
 
-	log.Printf("✅ AI response received, length: %d", len(response))
+	log.Printf("鉁?AI response received, length: %d", len(response))
 	return response, nil
 }
 
-// navigateToPage 导航到AI服务页面
+// navigateToPage 瀵艰埅鍒癆I鏈嶅姟椤甸潰
 func (ba *BrowserAutomation) navigateToPage() error {
-	log.Printf("🧭 Navigating to AI service page...")
+	log.Printf("馃Л Navigating to AI service page...")
 
-	// 导航到指定的AI服务页面
+	// 瀵艰埅鍒版寚瀹氱殑AI鏈嶅姟椤甸潰
 	err := chromedp.Run(ba.browser,
-		chromedp.Navigate("https://chat.deepseek.com"),                               // 默认使用DeepSeek，可以通过配置更改
-		chromedp.WaitVisible("textarea[data-testid='chat-input']", chromedp.ByQuery), // 等待输入框可见
+		chromedp.Navigate("https://chat.deepseek.com"),                               // 榛樿浣跨敤DeepSeek锛屽彲浠ラ€氳繃閰嶇疆鏇存敼
+		chromedp.WaitVisible("textarea[data-testid='chat-input']", chromedp.ByQuery), // 绛夊緟杈撳叆妗嗗彲瑙?
 	)
 	if err != nil {
 		return fmt.Errorf("failed to navigate to page: %w", err)
 	}
 
-	log.Println("✅ Navigation completed")
+	log.Println("鉁?Navigation completed")
 	return nil
 }
 
-// clearChat 清空聊天记录
+// clearChat 娓呯┖鑱婂ぉ璁板綍
 func (ba *BrowserAutomation) clearChat() error {
-	log.Println("🧹 Clearing chat history...")
+	log.Println("馃Ч Clearing chat history...")
 
-	// 尝试找到并点击清除按钮
-	// 注意：这取决于具体网站的DOM结构，需要根据实际情况调整
+	// 灏濊瘯鎵惧埌骞剁偣鍑绘竻闄ゆ寜閽?
+	// 娉ㄦ剰锛氳繖鍙栧喅浜庡叿浣撶綉绔欑殑DOM缁撴瀯锛岄渶瑕佹牴鎹疄闄呮儏鍐佃皟鏁?
 	err := chromedp.Run(ba.browser,
 		chromedp.Click("button[aria-label='Clear conversation']", chromedp.ByQuery),
 	)
 
-	// 如果清除按钮不存在，忽略错误
+	// 濡傛灉娓呴櫎鎸夐挳涓嶅瓨鍦紝蹇界暐閿欒
 	if err != nil {
-		log.Printf("⚠️ Could not find clear button, skipping: %v", err)
-		// 不返回错误，因为这通常是可选操作
+		log.Printf("鈿狅笍 Could not find clear button, skipping: %v", err)
+		// 涓嶈繑鍥為敊璇紝鍥犱负杩欓€氬父鏄彲閫夋搷浣?
 	}
 
-	log.Println("✅ Chat cleared or clear button not found")
+	log.Println("鉁?Chat cleared or clear button not found")
 	return nil
 }
 
-// sendPrompt 发送提示词到AI服务
+// sendPrompt 鍙戦€佹彁绀鸿瘝鍒癆I鏈嶅姟
 func (ba *BrowserAutomation) sendPrompt(systemPrompt, userPrompt string) error {
-	log.Printf("📤 Sending prompt to AI service, user prompt length: %d", len(userPrompt))
+	log.Printf("馃摛 Sending prompt to AI service, user prompt length: %d", len(userPrompt))
 
-	// 将提示词发送到输入框并点击发送
+	// 灏嗘彁绀鸿瘝鍙戦€佸埌杈撳叆妗嗗苟鐐瑰嚮鍙戦€?
 	err := chromedp.Run(ba.browser,
 		chromedp.Clear("textarea[data-testid='chat-input']", chromedp.ByQuery),
 		chromedp.SetValue("textarea[data-testid='chat-input']", userPrompt, chromedp.ByQuery),
@@ -232,36 +232,36 @@ func (ba *BrowserAutomation) sendPrompt(systemPrompt, userPrompt string) error {
 		return fmt.Errorf("failed to send prompt: %w", err)
 	}
 
-	log.Println("✅ Prompt sent to AI service")
+	log.Println("鉁?Prompt sent to AI service")
 	return nil
 }
 
-// waitForResponse 等待AI服务响应
+// waitForResponse 绛夊緟AI鏈嶅姟鍝嶅簲
 func (ba *BrowserAutomation) waitForResponse() (string, error) {
-	log.Println("⏳ Waiting for AI response...")
+	log.Println("鈴?Waiting for AI response...")
 
 	var responseText string
-	timeout := time.After(60 * time.Second) // 60秒超时
-	tick := time.Tick(2 * time.Second)      // 每2秒检查一次
+	timeout := time.After(60 * time.Second) // 60绉掕秴鏃?
+	tick := time.Tick(2 * time.Second)      // 姣?绉掓鏌ヤ竴娆?
 
-	// 等待AI响应，直到超时
+	// 绛夊緟AI鍝嶅簲锛岀洿鍒拌秴鏃?
 	for {
 		select {
 		case <-timeout:
 			return "", fmt.Errorf("timeout waiting for AI response")
 		case <-tick:
-			// 尝试获取AI响应
+			// 灏濊瘯鑾峰彇AI鍝嶅簲
 			err := chromedp.Run(ba.browser,
 				chromedp.Text("div[data-testid='chat-response']", &responseText, chromedp.ByQuery),
 			)
 
 			if err == nil && responseText != "" {
-				log.Println("✅ Response received from AI service")
-				// 尝试解析响应为JSON格式，如果不是JSON则返回原始文本
+				log.Println("鉁?Response received from AI service")
+				// 灏濊瘯瑙ｆ瀽鍝嶅簲涓篔SON鏍煎紡锛屽鏋滀笉鏄疛SON鍒欒繑鍥炲師濮嬫枃鏈?
 				var parsed interface{}
 				err = json.Unmarshal([]byte(responseText), &parsed)
 				if err != nil {
-					// 如果不是有效JSON，包装成适当的响应格式
+					// 濡傛灉涓嶆槸鏈夋晥JSON锛屽寘瑁呮垚閫傚綋鐨勫搷搴旀牸寮?
 					wrappedResponse := map[string]interface{}{
 						"raw_response": responseText,
 						"decisions":    []interface{}{},
@@ -275,14 +275,15 @@ func (ba *BrowserAutomation) waitForResponse() (string, error) {
 	}
 }
 
-// Close 关闭浏览器自动化
+// Close 鍏抽棴娴忚鍣ㄨ嚜鍔ㄥ寲
 func (ba *BrowserAutomation) Close() {
-	log.Println("🛑 Closing browser automation...")
+	log.Println("馃洃 Closing browser automation...")
 
 	if ba.cancel != nil {
 		ba.cancel()
 	}
 
-	// 在实际实现中，这里会关闭浏览器实例
-	log.Println("✅ Browser automation closed")
+	// 鍦ㄥ疄闄呭疄鐜颁腑锛岃繖閲屼細鍏抽棴娴忚鍣ㄥ疄渚?
+	log.Println("鉁?Browser automation closed")
 }
+
