@@ -75,6 +75,16 @@ export interface DecisionAction {
   timestamp: string
   success: boolean
   error?: string
+  
+  // 新增：高级动作类型参数
+  new_stop_loss?: number          // 新止损价格 (update_stop_loss)
+  new_take_profit?: number        // 新止盈价格 (update_take_profit)
+  close_percentage?: number       // 平仓百分比 (partial_close)
+  trail_percentage?: number       // 移动止损百分比 (trailing_stop)
+  callback_rate?: number          // 回调率百分比 (trailing_stop)
+  target_roi?: number             // 目标收益率 (dynamic_take_profit)
+  max_roi?: number                // 最大收益率 (dynamic_take_profit)
+  additional_position_size_usd?: number  // 追加仓位金额 (add_position)
 }
 
 export interface AccountSnapshot {

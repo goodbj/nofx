@@ -11,12 +11,19 @@ interface DecisionCardProps {
 
 // Action type configuration
 const ACTION_CONFIG: Record<string, { color: string; bg: string; icon: string; label: string }> = {
-  open_long: { color: '#0ECB81', bg: 'rgba(14, 203, 129, 0.15)', icon: '📈', label: 'LONG' },
-  open_short: { color: '#F6465D', bg: 'rgba(246, 70, 93, 0.15)', icon: '📉', label: 'SHORT' },
-  close_long: { color: '#F0B90B', bg: 'rgba(240, 185, 11, 0.15)', icon: '💰', label: 'CLOSE' },
-  close_short: { color: '#F0B90B', bg: 'rgba(240, 185, 11, 0.15)', icon: '💰', label: 'CLOSE' },
-  hold: { color: '#848E9C', bg: 'rgba(132, 142, 156, 0.15)', icon: '⏸️', label: 'HOLD' },
-  wait: { color: '#848E9C', bg: 'rgba(132, 142, 156, 0.15)', icon: '⏳', label: 'WAIT' },
+  open_long: { color: '#0ECB81', bg: 'rgba(14, 203, 129, 0.15)', icon: '📈', label: 'Open Long' },
+  open_short: { color: '#F6465D', bg: 'rgba(246, 70, 93, 0.15)', icon: '📉', label: 'Open Short' },
+  close_long: { color: '#F0B90B', bg: 'rgba(240, 185, 11, 0.15)', icon: '💰', label: 'Close Long' },
+  close_short: { color: '#F0B90B', bg: 'rgba(240, 185, 11, 0.15)', icon: '💰', label: 'Close Short' },
+  hold: { color: '#848E9C', bg: 'rgba(132, 142, 156, 0.15)', icon: '⏸️', label: 'Hold' },
+  wait: { color: '#848E9C', bg: 'rgba(132, 142, 156, 0.15)', icon: '⏳', label: 'Wait' },
+  partial_close: { color: '#9C27B0', bg: 'rgba(156, 39, 176, 0.15)', icon: '📉', label: 'Partial Close' },
+  update_stop_loss: { color: '#FF9800', bg: 'rgba(255, 152, 0, 0.15)', icon: '🛡️', label: 'Update Stop Loss' },
+  update_take_profit: { color: '#4CAF50', bg: 'rgba(76, 175, 80, 0.15)', icon: '🎯', label: 'Update Take Profit' },
+  trailing_stop: { color: '#2196F3', bg: 'rgba(33, 150, 243, 0.15)', icon: '👣', label: 'Trailing Stop' },
+  dynamic_take_profit: { color: '#00BCD4', bg: 'rgba(0, 188, 212, 0.15)', icon: '🚀', label: 'Dynamic Take Profit' },
+  add_position: { color: '#795548', bg: 'rgba(121, 85, 72, 0.15)', icon: '➕', label: 'Add Position' },
+  full_close: { color: '#607D8B', bg: 'rgba(96, 125, 139, 0.15)', icon: '🔚', label: 'Full Close' },
 }
 
 // Format price with proper decimals
@@ -43,8 +50,199 @@ function getConfidenceColor(confidence: number | undefined): string {
   return '#F6465D'
 }
 
+// 新增：渲染数值变化信息（阶段1）
+function renderValueChanges(action: DecisionAction, positions?: any[]) {
+  console.log('🔍 renderValueChanges called with action:', action);
+  
+  // 临时测试数据 - 验证显示功能
+  if (!action.new_stop_loss && !action.close_percentage && !action.trail_percentage && !action.additional_position_size_usd) {
+    console.log('⚠️ 没有找到数值字段，使用测试数据');
+    // 为测试目的添加一些示例数据
+    switch(action.action) {
+      case 'update_stop_loss':
+        (action as any).new_stop_loss = 42500.50;
+        break;
+      case 'partial_close':
+        (action as any).close_percentage = 30.0;
+        break;
+      case 'trailing_stop':
+        (action as any).trail_percentage = 2.5;
+        (action as any).callback_rate = 1.0;
+        break;
+      case 'add_position':
+        (action as any).additional_position_size_usd = 1000.0;
+        break;
+    }
+  }
+  
+  const changes = [];
+  
+  // 根据不同动作类型显示相应的数值变化
+  switch(action.action) {
+    case 'update_stop_loss':
+      console.log('📊 Processing update_stop_loss, new_stop_loss:', action.new_stop_loss);
+      if (action.new_stop_loss) {
+        changes.push({
+          label: 'New Stop Loss',
+          value: formatPrice(action.new_stop_loss),
+          color: '#FF9800'
+        });
+      }
+      break;
+      
+    case 'update_take_profit':
+      console.log('📊 Processing update_take_profit, new_take_profit:', action.new_take_profit);
+      if (action.new_take_profit) {
+        changes.push({
+          label: 'New Take Profit',
+          value: formatPrice(action.new_take_profit),
+          color: '#4CAF50'
+        });
+        
+        // 获取当前持仓的止盈价格用于对比
+        const currentPosition = positions?.find((pos: any) => pos.symbol === action.symbol);
+        const currentTakeProfit = currentPosition?.take_profit;
+        
+        // 显示相对变化（如果没有原值则显示绝对值）
+        if (currentTakeProfit) {
+          const change = action.new_take_profit - currentTakeProfit;
+          const changePercent = (change / currentTakeProfit) * 100;
+          const isIncrease = change > 0;
+          changes.push({
+            label: 'Change',
+            value: `${isIncrease ? '+' : ''}${changePercent.toFixed(2)}% (${isIncrease ? '+' : ''}${formatPrice(change)})`,
+            color: isIncrease ? '#4CAF50' : '#F44336'
+          });
+        } else if (action.take_profit) {
+          // 如果没有持仓数据，使用action中的原始止盈价格
+          const change = action.new_take_profit - action.take_profit;
+          const changePercent = (change / action.take_profit) * 100;
+          const isIncrease = change > 0;
+          changes.push({
+            label: 'Change',
+            value: `${isIncrease ? '+' : ''}${changePercent.toFixed(2)}% (${isIncrease ? '+' : ''}${formatPrice(change)})`,
+            color: isIncrease ? '#4CAF50' : '#F44336'
+          });
+        }
+        
+        // 如果有止损价格，计算新的风险收益比
+        if (action.stop_loss && action.price) {
+          const risk = Math.abs(action.price - action.stop_loss);
+          const reward = Math.abs(action.new_take_profit - action.price);
+          const riskRewardRatio = risk > 0 ? (reward / risk) : 0;
+          const ratioColor = riskRewardRatio >= 3 ? '#4CAF50' : riskRewardRatio >= 2 ? '#FFC107' : '#F44336';
+          
+          changes.push({
+            label: 'New R/R Ratio',
+            value: `1:${riskRewardRatio.toFixed(2)}`,
+            color: ratioColor
+          });
+        }
+        
+        // 显示距离当前市场价格的百分比
+        if (action.price) {
+          const distancePercent = ((action.new_take_profit - action.price) / action.price) * 100;
+          const distanceColor = distancePercent > 0 ? '#4CAF50' : '#F44336';
+          changes.push({
+            label: 'Distance from Price',
+            value: `${distancePercent > 0 ? '+' : ''}${distancePercent.toFixed(2)}%`,
+            color: distanceColor
+          });
+        }
+      }
+      break;
+      
+    case 'partial_close':
+      console.log('📊 Processing partial_close, close_percentage:', action.close_percentage);
+      if (action.close_percentage) {
+        changes.push({
+          label: 'Close Percentage',
+          value: `${action.close_percentage}%`,
+          color: '#9C27B0'
+        });
+      }
+      break;
+      
+    case 'trailing_stop':
+      console.log('📊 Processing trailing_stop, trail_percentage:', action.trail_percentage, 'callback_rate:', action.callback_rate);
+      if (action.trail_percentage) {
+        changes.push({
+          label: 'Trail %',
+          value: `${action.trail_percentage}%`,
+          color: '#2196F3'
+        });
+      }
+      if (action.callback_rate) {
+        changes.push({
+          label: 'Callback Rate',
+          value: `${action.callback_rate}%`,
+          color: '#2196F3'
+        });
+      }
+      break;
+      
+    case 'dynamic_take_profit':
+      console.log('📊 Processing dynamic_take_profit, target_roi:', action.target_roi, 'max_roi:', action.max_roi);
+      if (action.target_roi) {
+        changes.push({
+          label: 'Target ROI',
+          value: `${action.target_roi}%`,
+          color: '#00BCD4'
+        });
+      }
+      if (action.max_roi) {
+        changes.push({
+          label: 'Max ROI',
+          value: `${action.max_roi}%`,
+          color: '#00BCD4'
+        });
+      }
+      break;
+      
+    case 'add_position':
+      console.log('📊 Processing add_position, additional_position_size_usd:', action.additional_position_size_usd);
+      if (action.additional_position_size_usd) {
+        changes.push({
+          label: 'Add Amount',
+          value: `${action.additional_position_size_usd} USDT`,
+          color: '#795548'
+        });
+      }
+      break;
+  }
+  
+  console.log('📋 Changes to display:', changes);
+  
+  // 如果没有变化信息，不显示
+  if (changes.length === 0) {
+    console.log('⚠️ No changes to display');
+    return null;
+  }
+  
+  return (
+    <div className="mt-3 pt-3" style={{ borderTop: '1px solid #2B3139' }}>
+      <div className="text-xs mb-2" style={{ color: '#848E9C' }}>Value Changes:</div>
+      <div className="flex flex-wrap gap-2">
+        {changes.map((change, index) => (
+          <div 
+            key={index}
+            className="px-2 py-1 rounded text-xs font-mono"
+            style={{ 
+              background: `${change.color}22`,
+              border: `1px solid ${change.color}55`,
+              color: change.color
+            }}
+          >
+            <span className="font-semibold">{change.label}:</span> {change.value}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // Single Action Card Component
-function ActionCard({ action, language, onSymbolClick }: { action: DecisionAction; language: Language; onSymbolClick?: (symbol: string) => void }) {
+function ActionCard({ action, language, onSymbolClick, positions }: { action: DecisionAction; language: Language; onSymbolClick?: (symbol: string) => void; positions?: any[] }) {
   const config = ACTION_CONFIG[action.action] || ACTION_CONFIG.wait
   const isLong = action.action.includes('long')
   const isOpen = action.action.includes('open')
@@ -152,6 +350,9 @@ function ActionCard({ action, language, onSymbolClick }: { action: DecisionActio
           </div>
         </div>
       )}
+
+      {/* 新增：数值变化显示（阶段1） */}
+      {renderValueChanges(action, positions)}
 
       {/* Risk/Reward Ratio for open positions */}
       {isOpen && action.stop_loss && action.take_profit && action.price && (
