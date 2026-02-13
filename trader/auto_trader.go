@@ -935,6 +935,17 @@ func (at *AutoTrader) runCycle() error {
 			Reasoning:  d.Reasoning,
 			Timestamp:  time.Now().UTC(),
 			Success:    false,
+
+			// Additional parameters for advanced action types
+			NewStopLoss:               d.NewStopLoss,
+			NewTakeProfit:             d.NewTakeProfit,
+			ClosePercentage:           d.ClosePercentage,
+			TrailPercentage:           d.TrailPercentage,
+			CallbackRate:              d.CallbackRate,
+			TargetROI:                 d.TargetROI,
+			MaxROI:                    d.MaxROI,
+			TimeLimitHours:            d.TimeLimitHours,
+			AdditionalPositionSizeUSD: d.AdditionalPositionSizeUSD,
 		}
 
 		if err := at.executeDecisionWithRecord(&d, &actionRecord); err != nil {
@@ -1350,6 +1361,17 @@ func (at *AutoTrader) ExecuteDecision(d *kernel.Decision) error {
 		TakeProfit: d.TakeProfit,
 		Confidence: d.Confidence,
 		Reasoning:  d.Reasoning,
+
+		// Additional parameters for advanced action types
+		NewStopLoss:               d.NewStopLoss,
+		NewTakeProfit:             d.NewTakeProfit,
+		ClosePercentage:           d.ClosePercentage,
+		TrailPercentage:           d.TrailPercentage,
+		CallbackRate:              d.CallbackRate,
+		TargetROI:                 d.TargetROI,
+		MaxROI:                    d.MaxROI,
+		TimeLimitHours:            d.TimeLimitHours,
+		AdditionalPositionSizeUSD: d.AdditionalPositionSizeUSD,
 	}
 
 	// Execute the decision
@@ -1911,6 +1933,13 @@ func (at *AutoTrader) executeCloseLongWithRecord(decision *kernel.Decision, acti
 		return err
 	}
 
+	// After closing position, ensure all related pending orders are cancelled
+	if err := at.trader.CancelAllOrders(decision.Symbol); err != nil {
+		logger.Infof("  ⚠️ Failed to cancel pending orders after closing long position: %v", err)
+	} else {
+		logger.Infof("  ✓ Cancelled all pending orders after closing long position for %s", decision.Symbol)
+	}
+
 	// Record order ID
 	if orderID, ok := order["orderId"].(int64); ok {
 		actionRecord.OrderID = orderID
@@ -1999,6 +2028,13 @@ func (at *AutoTrader) executeCloseShortWithRecord(decision *kernel.Decision, act
 	order, err := at.trader.CloseShort(decision.Symbol, 0) // 0 = close all
 	if err != nil {
 		return err
+	}
+
+	// After closing position, ensure all related pending orders are cancelled
+	if err := at.trader.CancelAllOrders(decision.Symbol); err != nil {
+		logger.Infof("  ⚠️ Failed to cancel pending orders after closing short position: %v", err)
+	} else {
+		logger.Infof("  ✓ Cancelled all pending orders after closing short position for %s", decision.Symbol)
 	}
 
 	// Record order ID

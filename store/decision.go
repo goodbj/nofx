@@ -93,6 +93,17 @@ type DecisionAction struct {
 	Timestamp  time.Time `json:"timestamp"`
 	Success    bool      `json:"success"`
 	Error      string    `json:"error"`
+
+	// Additional parameters for advanced action types
+	NewStopLoss               float64 `json:"new_stop_loss,omitempty"`                // New stop loss price (for update_stop_loss)
+	NewTakeProfit             float64 `json:"new_take_profit,omitempty"`              // New take profit price (for update_take_profit)
+	ClosePercentage           float64 `json:"close_percentage,omitempty"`             // Close percentage (for partial_close)
+	TrailPercentage           float64 `json:"trail_percentage,omitempty"`             // Trailing stop percentage (for trailing_stop)
+	CallbackRate              float64 `json:"callback_rate,omitempty"`                // Callback rate for trailing stop (as decimal, e.g., 0.02 for 2%)
+	TargetROI                 float64 `json:"target_roi,omitempty"`                   // Target ROI percentage (for dynamic_take_profit)
+	MaxROI                    float64 `json:"max_roi,omitempty"`                      // Maximum ROI percentage
+	TimeLimitHours            float64 `json:"time_limit_hours,omitempty"`             // Time limit in hours for dynamic orders
+	AdditionalPositionSizeUSD float64 `json:"additional_position_size_usd,omitempty"` // Additional position size for adding to existing position
 }
 
 // Statistics statistics information

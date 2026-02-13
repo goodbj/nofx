@@ -1813,6 +1813,13 @@ func (s *Server) handleClosePosition(c *gin.Context) {
 		return
 	}
 
+	// After closing position, ensure all related pending orders are cancelled
+	if cancelErr := tempTrader.CancelAllOrders(req.Symbol); cancelErr != nil {
+		logger.Infof("  ⚠️ Failed to cancel pending orders after closing position: %v", cancelErr)
+	} else {
+		logger.Infof("  ✓ Cancelled all pending orders after closing position for %s", req.Symbol)
+	}
+
 	logger.Infof("??Position closed successfully: symbol=%s, side=%s, qty=%.6f, result=%v", req.Symbol, req.Side, posQty, result)
 
 	// Record order to database (for chart markers and history)
@@ -2685,10 +2692,34 @@ func (s *Server) handleAccount(c *gin.Context) {
 	if err != nil {
 		logger.Infof("?? Get account info failed for trader %s: %v", trader.GetName(), err)
 
-		// If the error is related to API key format or proxy issues, try to force refresh the trader
+		// Check if this is a proxy forwarding error specifically
 		errMsg := err.Error()
-		if strings.Contains(errMsg, "API-key format invalid") || strings.Contains(errMsg, "401") {
-			logger.Infof("?? Detected API key or proxy issue, checking if trader %s is executing manual scan...", traderID)
+		if strings.Contains(errMsg, "Error forwarding request") {
+			logger.Infof("⚠️ Proxy forwarding error detected for trader [%s], returning default account info", trader.GetName())
+
+			// Return a default account info structure instead of failing
+			defaultAccount := map[string]interface{}{
+				"total_equity":         0.0,
+				"available_balance":    0.0,
+				"total_pnl":            0.0,
+				"total_pnl_pct":        0.0,
+				"margin_used":          0.0,
+				"margin_used_pct":      0.0,
+				"position_count":       0,
+				"total_unrealized_pnl": 0.0,
+				"initial_balance":      0.0,
+			}
+			// Also cache the default account to avoid repeated API calls
+			s.accountCache.Set(traderID, defaultAccount)
+			c.JSON(http.StatusOK, defaultAccount)
+			return
+		}
+
+		// If the error is related to API key format or proxy issues, try to force refresh the trader
+		if strings.Contains(errMsg, "API-key format invalid") || strings.Contains(errMsg, "401") ||
+			strings.Contains(errMsg, "dial tcp") || strings.Contains(errMsg, "connection refused") ||
+			strings.Contains(errMsg, "timeout") || strings.Contains(errMsg, "no such host") {
+			logger.Infof("?? Detected API key, proxy or network issue, checking if trader %s is executing manual scan...", traderID)
 
 			// 🔥 检查是否正在执行手动扫描
 			if traderInstance, getErr := s.traderManager.GetTrader(traderID); getErr == nil {
@@ -2699,6 +2730,28 @@ func (s *Server) handleAccount(c *gin.Context) {
 					account, err = trader.GetAccountInfo()
 					if err != nil {
 						logger.Infof("?? Second attempt to get account info failed: %v", err)
+
+						// Final fallback for proxy errors
+						errMsg2 := err.Error()
+						if strings.Contains(errMsg2, "Error forwarding request") {
+							logger.Infof("⚠️ Proxy forwarding error after retry for trader [%s], returning default account info", trader.GetName())
+
+							defaultAccount := map[string]interface{}{
+								"total_equity":         0.0,
+								"available_balance":    0.0,
+								"total_pnl":            0.0,
+								"total_pnl_pct":        0.0,
+								"margin_used":          0.0,
+								"margin_used_pct":      0.0,
+								"position_count":       0,
+								"total_unrealized_pnl": 0.0,
+								"initial_balance":      0.0,
+							}
+							s.accountCache.Set(traderID, defaultAccount)
+							c.JSON(http.StatusOK, defaultAccount)
+							return
+						}
+
 						SafeInternalError(c, "Get account info", err)
 						return
 					}
@@ -2712,6 +2765,28 @@ func (s *Server) handleAccount(c *gin.Context) {
 						account, err = trader.GetAccountInfo()
 						if err != nil {
 							logger.Infof("?? Second attempt to get account info failed: %v", err)
+
+							// Final fallback for proxy errors
+							errMsg2 := err.Error()
+							if strings.Contains(errMsg2, "Error forwarding request") {
+								logger.Infof("⚠️ Proxy forwarding error after retry for trader [%s], returning default account info", trader.GetName())
+
+								defaultAccount := map[string]interface{}{
+									"total_equity":         0.0,
+									"available_balance":    0.0,
+									"total_pnl":            0.0,
+									"total_pnl_pct":        0.0,
+									"margin_used":          0.0,
+									"margin_used_pct":      0.0,
+									"position_count":       0,
+									"total_unrealized_pnl": 0.0,
+									"initial_balance":      0.0,
+								}
+								s.accountCache.Set(traderID, defaultAccount)
+								c.JSON(http.StatusOK, defaultAccount)
+								return
+							}
+
 							SafeInternalError(c, "Get account info", err)
 							return
 						}
@@ -2728,6 +2803,28 @@ func (s *Server) handleAccount(c *gin.Context) {
 						account, err = refreshedTrader.GetAccountInfo()
 						if err != nil {
 							logger.Infof("?? Get account info failed even after refresh: %v", err)
+
+							// Final fallback for proxy errors
+							errMsg2 := err.Error()
+							if strings.Contains(errMsg2, "Error forwarding request") {
+								logger.Infof("⚠️ Proxy forwarding error after refresh for trader [%s], returning default account info", trader.GetName())
+
+								defaultAccount := map[string]interface{}{
+									"total_equity":         0.0,
+									"available_balance":    0.0,
+									"total_pnl":            0.0,
+									"total_pnl_pct":        0.0,
+									"margin_used":          0.0,
+									"margin_used_pct":      0.0,
+									"position_count":       0,
+									"total_unrealized_pnl": 0.0,
+									"initial_balance":      0.0,
+								}
+								s.accountCache.Set(traderID, defaultAccount)
+								c.JSON(http.StatusOK, defaultAccount)
+								return
+							}
+
 							SafeInternalError(c, "Get account info", err)
 							return
 						}
@@ -2743,6 +2840,28 @@ func (s *Server) handleAccount(c *gin.Context) {
 					account, err = trader.GetAccountInfo()
 					if err != nil {
 						logger.Infof("?? Second attempt to get account info failed: %v", err)
+
+						// Final fallback for proxy errors
+						errMsg2 := err.Error()
+						if strings.Contains(errMsg2, "Error forwarding request") {
+							logger.Infof("⚠️ Proxy forwarding error after retry for trader [%s], returning default account info", trader.GetName())
+
+							defaultAccount := map[string]interface{}{
+								"total_equity":         0.0,
+								"available_balance":    0.0,
+								"total_pnl":            0.0,
+								"total_pnl_pct":        0.0,
+								"margin_used":          0.0,
+								"margin_used_pct":      0.0,
+								"position_count":       0,
+								"total_unrealized_pnl": 0.0,
+								"initial_balance":      0.0,
+							}
+							s.accountCache.Set(traderID, defaultAccount)
+							c.JSON(http.StatusOK, defaultAccount)
+							return
+						}
+
 						SafeInternalError(c, "Get account info", err)
 						return
 					}
@@ -2759,12 +2878,54 @@ func (s *Server) handleAccount(c *gin.Context) {
 					account, err = refreshedTrader.GetAccountInfo()
 					if err != nil {
 						logger.Infof("?? Get account info failed even after refresh: %v", err)
+
+						// Final fallback for proxy errors
+						errMsg2 := err.Error()
+						if strings.Contains(errMsg2, "Error forwarding request") {
+							logger.Infof("⚠️ Proxy forwarding error after refresh for trader [%s], returning default account info", trader.GetName())
+
+							defaultAccount := map[string]interface{}{
+								"total_equity":         0.0,
+								"available_balance":    0.0,
+								"total_pnl":            0.0,
+								"total_pnl_pct":        0.0,
+								"margin_used":          0.0,
+								"margin_used_pct":      0.0,
+								"position_count":       0,
+								"total_unrealized_pnl": 0.0,
+								"initial_balance":      0.0,
+							}
+							s.accountCache.Set(traderID, defaultAccount)
+							c.JSON(http.StatusOK, defaultAccount)
+							return
+						}
+
 						SafeInternalError(c, "Get account info", err)
 						return
 					}
 				}
 			}
 		} else {
+			// For other errors, check if it's a proxy forwarding error
+			if strings.Contains(errMsg, "Error forwarding request") {
+				logger.Infof("⚠️ Proxy forwarding error detected (general case) for trader [%s], returning default account info", trader.GetName())
+
+				defaultAccount := map[string]interface{}{
+					"total_equity":         0.0,
+					"available_balance":    0.0,
+					"total_pnl":            0.0,
+					"total_pnl_pct":        0.0,
+					"margin_used":          0.0,
+					"margin_used_pct":      0.0,
+					"position_count":       0,
+					"total_unrealized_pnl": 0.0,
+					"initial_balance":      0.0,
+				}
+				s.accountCache.Set(traderID, defaultAccount)
+				c.JSON(http.StatusOK, defaultAccount)
+				return
+			}
+
 			// For other errors, just return the error
 			SafeInternalError(c, "Get account info", err)
 			return
