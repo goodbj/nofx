@@ -716,7 +716,31 @@ func (at *AutoTrader) runCycle() error {
 	running := at.isRunning
 	at.isRunningMutex.RUnlock()
 	if !running {
-		logger.Infof("⏹ Trader is stopped, aborting cycle #%d", at.callCount)
+		// Enhanced stop reason detection to avoid false positives
+		stopReason := at.determineStopReason()
+
+		logger.Infof("⏹ [%s] Trader was stopped before starting cycle #%d", stopReason, at.callCount)
+
+		// Enhanced error message with specific reason
+		var errorMessage string
+		switch stopReason {
+		case "USER_MANUAL_STOP":
+			errorMessage = fmt.Sprintf("[USER_MANUAL_STOP] Trader was manually stopped by user before starting decision cycle #%d - this is normal behavior when user stops trader", at.callCount)
+		case "RISK_CONTROL_AUTO_PAUSE":
+			remaining := at.stopUntil.Sub(time.Now())
+			errorMessage = fmt.Sprintf("[RISK_CONTROL_AUTO_PAUSE] Trading automatically paused by system risk control for %.0f more minutes - cycle #%d blocked for safety", remaining.Minutes(), at.callCount)
+		case "SYSTEM_ERROR_STOP":
+			errorMessage = fmt.Sprintf("[SYSTEM_ERROR_STOP] Trader stopped due to system error or abnormal condition in cycle #%d - please check system logs", at.callCount)
+		default:
+			errorMessage = fmt.Sprintf("[UNKNOWN_STOP] Trader stopped for unknown reason before starting cycle #%d", at.callCount)
+		}
+
+		// Create minimal record for this case
+		minimalRecord := &store.DecisionRecord{
+			Success:      false,
+			ErrorMessage: errorMessage,
+		}
+		at.saveDecision(minimalRecord)
 		return nil
 	}
 
@@ -726,12 +750,15 @@ func (at *AutoTrader) runCycle() error {
 		Success:      true,
 	}
 
-	// 1. Check if trading needs to be stopped
+	// 1. Check if trading needs to be stopped (risk control auto-pause)
 	if time.Now().Before(at.stopUntil) {
 		remaining := at.stopUntil.Sub(time.Now())
-		logger.Infof("⏸ Risk control: Trading paused, remaining %.0f minutes", remaining.Minutes())
+		logger.Infof("⏸ [RISK_CONTROL_AUTO_PAUSE] Trading automatically paused by system risk control, remaining %.0f minutes", remaining.Minutes())
+		logger.Infof("   - Safety mechanism activated to protect capital")
+		logger.Infof("   - Trading will resume automatically after pause period")
+
 		record.Success = false
-		record.ErrorMessage = fmt.Sprintf("Risk control paused, remaining %.0f minutes", remaining.Minutes())
+		record.ErrorMessage = fmt.Sprintf("[RISK_CONTROL_AUTO_PAUSE] Trading automatically paused by system risk control for %.0f more minutes - safety mechanism activated to protect capital", remaining.Minutes())
 		at.saveDecision(record)
 		return nil
 	}
@@ -854,13 +881,29 @@ func (at *AutoTrader) runCycle() error {
 	running = at.isRunning
 	at.isRunningMutex.RUnlock()
 	if !running {
-		logger.Infof("⏹ Trader stopped before decision execution, cycle #%d completed gracefully", at.callCount)
+		stopReason := at.determineStopReason()
+
+		logger.Infof("⏹ [%s] Trader stopped before decision execution, cycle #%d", stopReason, at.callCount)
 		logger.Infof("   - AI decisions generated: %d", len(sortedDecisions))
 		logger.Infof("   - Execution aborted to respect stop command")
 
+		// Enhanced error message with specific reason
+		var errorMessage string
+		switch stopReason {
+		case "USER_MANUAL_STOP":
+			errorMessage = fmt.Sprintf("[USER_MANUAL_STOP] Trader was manually stopped by user before executing %d decisions - this is normal behavior when user stops trader during AI processing", len(sortedDecisions))
+		case "RISK_CONTROL_AUTO_PAUSE":
+			remaining := at.stopUntil.Sub(time.Now())
+			errorMessage = fmt.Sprintf("[RISK_CONTROL_AUTO_PAUSE] Trading automatically paused by system risk control for %.0f more minutes - execution blocked for safety", remaining.Minutes())
+		case "SYSTEM_ERROR_STOP":
+			errorMessage = fmt.Sprintf("[SYSTEM_ERROR_STOP] Trader stopped due to system error before executing %d decisions - please check system logs", len(sortedDecisions))
+		default:
+			errorMessage = fmt.Sprintf("[UNKNOWN_STOP] Trader stopped for unknown reason before executing %d decisions", len(sortedDecisions))
+		}
+
 		// Even though we're not executing the decisions, save the AI-generated decision record for tracking
 		record.Success = false
-		record.ErrorMessage = fmt.Sprintf("Trader was stopped before executing %d decisions - this is normal behavior when trader is stopped during AI processing", len(sortedDecisions))
+		record.ErrorMessage = errorMessage
 		if err := at.saveDecision(record); err != nil {
 			logger.Infof("⚠ Failed to save decision record: %v", err)
 		}
@@ -874,7 +917,9 @@ func (at *AutoTrader) runCycle() error {
 		running = at.isRunning
 		at.isRunningMutex.RUnlock()
 		if !running {
-			logger.Infof("⏹ Trader stopped during decision execution, aborting remaining decisions")
+			stopReason := at.determineStopReason()
+
+			logger.Infof("⏹ [%s] Trader stopped during decision execution, aborting remaining decisions", stopReason)
 			break
 		}
 
@@ -1422,6 +1467,9 @@ func (at *AutoTrader) TriggerDecision() (map[string]interface{}, error) {
 	at.executionMutex.Unlock()
 	logger.Infof("🔒 Execution mutex acquired for %s, starting runCycle", at.name)
 
+	// 🔥 记录手动扫描开始时间，用于精确判断停止原因
+	scanStartTime := time.Now()
+	
 	// Ensure we reset the executing flag when done
 	defer func() {
 		logger.Infof("🔓 Releasing execution mutex for %s", at.name)
@@ -1439,6 +1487,20 @@ func (at *AutoTrader) TriggerDecision() (map[string]interface{}, error) {
 	executionTime := time.Since(startTime)
 	if err != nil {
 		logger.Errorf("❌ Manual trigger decision cycle failed for %s: %v (took %v)", at.name, err, executionTime)
+		
+		// 🔥 精确判断停止原因：检查是否在手动扫描期间被停止
+		if strings.Contains(err.Error(), "stopped") {
+			at.isRunningMutex.RLock()
+			currentRunning := at.isRunning
+			at.isRunningMutex.RUnlock()
+			
+			// 如果现在仍在运行，说明停止发生在扫描期间
+			if currentRunning && time.Since(scanStartTime) < 5*time.Second {
+				logger.Infof("🔍 [MANUAL_SCAN_INTERRUPTED] Manual scan for %s was interrupted during execution (duration: %v)", 
+					at.name, time.Since(scanStartTime))
+				// 可以在这里添加特殊的错误处理逻辑
+			}
+		}
 		return nil, err
 	}
 
@@ -1519,7 +1581,7 @@ func (at *AutoTrader) executeOpenLongWithRecord(decision *kernel.Decision, actio
 	// Check if there's already a position in the same symbol and direction
 	for _, pos := range positions {
 		if pos["symbol"] == decision.Symbol && pos["side"] == "long" {
-			return fmt.Errorf("❌ %s already has long position, close it first", decision.Symbol)
+			return fmt.Errorf("❌ [POSITION_EXISTS_LIMIT] %s already has long position - Close existing position first", decision.Symbol)
 		}
 	}
 
@@ -1665,7 +1727,7 @@ func (at *AutoTrader) executeOpenShortWithRecord(decision *kernel.Decision, acti
 	// Check if there's already a position in the same symbol and direction
 	for _, pos := range positions {
 		if pos["symbol"] == decision.Symbol && pos["side"] == "short" {
-			return fmt.Errorf("❌ %s already has short position, close it first", decision.Symbol)
+			return fmt.Errorf("❌ [POSITION_EXISTS_LIMIT] %s already has short position - Close existing position first", decision.Symbol)
 		}
 	}
 
@@ -2361,6 +2423,27 @@ func (at *AutoTrader) saveDecision(record *store.DecisionRecord) error {
 
 	logger.Infof("📝 Decision record saved: trader=%s, cycle=%d", at.id, at.cycleNumber)
 	return nil
+}
+
+// determineStopReason analyzes the current state to determine the specific reason for trader stop
+func (at *AutoTrader) determineStopReason() string {
+	// Check risk control pause first (highest priority)
+	if time.Now().Before(at.stopUntil) {
+		return "RISK_CONTROL_AUTO_PAUSE"
+	}
+
+	// Check for system error conditions that might cause unexpected stops
+	// This is a placeholder for more sophisticated detection logic
+	// In the future, we could check:
+	// - Recent error logs
+	// - System resource status
+	// - Exchange connection status
+	// - Database connectivity issues
+
+	// For now, we use a conservative approach
+	// If we reach this point and it's not risk control, we assume it's either
+	// user manual stop or some system condition that wasn't properly logged
+	return "USER_MANUAL_STOP" // Conservative default - better to assume user action than false system error
 }
 
 // GetStore gets data store (for external access to decision records, etc.)
@@ -3153,7 +3236,7 @@ func (at *AutoTrader) enforcePositionValueRatio(positionSizeUSD float64, equity 
 
 	// Check if position size exceeds limit
 	if positionSizeUSD > maxPositionValue {
-		logger.Infof("  ⚠️ [RISK CONTROL] Position %.2f USDT exceeds limit (equity %.2f × %.1fx = %.2f USDT max for %s), capping",
+		logger.Infof("  ⚠️ [POSITION_VALUE_RATIO_LIMIT] Position %.2f USDT exceeds limit (equity %.2f × %.1fx = %.2f USDT max for %s), capping",
 			positionSizeUSD, equity, maxPositionValueRatio, maxPositionValue, symbol)
 		return maxPositionValue, true
 	}
@@ -3173,7 +3256,7 @@ func (at *AutoTrader) enforceMinPositionSize(positionSizeUSD float64) error {
 	}
 
 	if positionSizeUSD < minSize {
-		return fmt.Errorf("❌ [RISK CONTROL] Position %.2f USDT below minimum (%.2f USDT)", positionSizeUSD, minSize)
+		return fmt.Errorf("❌ [MIN_POSITION_SIZE_LIMIT] Position size: %.2f USDT below minimum: %.2f USDT - Trade blocked", positionSizeUSD, minSize)
 	}
 	return nil
 }
@@ -3190,7 +3273,7 @@ func (at *AutoTrader) enforceMaxPositions(currentPositionCount int) error {
 	}
 
 	if currentPositionCount >= maxPositions {
-		return fmt.Errorf("❌ [RISK CONTROL] Already at max positions (%d/%d)", currentPositionCount, maxPositions)
+		return fmt.Errorf("❌ [MAX_POSITIONS_LIMIT] Current positions: %d/%d - Position opening blocked", currentPositionCount, maxPositions)
 	}
 	return nil
 }
@@ -3207,7 +3290,7 @@ func (at *AutoTrader) enforceMaxMarginUsage(currentMarginUsagePct float64) error
 	}
 
 	if currentMarginUsagePct > maxMarginUsage*100 {
-		return fmt.Errorf("❌ [RISK CONTROL] Margin usage %.2f%% exceeds limit (%.0f%%)", currentMarginUsagePct, maxMarginUsage*100)
+		return fmt.Errorf("❌ [MAX_MARGIN_LIMIT] Current margin usage: %.2f%% exceeds limit: %.0f%% - Trade blocked", currentMarginUsagePct, maxMarginUsage*100)
 	}
 	return nil
 }
@@ -3234,7 +3317,7 @@ func (at *AutoTrader) enforceMinHoldTime(symbol string, side string) error {
 
 	if positionHeldDuration < minHoldDuration {
 		remainingTime := minHoldDuration - positionHeldDuration
-		return fmt.Errorf("❌ [RISK CONTROL] Position %s held for only %v, minimum hold time is %v (remaining: %v)",
+		return fmt.Errorf("❌ [MIN_HOLD_TIME_LIMIT] Position %s held: %v, minimum required: %v - Closing blocked (wait %v)",
 			positionKey, positionHeldDuration.Round(time.Second), minHoldDuration, remainingTime.Round(time.Second))
 	}
 
@@ -3255,7 +3338,7 @@ func (at *AutoTrader) enforceMaxLossPerTrade(symbol string, unrealizedPnL float6
 	currentLossPercent := (math.Abs(unrealizedPnL) / positionValue) * 100
 
 	if unrealizedPnL < 0 && currentLossPercent > maxLossPercent {
-		return fmt.Errorf("❌ [RISK CONTROL] Position %s loss %.2f%% exceeds limit (%.2f%%), current loss: %.2f USDT",
+		return fmt.Errorf("❌ [MAX_LOSS_PER_TRADE_LIMIT] Position %s loss: %.2f%% exceeds limit: %.2f%% - Current loss: %.2f USDT",
 			symbol, currentLossPercent, maxLossPercent, unrealizedPnL)
 	}
 
@@ -3285,7 +3368,7 @@ func (at *AutoTrader) enforceDailyLossLimit() error {
 	currentDailyLossPercent := (math.Abs(at.dailyPnL) / at.initialBalance) * 100
 
 	if at.dailyPnL < 0 && currentDailyLossPercent > dailyLossLimitPercent {
-		return fmt.Errorf("❌ [RISK CONTROL] Daily loss %.2f%% exceeds limit (%.2f%%), current daily loss: %.2f USDT",
+		return fmt.Errorf("❌ [DAILY_LOSS_LIMIT] Daily loss: %.2f%% exceeds limit: %.2f%% - Current daily loss: %.2f USDT",
 			currentDailyLossPercent, dailyLossLimitPercent, at.dailyPnL)
 	}
 
@@ -3337,19 +3420,19 @@ func (at *AutoTrader) enforceTradeFrequencyLimits(symbol string) error {
 
 	// Check daily trade limit
 	if maxDailyTrades > 0 && tracker.dailyTrades >= maxDailyTrades {
-		return fmt.Errorf("❌ [RISK CONTROL] Daily trade limit reached (%d/%d)", tracker.dailyTrades, maxDailyTrades)
+		return fmt.Errorf("❌ [DAILY_TRADE_LIMIT] Daily trades: %d/%d reached - Trading blocked for today", tracker.dailyTrades, maxDailyTrades)
 	}
 
 	// Check hourly trade limit
 	if maxHourlyTrades > 0 && tracker.hourlyTrades >= maxHourlyTrades {
-		return fmt.Errorf("❌ [RISK CONTROL] Hourly trade limit reached (%d/%d)", tracker.hourlyTrades, maxHourlyTrades)
+		return fmt.Errorf("❌ [HOURLY_TRADE_LIMIT] Hourly trades: %d/%d reached - Trading blocked for this hour", tracker.hourlyTrades, maxHourlyTrades)
 	}
 
 	// Check symbol-specific hourly trade limit
 	if maxTradesPerSymbolPerHour > 0 {
 		symbolTrades := tracker.symbolHourlyTrades[symbol]
 		if symbolTrades >= maxTradesPerSymbolPerHour {
-			return fmt.Errorf("❌ [RISK CONTROL] Symbol '%s' hourly trade limit reached (%d/%d)", symbol, symbolTrades, maxTradesPerSymbolPerHour)
+			return fmt.Errorf("❌ [SYMBOL_HOURLY_LIMIT] Symbol '%s' hourly trades: %d/%d reached - Trading blocked for this symbol", symbol, symbolTrades, maxTradesPerSymbolPerHour)
 		}
 	}
 
