@@ -64,6 +64,9 @@ type FuturesTrader struct {
 
 	// Cache validity period (30 seconds for better performance)
 	cacheDuration time.Duration
+
+	// Precision manager for handling quantity/price formatting
+	precisionManager *PrecisionManager
 }
 
 // NewFuturesTrader creates futures trader
@@ -135,9 +138,14 @@ func NewFuturesTrader(apiKey, secretKey, userId, customEndpoint string) *Futures
 
 	// Sync time to avoid "Timestamp ahead" error
 	syncBinanceServerTime(client)
+
+	// Create precision manager
+	precisionManager := NewPrecisionManager(client)
+
 	trader := &FuturesTrader{
-		client:        client,
-		cacheDuration: 30 * time.Second, // 30-second cache for better performance
+		client:           client,
+		cacheDuration:    30 * time.Second, // 30-second cache for better performance
+		precisionManager: precisionManager,
 	}
 
 	// Set dual-side position mode (Hedge Mode)
@@ -196,9 +204,14 @@ func NewFuturesTraderViaProxy(apiKey, secretKey, userId, proxyURL, targetEndpoin
 
 	// Sync time to avoid "Timestamp ahead" error
 	syncBinanceServerTime(client)
+
+	// Create precision manager
+	precisionManager := NewPrecisionManager(client)
+
 	trader := &FuturesTrader{
-		client:        client,
-		cacheDuration: 30 * time.Second, // 30-second cache for better performance
+		client:           client,
+		cacheDuration:    30 * time.Second, // 30-second cache for better performance
+		precisionManager: precisionManager,
 	}
 
 	// Set dual-side position mode (Hedge Mode)
@@ -374,7 +387,7 @@ func (t *FuturesTrader) GetBalance() (map[string]interface{}, error) {
 	return result, nil
 }
 
-// GetPositions gets all positions (with cache and smart retry logic)
+// GetPositions gets all positions (with cache)
 func (t *FuturesTrader) GetPositions() ([]map[string]interface{}, error) {
 	// First check if cache is valid
 	t.positionsCacheMutex.RLock()
@@ -386,94 +399,11 @@ func (t *FuturesTrader) GetPositions() ([]map[string]interface{}, error) {
 	}
 	t.positionsCacheMutex.RUnlock()
 
-	// Cache expired or doesn't exist, call API with smart retry
+	// Cache expired or doesn't exist, call API
 	logger.Infof("🔄 Cache expired, calling Binance API to get position information...")
-
-	var positions []*futures.PositionRisk
-	var err error
-
-	// Try once with shorter timeout for fast response
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	positions, err = t.client.NewGetPositionRiskService().Do(ctx)
-	cancel()
-
-	if err == nil {
-		// Success on first try, no need for retry
-		var result []map[string]interface{}
-		for _, pos := range positions {
-			posAmt, _ := strconv.ParseFloat(pos.PositionAmt, 64)
-			if posAmt == 0 {
-				continue // Skip positions with zero amount
-			}
-
-			posMap := make(map[string]interface{})
-			posMap["symbol"] = pos.Symbol
-			posMap["positionAmt"], _ = strconv.ParseFloat(pos.PositionAmt, 64)
-			posMap["entryPrice"], _ = strconv.ParseFloat(pos.EntryPrice, 64)
-			posMap["markPrice"], _ = strconv.ParseFloat(pos.MarkPrice, 64)
-			posMap["unRealizedProfit"], _ = strconv.ParseFloat(pos.UnRealizedProfit, 64)
-			posMap["leverage"], _ = strconv.ParseFloat(pos.Leverage, 64)
-			posMap["liquidationPrice"], _ = strconv.ParseFloat(pos.LiquidationPrice, 64)
-			// Note: Binance SDK doesn't expose updateTime field, will fallback to local tracking
-
-			// Determine direction
-			if posAmt > 0 {
-				posMap["side"] = "long"
-			} else {
-				posMap["side"] = "short"
-			}
-
-			result = append(result, posMap)
-		}
-
-		// Update cache
-		t.positionsCacheMutex.Lock()
-		t.cachedPositions = result
-		t.positionsCacheTime = time.Now()
-		t.positionsCacheMutex.Unlock()
-
-		return result, nil
-	}
-
-	// If first attempt failed with network error, try with retry logic
-	isRetryable := strings.Contains(err.Error(), "EOF") ||
-		strings.Contains(err.Error(), "connection reset") ||
-		strings.Contains(err.Error(), "timeout") ||
-		strings.Contains(err.Error(), "i/o timeout")
-
-	if isRetryable {
-		// Perform retry logic only for network-related errors
-		maxRetries := 2 // Reduced retry count to improve performance
-
-		for attempt := 1; attempt <= maxRetries; attempt++ {
-			logger.Infof("❌ Binance API call failed (attempt %d/%d): %v", attempt, maxRetries, err)
-
-			// Wait before retry (shorter backoff)
-			waitTime := time.Duration(attempt) * 500 * time.Millisecond
-			logger.Infof("⏱ Retrying in %v...", waitTime)
-			time.Sleep(waitTime)
-
-			ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-			positions, err = t.client.NewGetPositionRiskService().Do(ctx)
-			cancel()
-
-			if err == nil {
-				break // Success, exit retry loop
-			}
-
-			// Check again if error is still retryable
-			isRetryable = strings.Contains(err.Error(), "EOF") ||
-				strings.Contains(err.Error(), "connection reset") ||
-				strings.Contains(err.Error(), "timeout") ||
-				strings.Contains(err.Error(), "i/o timeout")
-
-			if !isRetryable {
-				// Non-retryable error, break retry loop
-				break
-			}
-		}
-	}
-
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	positions, err := t.client.NewGetPositionRiskService().Do(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get positions: %w", err)
 	}
@@ -1746,8 +1676,37 @@ func trimTrailingZeros(s string) string {
 	return s
 }
 
-// FormatQuantity formats quantity to correct precision
+// FormatQuantity formats quantity to correct precision with step size alignment
+// Uses the new PrecisionManager for better accuracy and caching
 func (t *FuturesTrader) FormatQuantity(symbol string, quantity float64) (string, error) {
+	// Use the new PrecisionManager for better accuracy
+	if t.precisionManager != nil {
+		return t.precisionManager.FormatQuantityWithValidation(symbol, quantity)
+	}
+
+	// Fallback to original implementation if precisionManager is not available
+	// First try to get step size for proper alignment
+	stepSize, err := t.GetSymbolStepSize(symbol)
+	if err == nil && stepSize > 0 {
+		// Align quantity to step size (round down to nearest step)
+		alignedQty := math.Floor(quantity/stepSize) * stepSize
+
+		// Calculate required decimal places from step size
+		decimals := 0
+		if stepSize < 1 {
+			stepStr := strconv.FormatFloat(stepSize, 'f', -1, 64)
+			if idx := strings.Index(stepStr, "."); idx >= 0 {
+				decimals = len(stepStr) - idx - 1
+			}
+		}
+
+		format := fmt.Sprintf("%%.%df", decimals)
+		formatted := fmt.Sprintf(format, alignedQty)
+		logger.Debugf("Formatted quantity for %s: %s (stepSize: %f, aligned: %f)", symbol, formatted, stepSize, alignedQty)
+		return formatted, nil
+	}
+
+	// Fallback to precision-based formatting
 	precision, err := t.GetSymbolPrecision(symbol)
 	if err != nil {
 		// If retrieval fails, use default format
@@ -1760,6 +1719,80 @@ func (t *FuturesTrader) FormatQuantity(symbol string, quantity float64) (string,
 	formatted := fmt.Sprintf(format, quantity)
 	logger.Debugf("Formatted quantity for %s: %s (precision: %d)", symbol, formatted, precision)
 	return formatted, nil
+}
+
+// GetSymbolStepSize gets the step size for a symbol from exchange info
+func (t *FuturesTrader) GetSymbolStepSize(symbol string) (float64, error) {
+	// Try to get exchange info with retry logic for network errors
+	var exchangeInfo *futures.ExchangeInfo
+	var err error
+
+	// First try with shorter timeout for quick response
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	exchangeInfo, err = t.client.NewExchangeInfoService().Do(ctx)
+	cancel()
+
+	if err != nil {
+		// Retry logic for network errors
+		isRetryable := strings.Contains(err.Error(), "EOF") ||
+			strings.Contains(err.Error(), "connection reset") ||
+			strings.Contains(err.Error(), "timeout") ||
+			strings.Contains(err.Error(), "i/o timeout")
+
+		if isRetryable {
+			maxRetries := 2
+			for attempt := 1; attempt <= maxRetries; attempt++ {
+				logger.Infof("❌ Exchange info API call failed (attempt %d/%d): %v", attempt, maxRetries, err)
+				waitTime := time.Duration(attempt) * 500 * time.Millisecond
+				logger.Infof("⏳ Retrying in %v...", waitTime)
+				time.Sleep(waitTime)
+
+				ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+				exchangeInfo, err = t.client.NewExchangeInfoService().Do(ctx)
+				cancel()
+
+				if err == nil {
+					break
+				}
+
+				isRetryable = strings.Contains(err.Error(), "EOF") ||
+					strings.Contains(err.Error(), "connection reset") ||
+					strings.Contains(err.Error(), "timeout") ||
+					strings.Contains(err.Error(), "i/o timeout")
+
+				if !isRetryable {
+					break
+				}
+			}
+		}
+	}
+
+	if err != nil {
+		logger.Warnf("⚠️ Failed to get step size for %s: %v", symbol, err)
+		return 0, err
+	}
+
+	for _, s := range exchangeInfo.Symbols {
+		if s.Symbol == symbol {
+			// Get step size from LOT_SIZE filter
+			for _, filter := range s.Filters {
+				if filter["filterType"] == "LOT_SIZE" {
+					if stepSizeStr, ok := filter["stepSize"].(string); ok {
+						stepSize, parseErr := strconv.ParseFloat(stepSizeStr, 64)
+						if parseErr != nil {
+							logger.Warnf("⚠️ Failed to parse step size '%s' for %s: %v", stepSizeStr, symbol, parseErr)
+							return 0, parseErr
+						}
+						logger.Debugf("  %s step size: %f", symbol, stepSize)
+						return stepSize, nil
+					}
+				}
+			}
+		}
+	}
+
+	logger.Warnf("⚠️ Step size information not found for %s", symbol)
+	return 0, fmt.Errorf("step size not found for symbol %s", symbol)
 }
 
 // GetPricePrecision gets the price precision for a trading pair

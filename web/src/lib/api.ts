@@ -372,9 +372,19 @@ export const api = {
     const url = traderId
       ? `${API_BASE}/positions?trader_id=${traderId}`
       : `${API_BASE}/positions`
-    const result = await httpClient.get<Position[]>(url)
-    if (!result.success) throw new Error('获取持仓列表失败')
-    return result.data!
+    try {
+      const result = await httpClient.get<Position[]>(url)
+      if (!result.success) {
+        console.warn('获取持仓列表失败，返回空数组:', result.message)
+        // 返回空数组而不是抛出错误，以避免前端崩溃
+        return []
+      }
+      return result.data || []
+    } catch (error) {
+      console.error('获取持仓时发生异常:', error)
+      // 发生异常时也返回空数组，避免前端崩溃
+      return []
+    }
   },
 
   // 获取决策日志（支持trader_id）

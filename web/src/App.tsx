@@ -437,7 +437,7 @@ function App() {
       >
         <HeaderBar
           isLoggedIn={!!user}
-          currentPage="guardian-test"
+          currentPage="guardian-setup"
           language={language}
           onLanguageChange={setLanguage}
           user={user}
@@ -516,8 +516,6 @@ function App() {
               <TestPage />
             ) : currentPage === 'tools' ? (
               <ToolsPage />
-            ) : currentPage === 'guardian-test' ? (
-              <GuardianTestPage />
             ) : currentPage === 'guardian-setup' ? (
               <GuardianSetupPage />
             ) : currentPage === 'auto-login-test' ? (

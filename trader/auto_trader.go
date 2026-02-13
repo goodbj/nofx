@@ -854,7 +854,16 @@ func (at *AutoTrader) runCycle() error {
 	running = at.isRunning
 	at.isRunningMutex.RUnlock()
 	if !running {
-		logger.Infof("⏹ Trader stopped before decision execution, aborting cycle #%d", at.callCount)
+		logger.Infof("⏹ Trader stopped before decision execution, cycle #%d completed gracefully", at.callCount)
+		logger.Infof("   - AI decisions generated: %d", len(sortedDecisions))
+		logger.Infof("   - Execution aborted to respect stop command")
+
+		// Even though we're not executing the decisions, save the AI-generated decision record for tracking
+		record.Success = false
+		record.ErrorMessage = fmt.Sprintf("Trader was stopped before executing %d decisions - this is normal behavior when trader is stopped during AI processing", len(sortedDecisions))
+		if err := at.saveDecision(record); err != nil {
+			logger.Infof("⚠ Failed to save decision record: %v", err)
+		}
 		return nil
 	}
 

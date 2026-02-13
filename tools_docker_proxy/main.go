@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -113,14 +114,19 @@ func shouldLogRequest(targetURL string) bool {
 
 // 全局HTTP客户端以提高性能和复用连接
 var httpClient = &http.Client{
-	Timeout: 60 * time.Second,
+	Timeout: 120 * time.Second, // 增加超时时间到120秒，适应网络波动
 	Transport: &http.Transport{
+		DialContext: (&net.Dialer{
+			Timeout:   30 * time.Second, // 增加拨号超时时间
+			KeepAlive: 30 * time.Second,
+		}).DialContext,
 		MaxIdleConns:          200,               // 增加最大空闲连接数
 		MaxIdleConnsPerHost:   20,                // 增加每主机最大空闲连接数
 		MaxConnsPerHost:       50,                // 限制每主机最大连接数
 		IdleConnTimeout:       120 * time.Second, // 延长空闲连接超时
-		TLSHandshakeTimeout:   10 * time.Second,
-		ExpectContinueTimeout: 1 * time.Second,
+		TLSHandshakeTimeout:   30 * time.Second,  // 增加TLS握手超时时间
+		ResponseHeaderTimeout: 60 * time.Second,  // 增加响应头超时时间
+		ExpectContinueTimeout: 5 * time.Second,   // 增加Expect-continue超时时间
 		DisableKeepAlives:     false,
 		DisableCompression:    false, // 启用压缩
 	},

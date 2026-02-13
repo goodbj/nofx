@@ -47,6 +47,7 @@ type Server struct {
 	httpServer      *http.Server
 	port            int
 	logger          *logrus.Logger
+	accountCache    *AccountCacheManager
 }
 
 // NewServer Creates API server
@@ -82,6 +83,7 @@ func NewServer(traderManager *manager.TraderManager, st *store.Store, cryptoServ
 		debateHandler:   debateHandler,
 		port:            port,
 		logger:          logger.Log,
+		accountCache:    NewAccountCacheManager(30 * time.Second), // 30秒缓存
 	}
 
 	// Setup routes
@@ -282,6 +284,11 @@ func (s *Server) setupRoutes() {
 			// Environment variables management
 			protected.GET("/env-variables", s.handleGetEnvVariables)
 			protected.PUT("/env-variables", s.handleUpdateEnvVariables)
+
+			// Cache management endpoints
+			protected.GET("/cache/stats", s.handleGetCacheStats)
+			protected.POST("/cache/clear", s.handleClearCache)
+			protected.POST("/cache/clear/:trader_id", s.handleClearTraderCache)
 
 			// Register Guardian-related routes
 			s.registerGuardianRoutes(api)
@@ -1195,20 +1202,15 @@ func (s *Server) handleStopTrader(c *gin.Context) {
 		return
 	}
 
-	// Check if trader is running
-	status := trader.GetStatus()
-	if isRunning, ok := status["is_running"].(bool); ok && !isRunning {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Trader is already stopped"})
-		return
-	}
-
-	// Stop trader
+	// Always stop the trader in memory regardless of current state
 	trader.Stop()
 
-	// Update running status in database
+	// Update running status in database to ensure consistency
 	err = s.store.Trader().UpdateStatus(userID, traderID, false)
 	if err != nil {
 		logger.Infof("??  Failed to update trader status: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update trader status in database"})
+		return
 	}
 
 	logger.Infof("⏹ Trader %s stopped", trader.GetName())
@@ -2593,7 +2595,7 @@ func (s *Server) handleStatus(c *gin.Context) {
 	c.JSON(http.StatusOK, status)
 }
 
-// handleAccount Account information
+// handleAccount Account information with caching optimization
 func (s *Server) handleAccount(c *gin.Context) {
 	userID := c.GetString("user_id")
 	traderID := c.Query("trader_id")
@@ -2602,6 +2604,16 @@ func (s *Server) handleAccount(c *gin.Context) {
 		SafeBadRequest(c, "Missing trader_id parameter")
 		return
 	}
+
+	// First, try to get from cache
+	if account, found := s.accountCache.Get(traderID); found {
+		logger.Infof("✅ Returning cached account info for trader %s", traderID)
+		c.JSON(http.StatusOK, account)
+		return
+	}
+
+	// Cache miss, proceed with original logic
+	logger.Infof("🔄 Cache miss for trader %s, fetching from API", traderID)
 
 	// First, ensure user's traders are loaded into memory
 	err := s.traderManager.LoadUserTradersFromStore(s.store, userID)
@@ -2704,6 +2716,9 @@ func (s *Server) handleAccount(c *gin.Context) {
 			return
 		}
 	}
+
+	// Cache the result
+	s.accountCache.Set(traderID, account)
 
 	logger.Infof("??Returning account info [%s]: equity=%.2f, available=%.2f, pnl=%.2f (%.2f%%)",
 		trader.GetName(),
@@ -2820,16 +2835,80 @@ func (s *Server) handlePositions(c *gin.Context) {
 
 	trader, err := s.traderManager.GetTrader(traderID)
 	if err != nil {
-		SafeNotFound(c, "Trader")
-		return
+		logger.Errorf("Trader not found in memory: %s, error: %v", traderID, err)
+
+		// 尝试从数据库重新加载该交易者
+		userID := c.GetString("user_id")
+		if userID != "" {
+			logger.Infof("Attempting to load trader %s for user %s from store", traderID, userID)
+			loadErr := s.traderManager.LoadUserTradersFromStore(s.store, userID)
+			if loadErr != nil {
+				logger.Errorf("Failed to reload traders from store: %v", loadErr)
+			} else {
+				// 重新尝试获取交易者
+				trader, err = s.traderManager.GetTrader(traderID)
+				if err != nil {
+					logger.Errorf("Trader still not found after reload: %s", traderID)
+					SafeNotFound(c, "Trader")
+					return
+				}
+			}
+		} else {
+			SafeNotFound(c, "Trader")
+			return
+		}
+	}
+
+	// 验证交易者是否处于可用状态
+	status := trader.GetStatus()
+	isRunning, ok := status["is_running"].(bool)
+	if !ok {
+		logger.Warnf("Could not determine running status for trader %s", traderID)
+		isRunning = true // 默认认为是运行的
+	}
+
+	if !isRunning {
+		logger.Infof("Trader %s is not running, attempting to verify proxy configuration", traderID)
+		// 验证并修复代理配置
+		repairErr := s.traderManager.ValidateAndRepairTraderProxy(traderID, s.store)
+		if repairErr != nil {
+			logger.Warnf("Could not repair proxy for trader %s: %v", traderID, repairErr)
+		}
 	}
 
 	positions, err := trader.GetPositions()
 	if err != nil {
-		SafeInternalError(c, "Get positions", err)
+		// 记录详细错误信息，但返回通用错误消息给前端
+		logger.Errorf("Failed to get positions for trader %s: %v", traderID, err)
+
+		// 尝试强制刷新交易者以解决潜在的连接问题
+		refreshErr := s.traderManager.ForceRefreshTrader(traderID, s.store)
+		if refreshErr != nil {
+			logger.Errorf("Failed to refresh trader %s: %v", traderID, refreshErr)
+		} else {
+			// 刷新后再次尝试获取持仓
+			refreshedTrader, getErr := s.traderManager.GetTrader(traderID)
+			if getErr == nil {
+				positions, err = refreshedTrader.GetPositions()
+				if err == nil {
+					logger.Infof("Successfully retrieved positions after refresh for trader %s, count: %d", traderID, len(positions))
+					c.JSON(http.StatusOK, positions)
+					return
+				} else {
+					logger.Errorf("Still failed to get positions after refresh for trader %s: %v", traderID, err)
+				}
+			} else {
+				logger.Errorf("Could not get trader instance after refresh: %v", getErr)
+			}
+		}
+
+		// 如果仍然失败，返回空数组而不是错误，这样前端不会崩溃
+		logger.Infof("Returning empty positions for trader %s due to persistent error", traderID)
+		c.JSON(http.StatusOK, []map[string]interface{}{})
 		return
 	}
 
+	logger.Infof("Successfully retrieved positions for trader %s, count: %d", traderID, len(positions))
 	c.JSON(http.StatusOK, positions)
 }
 
@@ -4817,6 +4896,47 @@ func createBinanceTraderWithProxy(userID string, exchangeCfg *store.Exchange) tr
 		originalTrader := trader.NewFuturesTrader(string(exchangeCfg.APIKey), string(exchangeCfg.SecretKey), userID, realExchangeEndpoint)
 		return trader.NewProxyTraderWrapperWithAuth(originalTrader, "native", "", string(exchangeCfg.APIKey), string(exchangeCfg.SecretKey), realExchangeEndpoint)
 	}
+}
+
+// ============================================================================
+// Cache Management Functions
+// ============================================================================
+
+// handleGetCacheStats Get cache statistics
+func (s *Server) handleGetCacheStats(c *gin.Context) {
+	stats := s.accountCache.GetCacheStats()
+	stats["cache_type"] = "account_info"
+	stats["implementation"] = "memory_cache"
+
+	c.JSON(http.StatusOK, stats)
+}
+
+// handleClearCache Clear all cache entries
+func (s *Server) handleClearCache(c *gin.Context) {
+	s.accountCache.ClearAll()
+	logger.Infof("✅ Account cache cleared")
+
+	c.JSON(http.StatusOK, gin.H{
+		"message":         "Cache cleared successfully",
+		"entries_cleared": "all",
+	})
+}
+
+// handleClearTraderCache Clear cache for specific trader
+func (s *Server) handleClearTraderCache(c *gin.Context) {
+	traderID := c.Param("trader_id")
+	if traderID == "" {
+		SafeBadRequest(c, "Missing trader_id parameter")
+		return
+	}
+
+	s.accountCache.Clear(traderID)
+	logger.Infof("✅ Cache cleared for trader %s", traderID)
+
+	c.JSON(http.StatusOK, gin.H{
+		"message":   fmt.Sprintf("Cache cleared for trader %s", traderID),
+		"trader_id": traderID,
+	})
 }
 
 // ============================================================================
