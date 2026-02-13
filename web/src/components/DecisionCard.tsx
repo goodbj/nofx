@@ -222,6 +222,8 @@ export function DecisionCard({ decision, language, onSymbolClick, onDelete }: De
   const [showSystemPrompt, setShowSystemPrompt] = useState(false)
   const [showInputPrompt, setShowInputPrompt] = useState(false)
   const [showCoT, setShowCoT] = useState(false)
+  const [showJSON, setShowJSON] = useState(false) // 新增：JSON显示状态
+
 
   // Copy text to clipboard
   const copyToClipboard = async (text: string, label: string) => {
@@ -438,7 +440,68 @@ export function DecisionCard({ decision, language, onSymbolClick, onDelete }: De
           </div>
         )}
 
-        {/* AI Thinking */}
+        {/* JSON Content - 显示决策JSON，使用绿色主题 */}
+        {decision.decision_json && (
+          <div className="mt-3">
+            <div className="flex items-center gap-2 justify-between">
+              <button
+                onClick={() => setShowJSON(!showJSON)}
+                className="flex items-center gap-2 text-sm transition-colors w-full p-2 rounded hover:bg-white/5"
+              >
+                <div className="flex items-center gap-2">
+                  <span className="text-base">📋</span>
+                  <span className="font-semibold" style={{ color: '#10B981' }}>
+                    JSON Content
+                  </span>
+                </div>
+                <span
+                  className="text-xs px-2 py-0.5 rounded"
+                  style={{ background: 'rgba(16, 185, 129, 0.15)', color: '#10B981' }}
+                >
+                  {showJSON ? t('collapse', language) : t('expand', language)}
+                </span>
+              </button>
+              <div className="flex items-center gap-2 ml-2">
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    copyToClipboard(decision.decision_json, 'JSON Content')
+                  }}
+                  className="text-xs px-2.5 py-1 rounded hover:opacity-80 transition-opacity flex items-center gap-1"
+                  style={{ background: 'rgba(16, 185, 129, 0.2)', color: '#10B981', border: '1px solid rgba(16, 185, 129, 0.3)' }}
+                  title="Copy to clipboard"
+                >
+                  <span>📋</span>
+                </button>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    downloadAsFile(decision.decision_json, `json-content-cycle-${decision.cycle_number}.json`)
+                  }}
+                  className="text-xs px-2.5 py-1 rounded hover:opacity-80 transition-opacity flex items-center gap-1"
+                  style={{ background: 'rgba(16, 185, 129, 0.2)', color: '#10B981', border: '1px solid rgba(16, 185, 129, 0.3)' }}
+                  title="Download as file"
+                >
+                  <span>💾</span>
+                </button>
+              </div>
+            </div>
+            {showJSON && (
+              <div
+                className="mt-2 rounded-lg p-4 text-sm font-mono whitespace-pre-wrap max-h-96 overflow-y-auto"
+                style={{
+                  background: '#0B0E11',
+                  border: '1px solid #2B3139',
+                  color: '#EAECEF',
+                }}
+              >
+                {decision.decision_json}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* AI Thinking - 显示思维链文本内容 */}
         {decision.cot_trace && (
           <div>
             <button
@@ -459,15 +522,17 @@ export function DecisionCard({ decision, language, onSymbolClick, onDelete }: De
               </span>
             </button>
             {showCoT && (
-              <div
-                className="mt-2 rounded-lg p-4 text-sm font-mono whitespace-pre-wrap max-h-96 overflow-y-auto"
-                style={{
-                  background: '#0B0E11',
-                  border: '1px solid #2B3139',
-                  color: '#EAECEF',
-                }}
-              >
-                {decision.cot_trace}
+              <div className="space-y-3 mt-2">
+                <div
+                  className="rounded-lg p-4 text-sm font-mono whitespace-pre-wrap max-h-96 overflow-y-auto"
+                  style={{
+                    background: '#0B0E11',
+                    border: '1px solid #2B3139',
+                    color: '#EAECEF',
+                  }}
+                >
+                  {decision.cot_trace}
+                </div>
               </div>
             )}
           </div>
