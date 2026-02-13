@@ -1467,9 +1467,6 @@ func (at *AutoTrader) TriggerDecision() (map[string]interface{}, error) {
 	at.executionMutex.Unlock()
 	logger.Infof("🔒 Execution mutex acquired for %s, starting runCycle", at.name)
 
-	// 🔥 记录手动扫描开始时间，用于精确判断停止原因
-	scanStartTime := time.Now()
-	
 	// Ensure we reset the executing flag when done
 	defer func() {
 		logger.Infof("🔓 Releasing execution mutex for %s", at.name)
@@ -1482,25 +1479,11 @@ func (at *AutoTrader) TriggerDecision() (map[string]interface{}, error) {
 	// 🔥 记录手动扫描时间（用于延迟系统扫描）
 	at.lastManualScanTime = time.Now()
 
-	// Call the main decision cycle
+	// Call the main decision cycle - let it run to completion
 	err := at.runCycle()
 	executionTime := time.Since(startTime)
 	if err != nil {
 		logger.Errorf("❌ Manual trigger decision cycle failed for %s: %v (took %v)", at.name, err, executionTime)
-		
-		// 🔥 精确判断停止原因：检查是否在手动扫描期间被停止
-		if strings.Contains(err.Error(), "stopped") {
-			at.isRunningMutex.RLock()
-			currentRunning := at.isRunning
-			at.isRunningMutex.RUnlock()
-			
-			// 如果现在仍在运行，说明停止发生在扫描期间
-			if currentRunning && time.Since(scanStartTime) < 5*time.Second {
-				logger.Infof("🔍 [MANUAL_SCAN_INTERRUPTED] Manual scan for %s was interrupted during execution (duration: %v)", 
-					at.name, time.Since(scanStartTime))
-				// 可以在这里添加特殊的错误处理逻辑
-			}
-		}
 		return nil, err
 	}
 
@@ -2432,18 +2415,9 @@ func (at *AutoTrader) determineStopReason() string {
 		return "RISK_CONTROL_AUTO_PAUSE"
 	}
 
-	// Check for system error conditions that might cause unexpected stops
-	// This is a placeholder for more sophisticated detection logic
-	// In the future, we could check:
-	// - Recent error logs
-	// - System resource status
-	// - Exchange connection status
-	// - Database connectivity issues
-
-	// For now, we use a conservative approach
-	// If we reach this point and it's not risk control, we assume it's either
-	// user manual stop or some system condition that wasn't properly logged
-	return "USER_MANUAL_STOP" // Conservative default - better to assume user action than false system error
+	// For manual scans, we keep it simple - if it's not risk control pause,
+	// we assume it's user manual stop since this is the final task
+	return "USER_MANUAL_STOP"
 }
 
 // GetStore gets data store (for external access to decision records, etc.)

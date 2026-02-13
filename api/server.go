@@ -2655,19 +2655,27 @@ func (s *Server) handleAccount(c *gin.Context) {
 	if configErr == nil && fullConfig != nil && fullConfig.Exchange != nil && fullConfig.Exchange.CustomAPIURL != "" {
 		targetEndpoint := strings.TrimSpace(fullConfig.Exchange.CustomAPIURL)
 
-		// Force refresh for any non-empty CustomAPIURL
-		// This mimics the successful "save modification" behavior regardless of URL type
-		logger.Infof("?? Detected non-empty CustomAPIURL '%s' for trader %s, forcing refresh for proper initialization", targetEndpoint, traderID)
-		refreshErr := s.traderManager.ForceRefreshTrader(traderID, s.store)
-		if refreshErr != nil {
-			logger.Warnf("?? Failed to force refresh trader %s: %v", traderID, refreshErr)
-			// Continue with original trader if refresh fails
-		} else {
-			// Try to get the refreshed trader
-			refreshedTrader, refreshGetErr := s.traderManager.GetTrader(traderID)
-			if refreshGetErr == nil {
-				trader = refreshedTrader
-				logger.Infof("?? Successfully refreshed trader %s with CustomAPIURL '%s'", traderID, targetEndpoint)
+		// 🔥 检查交易员是否正在执行手动扫描，如果是则跳过强制刷新
+		if traderInstance, getErr := s.traderManager.GetTrader(traderID); getErr == nil {
+			status := traderInstance.GetStatus()
+			if isExecuting, ok := status["is_executing"].(bool); ok && isExecuting {
+				logger.Infof("⚠️ Trader %s is currently executing manual scan, skipping force refresh to avoid interruption", traderID)
+			} else {
+				// Force refresh for any non-empty CustomAPIURL
+				// This mimics the successful "save modification" behavior regardless of URL type
+				logger.Infof("?? Detected non-empty CustomAPIURL '%s' for trader %s, forcing refresh for proper initialization", targetEndpoint, traderID)
+				refreshErr := s.traderManager.ForceRefreshTrader(traderID, s.store)
+				if refreshErr != nil {
+					logger.Warnf("?? Failed to force refresh trader %s: %v", traderID, refreshErr)
+					// Continue with original trader if refresh fails
+				} else {
+					// Try to get the refreshed trader
+					refreshedTrader, refreshGetErr := s.traderManager.GetTrader(traderID)
+					if refreshGetErr == nil {
+						trader = refreshedTrader
+						logger.Infof("?? Successfully refreshed trader %s with CustomAPIURL '%s'", traderID, targetEndpoint)
+					}
+				}
 			}
 		}
 	}
@@ -2680,34 +2688,80 @@ func (s *Server) handleAccount(c *gin.Context) {
 		// If the error is related to API key format or proxy issues, try to force refresh the trader
 		errMsg := err.Error()
 		if strings.Contains(errMsg, "API-key format invalid") || strings.Contains(errMsg, "401") {
-			logger.Infof("?? Detected API key or proxy issue, attempting to force refresh trader %s", traderID)
+			logger.Infof("?? Detected API key or proxy issue, checking if trader %s is executing manual scan...", traderID)
 
-			// Force refresh the trader to ensure proxy configuration is properly set
-			refreshErr := s.traderManager.ForceRefreshTrader(traderID, s.store)
-			if refreshErr != nil {
-				logger.Infof("?? Force refresh failed: %v", refreshErr)
-				// Still try to get account info one more time
-				account, err = trader.GetAccountInfo()
-				if err != nil {
-					logger.Infof("?? Second attempt to get account info failed: %v", err)
-					SafeInternalError(c, "Get account info", err)
-					return
+			// 🔥 检查是否正在执行手动扫描
+			if traderInstance, getErr := s.traderManager.GetTrader(traderID); getErr == nil {
+				status := traderInstance.GetStatus()
+				if isExecuting, ok := status["is_executing"].(bool); ok && isExecuting {
+					logger.Infof("⚠️ Trader %s is currently executing manual scan, skipping force refresh to avoid interruption", traderID)
+					// Still try to get account info one more time with current trader
+					account, err = trader.GetAccountInfo()
+					if err != nil {
+						logger.Infof("?? Second attempt to get account info failed: %v", err)
+						SafeInternalError(c, "Get account info", err)
+						return
+					}
+				} else {
+					logger.Infof("?? Trader %s is not executing, attempting to force refresh", traderID)
+					// Force refresh the trader to ensure proxy configuration is properly set
+					refreshErr := s.traderManager.ForceRefreshTrader(traderID, s.store)
+					if refreshErr != nil {
+						logger.Infof("?? Force refresh failed: %v", refreshErr)
+						// Still try to get account info one more time
+						account, err = trader.GetAccountInfo()
+						if err != nil {
+							logger.Infof("?? Second attempt to get account info failed: %v", err)
+							SafeInternalError(c, "Get account info", err)
+							return
+						}
+					} else {
+						// Retry getting the trader after refresh
+						refreshedTrader, getErr := s.traderManager.GetTrader(traderID)
+						if getErr != nil {
+							logger.Infof("?? Could not get refreshed trader: %v", getErr)
+							SafeInternalError(c, "Get account info", err)
+							return
+						}
+
+						// Try to get account info with the refreshed trader
+						account, err = refreshedTrader.GetAccountInfo()
+						if err != nil {
+							logger.Infof("?? Get account info failed even after refresh: %v", err)
+							SafeInternalError(c, "Get account info", err)
+							return
+						}
+					}
 				}
 			} else {
-				// Retry getting the trader after refresh
-				refreshedTrader, getErr := s.traderManager.GetTrader(traderID)
-				if getErr != nil {
-					logger.Infof("?? Could not get refreshed trader: %v", getErr)
-					SafeInternalError(c, "Get account info", err)
-					return
-				}
+				// If we can't get trader status, proceed with normal refresh logic
+				logger.Infof("?? Could not get trader status, proceeding with normal refresh logic")
+				refreshErr := s.traderManager.ForceRefreshTrader(traderID, s.store)
+				if refreshErr != nil {
+					logger.Infof("?? Force refresh failed: %v", refreshErr)
+					// Still try to get account info one more time
+					account, err = trader.GetAccountInfo()
+					if err != nil {
+						logger.Infof("?? Second attempt to get account info failed: %v", err)
+						SafeInternalError(c, "Get account info", err)
+						return
+					}
+				} else {
+					// Retry getting the trader after refresh
+					refreshedTrader, getErr := s.traderManager.GetTrader(traderID)
+					if getErr != nil {
+						logger.Infof("?? Could not get refreshed trader: %v", getErr)
+						SafeInternalError(c, "Get account info", err)
+						return
+					}
 
-				// Try to get account info with the refreshed trader
-				account, err = refreshedTrader.GetAccountInfo()
-				if err != nil {
-					logger.Infof("?? Get account info failed even after refresh: %v", err)
-					SafeInternalError(c, "Get account info", err)
-					return
+					// Try to get account info with the refreshed trader
+					account, err = refreshedTrader.GetAccountInfo()
+					if err != nil {
+						logger.Infof("?? Get account info failed even after refresh: %v", err)
+						SafeInternalError(c, "Get account info", err)
+						return
+					}
 				}
 			}
 		} else {
