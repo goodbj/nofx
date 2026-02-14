@@ -1264,11 +1264,16 @@ func (t *HyperliquidTrader) GetMarketPrice(symbol string) (float64, error) {
 
 	// Find price for corresponding coin (allMids is map[string]string)
 	if priceStr, ok := allMids[coin]; ok {
-		priceFloat, err := strconv.ParseFloat(priceStr, 64)
-		if err == nil {
-			return priceFloat, nil
+		// Check if price is empty or invalid
+		if priceStr == "" {
+			return 0, fmt.Errorf("empty price received for %s", coin)
 		}
-		return 0, fmt.Errorf("price format error: %v", err)
+
+		priceFloat, err := strconv.ParseFloat(priceStr, 64)
+		if err != nil {
+			return 0, fmt.Errorf("failed to parse price '%s' for %s: %w", priceStr, coin, err)
+		}
+		return priceFloat, nil
 	}
 
 	return 0, fmt.Errorf("price not found for %s", symbol)
@@ -1323,11 +1328,16 @@ func (t *HyperliquidTrader) getXyzMarketPrice(coin string) (float64, error) {
 	}
 
 	if priceStr, ok := mids[lookupKey]; ok {
-		priceFloat, err := strconv.ParseFloat(priceStr, 64)
-		if err == nil {
-			return priceFloat, nil
+		// Check if price is empty or invalid
+		if priceStr == "" {
+			return 0, fmt.Errorf("empty price received for %s", lookupKey)
 		}
-		return 0, fmt.Errorf("price format error: %v", err)
+
+		priceFloat, err := strconv.ParseFloat(priceStr, 64)
+		if err != nil {
+			return 0, fmt.Errorf("failed to parse price '%s' for %s: %w", priceStr, lookupKey, err)
+		}
+		return priceFloat, nil
 	}
 
 	return 0, fmt.Errorf("xyz dex price not found for %s (lookup key: %s)", coin, lookupKey)

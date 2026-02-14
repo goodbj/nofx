@@ -55,9 +55,14 @@ func (pm *PrecisionManager) getMarketPrice(symbol string) (float64, error) {
 		return 0, fmt.Errorf("price not found")
 	}
 
+	// Check if price is empty or invalid
+	if prices[0].Price == "" {
+		return 0, fmt.Errorf("empty price received for symbol %s", symbol)
+	}
+
 	price, err := strconv.ParseFloat(prices[0].Price, 64)
 	if err != nil {
-		return 0, err
+		return 0, fmt.Errorf("failed to parse price '%s' for symbol %s: %w", prices[0].Price, symbol, err)
 	}
 
 	return price, nil

@@ -22,6 +22,10 @@ func SafeFloat64(data map[string]interface{}, key string) (float64, error) {
 	case int64:
 		return float64(v), nil
 	case string:
+		// Check if string is empty
+		if v == "" {
+			return 0, fmt.Errorf("cannot parse empty string as float64")
+		}
 		// Try to parse string as float64
 		parsed, err := strconv.ParseFloat(v, 64)
 		if err != nil {
@@ -65,6 +69,10 @@ func SafeInt(data map[string]interface{}, key string) (int, error) {
 	case float64:
 		return int(v), nil
 	case string:
+		// Check if string is empty
+		if v == "" {
+			return 0, fmt.Errorf("cannot parse empty string as int")
+		}
 		parsed, err := strconv.Atoi(v)
 		if err != nil {
 			return 0, fmt.Errorf("cannot parse string '%s' as int: %w", v, err)
