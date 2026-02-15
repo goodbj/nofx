@@ -1617,6 +1617,11 @@ func (at *AutoTrader) runCycleWithExecutionLock() error {
 }
 
 // executeOpenLongWithRecord executes open long position and records detailed information
+// addRiskControlPrefix adds 【风控】 prefix to risk control messages
+func addRiskControlPrefix(message string) string {
+	return "【风控】 " + message
+}
+
 func (at *AutoTrader) executeOpenLongWithRecord(decision *kernel.Decision, actionRecord *store.DecisionAction) error {
 	logger.Infof("  📈 Open long: %s", decision.Symbol)
 
@@ -1639,7 +1644,7 @@ func (at *AutoTrader) executeOpenLongWithRecord(decision *kernel.Decision, actio
 	// Check if there's already a position in the same symbol and direction
 	for _, pos := range positions {
 		if pos["symbol"] == decision.Symbol && pos["side"] == "long" {
-			return fmt.Errorf("❌ [POSITION_EXISTS_LIMIT] %s already has long position - Close existing position first", decision.Symbol)
+			return fmt.Errorf(addRiskControlPrefix("❌ [POSITION_EXISTS_LIMIT] %s already has long position - Close existing position first"), decision.Symbol)
 		}
 	}
 
@@ -1785,7 +1790,7 @@ func (at *AutoTrader) executeOpenShortWithRecord(decision *kernel.Decision, acti
 	// Check if there's already a position in the same symbol and direction
 	for _, pos := range positions {
 		if pos["symbol"] == decision.Symbol && pos["side"] == "short" {
-			return fmt.Errorf("❌ [POSITION_EXISTS_LIMIT] %s already has short position - Close existing position first", decision.Symbol)
+			return fmt.Errorf(addRiskControlPrefix("❌ [POSITION_EXISTS_LIMIT] %s already has short position - Close existing position first"), decision.Symbol)
 		}
 	}
 
@@ -3272,7 +3277,7 @@ func (at *AutoTrader) enforcePositionValueRatio(positionSizeUSD float64, equity 
 
 	// Check if position size exceeds limit
 	if positionSizeUSD > maxPositionValue {
-		logger.Infof("  ⚠️ [POSITION_VALUE_RATIO_LIMIT] Position %.2f USDT exceeds limit (equity %.2f × %.1fx = %.2f USDT max for %s), capping",
+		logger.Infof(addRiskControlPrefix("  ⚠️ [POSITION_VALUE_RATIO_LIMIT] Position %.2f USDT exceeds limit (equity %.2f × %.1fx = %.2f USDT max for %s), capping"),
 			positionSizeUSD, equity, maxPositionValueRatio, maxPositionValue, symbol)
 		return maxPositionValue, true
 	}
@@ -3374,7 +3379,7 @@ func (at *AutoTrader) enforceMaxLossPerTrade(symbol string, unrealizedPnL float6
 	currentLossPercent := (math.Abs(unrealizedPnL) / positionValue) * 100
 
 	if unrealizedPnL < 0 && currentLossPercent > maxLossPercent {
-		return fmt.Errorf("❌ [MAX_LOSS_PER_TRADE_LIMIT] Position %s loss: %.2f%% exceeds limit: %.2f%% - Current loss: %.2f USDT",
+		return fmt.Errorf(addRiskControlPrefix("❌ [MAX_LOSS_PER_TRADE_LIMIT] Position %s loss: %.2f%% exceeds limit: %.2f%% - Current loss: %.2f USDT"),
 			symbol, currentLossPercent, maxLossPercent, unrealizedPnL)
 	}
 
@@ -3404,7 +3409,7 @@ func (at *AutoTrader) enforceDailyLossLimit() error {
 	currentDailyLossPercent := (math.Abs(at.dailyPnL) / at.initialBalance) * 100
 
 	if at.dailyPnL < 0 && currentDailyLossPercent > dailyLossLimitPercent {
-		return fmt.Errorf("❌ [DAILY_LOSS_LIMIT] Daily loss: %.2f%% exceeds limit: %.2f%% - Current daily loss: %.2f USDT",
+		return fmt.Errorf(addRiskControlPrefix("❌ [DAILY_LOSS_LIMIT] Daily loss: %.2f%% exceeds limit: %.2f%% - Current daily loss: %.2f USDT"),
 			currentDailyLossPercent, dailyLossLimitPercent, at.dailyPnL)
 	}
 
@@ -3456,19 +3461,19 @@ func (at *AutoTrader) enforceTradeFrequencyLimits(symbol string) error {
 
 	// Check daily trade limit
 	if maxDailyTrades > 0 && tracker.dailyTrades >= maxDailyTrades {
-		return fmt.Errorf("❌ [DAILY_TRADE_LIMIT] Daily trades: %d/%d reached - Trading blocked for today", tracker.dailyTrades, maxDailyTrades)
+		return fmt.Errorf(addRiskControlPrefix("❌ [DAILY_TRADE_LIMIT] Daily trades: %d/%d reached - Trading blocked for today"), tracker.dailyTrades, maxDailyTrades)
 	}
 
 	// Check hourly trade limit
 	if maxHourlyTrades > 0 && tracker.hourlyTrades >= maxHourlyTrades {
-		return fmt.Errorf("❌ [HOURLY_TRADE_LIMIT] Hourly trades: %d/%d reached - Trading blocked for this hour", tracker.hourlyTrades, maxHourlyTrades)
+		return fmt.Errorf(addRiskControlPrefix("❌ [HOURLY_TRADE_LIMIT] Hourly trades: %d/%d reached - Trading blocked for this hour"), tracker.hourlyTrades, maxHourlyTrades)
 	}
 
 	// Check symbol-specific hourly trade limit
 	if maxTradesPerSymbolPerHour > 0 {
 		symbolTrades := tracker.symbolHourlyTrades[symbol]
 		if symbolTrades >= maxTradesPerSymbolPerHour {
-			return fmt.Errorf("❌ [SYMBOL_HOURLY_LIMIT] Symbol '%s' hourly trades: %d/%d reached - Trading blocked for this symbol", symbol, symbolTrades, maxTradesPerSymbolPerHour)
+			return fmt.Errorf(addRiskControlPrefix("❌ [SYMBOL_HOURLY_LIMIT] Symbol '%s' hourly trades: %d/%d reached - Trading blocked for this symbol"), symbol, symbolTrades, maxTradesPerSymbolPerHour)
 		}
 	}
 

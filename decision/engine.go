@@ -84,8 +84,8 @@ type Decision struct {
 	MaxPositionUSD  float64 `json:"max_position_usd,omitempty"`  // 最大仓位金额限制
 	MaxDailyLoss    float64 `json:"max_daily_loss,omitempty"`    // 最大日亏损限制
 	TimeInForce     string  `json:"time_in_force,omitempty"`     // 订单时效类型（GTC, IOC, FOK等）
-	Confidence      int     `json:"confidence,omitempty"` // 信心度 (0-100)
-	RiskUSD         float64 `json:"risk_usd,omitempty"`   // 最大美元风险
+	Confidence      int     `json:"confidence,omitempty"`        // 信心度 (0-100)
+	RiskUSD         float64 `json:"risk_usd,omitempty"`          // 最大美元风险
 	Reasoning       string  `json:"reasoning"`
 }
 
@@ -510,15 +510,15 @@ func findMatchingBracket(s string, start int) int {
 func validateDecision(d *Decision, accountEquity float64, btcEthLeverage, altcoinLeverage int) error {
 	// 验证action
 	validActions := map[string]bool{
-		"open_long":         true,
-		"open_short":        true,
-		"close_long":        true,
-		"close_short":       true,
-		"hold":              true,
-		"wait":              true,
-		"update_stop_loss":  true,
+		"open_long":          true,
+		"open_short":         true,
+		"close_long":         true,
+		"close_short":        true,
+		"hold":               true,
+		"wait":               true,
+		"update_stop_loss":   true,
 		"update_take_profit": true,
-		"partial_close":     true,
+		"partial_close":      true,
 	}
 
 	if !validActions[d.Action] {
@@ -594,15 +594,15 @@ func validateDecision(d *Decision, accountEquity float64, btcEthLeverage, altcoi
 
 		// 硬约束：风险回报比必须≥3.0
 		if riskRewardRatio < 3.0 {
-			return fmt.Errorf("风险回报比过低(%.2f:1)，必须≥3.0:1 [风险:%.2f%% 收益:%.2f%%] [止损:%.2f 止盈:%.2f]",
+			return fmt.Errorf("【风控】 风险回报比过低(%.2f:1)，必须≥3.0:1 [风险:%.2f%% 收益:%.2f%%] [止损:%.2f 止盈:%.2f]",
 				riskRewardRatio, riskPercent, rewardPercent, d.StopLoss, d.TakeProfit)
 		}
 		// 验证附加约束
 		if d.MaxPositionUSD > 0 && d.PositionSizeUSD > d.MaxPositionUSD {
-			return fmt.Errorf("仓位金额超出最大限制: %.2f > %.2f", d.PositionSizeUSD, d.MaxPositionUSD)
+			return fmt.Errorf("【风控】 仓位金额超出最大限制: %.2f > %.2f", d.PositionSizeUSD, d.MaxPositionUSD)
 		}
 		if d.MaxDrawdown > 0 && d.MaxDrawdown > 50 {
-			return fmt.Errorf("最大回撤限制不能超过50%%: %.2f%%", d.MaxDrawdown)
+			return fmt.Errorf("【风控】 最大回撤限制不能超过50%%: %.2f%%", d.MaxDrawdown)
 		}
 		if d.MinTargetProfit > 0 && riskRewardRatio < d.MinTargetProfit/100 {
 			return fmt.Errorf("预期收益率不达标: %.2f%% < %.2f%%", riskRewardRatio*100, d.MinTargetProfit)
@@ -614,7 +614,7 @@ func validateDecision(d *Decision, accountEquity float64, btcEthLeverage, altcoi
 		}
 		// 验证附加约束
 		if d.MaxDrawdown > 0 && d.MaxDrawdown > 50 {
-			return fmt.Errorf("最大回撤限制不能超过50%%: %.2f%%", d.MaxDrawdown)
+			return fmt.Errorf("【风控】 最大回撤限制不能超过50%%: %.2f%%", d.MaxDrawdown)
 		}
 	case "update_take_profit":
 		// 验证update_take_profit操作
@@ -623,7 +623,7 @@ func validateDecision(d *Decision, accountEquity float64, btcEthLeverage, altcoi
 		}
 		// 验证附加约束
 		if d.MaxDrawdown > 0 && d.MaxDrawdown > 50 {
-			return fmt.Errorf("最大回撤限制不能超过50%%: %.2f%%", d.MaxDrawdown)
+			return fmt.Errorf("【风控】 最大回撤限制不能超过50%%: %.2f%%", d.MaxDrawdown)
 		}
 	case "partial_close":
 		// 验证partial_close操作
@@ -632,7 +632,7 @@ func validateDecision(d *Decision, accountEquity float64, btcEthLeverage, altcoi
 		}
 		// 验证附加约束
 		if d.MaxDrawdown > 0 && d.MaxDrawdown > 50 {
-			return fmt.Errorf("最大回撤限制不能超过50%%: %.2f%%", d.MaxDrawdown)
+			return fmt.Errorf("【风控】 最大回撤限制不能超过50%%: %.2f%%", d.MaxDrawdown)
 		}
 	}
 

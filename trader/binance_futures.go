@@ -69,6 +69,60 @@ type FuturesTrader struct {
 	precisionManager *PrecisionManager
 }
 
+// validateFormattedQuantity 验证格式化后的数量是否符合step size要求
+func (t *FuturesTrader) validateFormattedQuantity(formatted string, stepSize float64) error {
+	// 重新解析验证
+	parsedQty, err := strconv.ParseFloat(formatted, 64)
+	if err != nil {
+		return fmt.Errorf("failed to parse formatted quantity: %w", err)
+	}
+
+	// 检查是否符合stepSize要求
+	if stepSize > 0 {
+		remainder := math.Mod(parsedQty, stepSize)
+		// 允许很小的浮点数误差
+		if math.Abs(remainder) > 1e-10 && math.Abs(remainder-stepSize) > 1e-10 {
+			return fmt.Errorf("quantity %s does not align with stepSize %f (remainder: %f)",
+				formatted, stepSize, remainder)
+		}
+	}
+
+	return nil
+}
+
+// getDefaultStepSize returns reasonable default step size based on symbol type
+func getDefaultStepSize(symbol string) float64 {
+	// 根据交易对类型返回合理的默认step size
+	baseAsset := strings.TrimSuffix(strings.TrimSuffix(strings.TrimSuffix(symbol, "USDT"), "BUSD"), "USDC")
+
+	// 高价值资产（BTC, ETH等）
+	highValueAssets := map[string]bool{
+		"BTC": true, "ETH": true, "BNB": true,
+	}
+
+	// 中等价值资产
+	midValueAssets := map[string]bool{
+		"SOL": true, "ADA": true, "XRP": true, "DOT": true, "LINK": true,
+		"MATIC": true, "AVAX": true, "ATOM": true, "NEAR": true, "APT": true,
+		"ARB": true, "OP": true,
+	}
+
+	// 低价值大量资产
+	lowValueAssets := map[string]bool{
+		"SHIB": true, "DOGE": true, "PEPE": true, "FLOKI": true, "BONK": true,
+	}
+
+	if highValueAssets[baseAsset] {
+		return 0.001 // 高价值资产使用较低精度
+	} else if midValueAssets[baseAsset] {
+		return 0.1 // 中等价值资产使用适中精度
+	} else if lowValueAssets[baseAsset] {
+		return 1.0 // 低价值资产使用较高精度
+	} else {
+		return 0.1 // 默认使用中等精度
+	}
+}
+
 // NewFuturesTrader creates futures trader
 func NewFuturesTrader(apiKey, secretKey, userId, customEndpoint string) *FuturesTrader {
 	var client *futures.Client
@@ -1678,15 +1732,31 @@ func trimTrailingZeros(s string) string {
 }
 
 // FormatQuantity formats quantity to correct precision with step size alignment
-// Based on original nofx implementation - uses direct precision handling
+// Uses the new PrecisionManager for better caching and error handling
 func (t *FuturesTrader) FormatQuantity(symbol string, quantity float64) (string, error) {
 	logger.Debugf("🔍 BinanceTrader - FormatQuantity: symbol=%s, raw_quantity=%.8f", symbol, quantity)
 
-	// Get step size for proper alignment
+	// 使用新的精度管理器
+	formatted, err := t.precisionManager.FormatQuantityWithValidation(symbol, quantity)
+	if err != nil {
+		logger.Errorf("❌ FormatQuantity failed with PrecisionManager: %v, falling back to legacy method", err)
+		// 回退到旧方法
+		return t.formatQuantityLegacy(symbol, quantity)
+	}
+
+	logger.Debugf("✅ BinanceTrader - Final formatted quantity: %s", formatted)
+	return formatted, nil
+}
+
+// formatQuantityLegacy 旧的格式化方法，作为回退选项
+func (t *FuturesTrader) formatQuantityLegacy(symbol string, quantity float64) (string, error) {
+	logger.Debugf("🔍 BinanceTrader - Using legacy FormatQuantity: symbol=%s, raw_quantity=%.8f", symbol, quantity)
+
+	// 获取step size进行精度对齐
 	stepSize, err := t.GetSymbolStepSize(symbol)
 	if err != nil {
 		logger.Warnf("⚠️ BinanceTrader - Failed to get step size for %s: %v, using fallback", symbol, err)
-		// Fallback to basic precision formatting
+		// 使用默认精度格式化
 		formatted := fmt.Sprintf("%.3f", quantity)
 		logger.Debugf("🔧 BinanceTrader - Using fallback: %.8f -> %s", quantity, formatted)
 		return formatted, nil
@@ -1694,11 +1764,11 @@ func (t *FuturesTrader) FormatQuantity(symbol string, quantity float64) (string,
 
 	logger.Debugf("📏 BinanceTrader - Step size for %s: %f", symbol, stepSize)
 
-	// Align quantity to step size (round down to nearest step)
+	// 对齐数量到step size（向下取整到最近的step）
 	alignedQty := math.Floor(quantity/stepSize) * stepSize
 	logger.Debugf("📐 BinanceTrader - Aligned quantity: %.8f -> %.8f", quantity, alignedQty)
 
-	// Calculate required decimal places from step size
+	// 根据step size计算所需的小数位数
 	decimals := 0
 	if stepSize < 1 {
 		stepStr := strconv.FormatFloat(stepSize, 'f', -1, 64)
@@ -1708,9 +1778,21 @@ func (t *FuturesTrader) FormatQuantity(symbol string, quantity float64) (string,
 	}
 	logger.Debugf("🔢 BinanceTrader - Decimal places: %d", decimals)
 
+	// 格式化验证：确保不超过Binance的最大精度限制
+	if decimals > 8 {
+		logger.Warnf("⚠️ %s 的精度要求过高 (%d位小数)，调整为Binance最大支持的8位小数", symbol, decimals)
+		decimals = 8
+	}
+
 	format := fmt.Sprintf("%%.%df", decimals)
 	formatted := fmt.Sprintf(format, alignedQty)
 	logger.Debugf("✅ BinanceTrader - Final formatted quantity: %s (stepSize: %f, aligned: %f)", formatted, stepSize, alignedQty)
+
+	// 最终验证：确保格式化后的数量符合step size要求
+	if err := t.validateFormattedQuantity(formatted, stepSize); err != nil {
+		logger.Errorf("❌ 数量格式化验证失败: %v", err)
+		return "", err
+	}
 
 	return formatted, nil
 }
@@ -1721,9 +1803,9 @@ func (t *FuturesTrader) GetSymbolStepSize(symbol string) (float64, error) {
 	var exchangeInfo *futures.ExchangeInfo
 	var err error
 
-	// First try with shorter timeout for quick response
+	// First try with longer timeout for better reliability
 	logger.Debugf("🌐 Attempting to connect to Binance API for exchange info, Base URL: %s", t.client.BaseURL)
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	exchangeInfo, err = t.client.NewExchangeInfoService().Do(ctx)
 	cancel()
 
@@ -1735,7 +1817,7 @@ func (t *FuturesTrader) GetSymbolStepSize(symbol string) (float64, error) {
 			strings.Contains(err.Error(), "i/o timeout")
 
 		if isRetryable {
-			maxRetries := 2
+			maxRetries := 5
 			for attempt := 1; attempt <= maxRetries; attempt++ {
 				logger.Infof("❌ Exchange info API call failed (attempt %d/%d): %v", attempt, maxRetries, err)
 				waitTime := time.Duration(attempt) * 500 * time.Millisecond
@@ -1743,7 +1825,7 @@ func (t *FuturesTrader) GetSymbolStepSize(symbol string) (float64, error) {
 				time.Sleep(waitTime)
 
 				logger.Debugf("🌐 Retrying to connect to Binance API for exchange info, Base URL: %s (attempt %d/%d)", t.client.BaseURL, attempt, maxRetries)
-				ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+				ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 				exchangeInfo, err = t.client.NewExchangeInfoService().Do(ctx)
 				cancel()
 
@@ -1764,8 +1846,13 @@ func (t *FuturesTrader) GetSymbolStepSize(symbol string) (float64, error) {
 	}
 
 	if err != nil {
-		logger.Warnf("⚠️ Failed to get step size for %s: %v", symbol, err)
-		return 0, err
+		logger.Errorf("❌ 严重错误：无法获取 %s 的精度信息，重试失败: %v", symbol, err)
+		logger.Infof("🔧 启用紧急fallback机制，使用默认精度值")
+
+		// 紧急fallback：根据交易对类型使用合理的默认精度
+		defaultStepSize := getDefaultStepSize(symbol)
+		logger.Infof("📦 为 %s 使用紧急fallback step size: %f", symbol, defaultStepSize)
+		return defaultStepSize, nil
 	}
 
 	for _, s := range exchangeInfo.Symbols {
@@ -1886,8 +1973,25 @@ func (t *FuturesTrader) GetPricePrecision(symbol string) (int, error) {
 }
 
 // FormatPrice formats price to correct precision
+// Uses the new PrecisionManager for better caching and error handling
 func (t *FuturesTrader) FormatPrice(symbol string, price float64) (string, error) {
 	logger.Debugf("🔍 BinanceTrader - FormatPrice: symbol=%s, raw_price=%.8f", symbol, price)
+
+	// 使用新的精度管理器
+	formatted, err := t.precisionManager.FormatPriceWithValidation(symbol, price)
+	if err != nil {
+		logger.Errorf("❌ FormatPrice failed with PrecisionManager: %v, falling back to legacy method", err)
+		// 回退到旧方法
+		return t.formatPriceLegacy(symbol, price)
+	}
+
+	logger.Debugf("✅ BinanceTrader - Final formatted price: %s", formatted)
+	return formatted, nil
+}
+
+// formatPriceLegacy 旧的价格格式化方法，作为回退选项
+func (t *FuturesTrader) formatPriceLegacy(symbol string, price float64) (string, error) {
+	logger.Debugf("🔍 BinanceTrader - Using legacy FormatPrice: symbol=%s, raw_price=%.8f", symbol, price)
 
 	// Get price precision for this symbol
 	precision, err := t.GetPricePrecision(symbol)

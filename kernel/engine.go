@@ -1799,6 +1799,18 @@ func extractDecisions(response string) ([]Decision, error) {
 	return decisions, nil
 }
 
+// preprocessChineseSymbols 预处理可能引起冲突的中文符号组合
+func preprocessChineseSymbols(text string) string {
+	// 将可能引起JSON解析冲突的半角括号组合替换为全角括号
+	text = strings.ReplaceAll(text, "[风控]", "【风控】")
+	text = strings.ReplaceAll(text, "[策略]", "【策略】")
+	text = strings.ReplaceAll(text, "[交易]", "【交易】")
+	text = strings.ReplaceAll(text, "[信号]", "【信号】")
+	text = strings.ReplaceAll(text, "[止损]", "【止损】")
+	text = strings.ReplaceAll(text, "[止盈]", "【止盈】")
+	return text
+}
+
 func fixMissingQuotes(jsonStr string) string {
 	jsonStr = strings.ReplaceAll(jsonStr, "\u201c", "\"")
 	jsonStr = strings.ReplaceAll(jsonStr, "\u201d", "\"")

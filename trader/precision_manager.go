@@ -44,28 +44,8 @@ func NewPrecisionManager(client *futures.Client) *PrecisionManager {
 
 // getMarketPrice 获取市场价格的内部方法
 func (pm *PrecisionManager) getMarketPrice(symbol string) (float64, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-	defer cancel()
-	prices, err := pm.client.NewListPricesService().Symbol(symbol).Do(ctx)
-	if err != nil {
-		return 0, fmt.Errorf("failed to get price: %w", err)
-	}
-
-	if len(prices) == 0 {
-		return 0, fmt.Errorf("price not found")
-	}
-
-	// Check if price is empty or invalid
-	if prices[0].Price == "" {
-		return 0, fmt.Errorf("empty price received for symbol %s", symbol)
-	}
-
-	price, err := strconv.ParseFloat(prices[0].Price, 64)
-	if err != nil {
-		return 0, fmt.Errorf("failed to parse price '%s' for symbol %s: %w", prices[0].Price, symbol, err)
-	}
-
-	return price, nil
+	// 使用调试模式获取价格，详细记录过程
+	return GetPriceWithFallback(pm.client, symbol)
 }
 
 // GetPrecisionInfo 获取交易对精度信息（简化版本，基于原始nofx实现）

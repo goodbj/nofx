@@ -156,23 +156,23 @@ func (v *TradeTemplateValidator) sanitizeAndValidateBasicTypes(decision map[stri
 				// 尝试解析字符串数字
 				parsed, err := strconv.ParseFloat(strings.TrimSpace(v), 64)
 				if err != nil {
-					result.Errors = append(result.Errors, fmt.Sprintf("❌ 字段 %s 的值 '%v' 不是有效数字", field, v))
+					result.Errors = append(result.Errors, fmt.Sprintf("【风控】 ❌ 字段 %s 的值 '%v' 不是有效数字", field, v))
 					return fmt.Errorf("invalid numeric field: %s", field)
 				}
 				floatVal = parsed
 				decision[field] = floatVal // 转换后写回
 			default:
-				result.Errors = append(result.Errors, fmt.Sprintf("❌ 字段 %s 的类型错误: %T", field, v))
+				result.Errors = append(result.Errors, fmt.Sprintf("【风控】 ❌ 字段 %s 的类型错误: %T", field, v))
 				return fmt.Errorf("invalid field type: %s", field)
 			}
 
 			// 检查是否为 NaN 或 Inf
 			if math.IsNaN(floatVal) {
-				result.Errors = append(result.Errors, fmt.Sprintf("❌ 字段 %s 的值为 NaN (非数字)", field))
+				result.Errors = append(result.Errors, fmt.Sprintf("【风控】 ❌ 字段 %s 的值为 NaN (非数字)", field))
 				return fmt.Errorf("NaN value in field: %s", field)
 			}
 			if math.IsInf(floatVal, 0) {
-				result.Errors = append(result.Errors, fmt.Sprintf("❌ 字段 %s 的值为 Infinity (无穷大)", field))
+				result.Errors = append(result.Errors, fmt.Sprintf("【风控】 ❌ 字段 %s 的值为 Infinity (无穷大)", field))
 				return fmt.Errorf("Inf value in field: %s", field)
 			}
 
@@ -180,7 +180,7 @@ func (v *TradeTemplateValidator) sanitizeAndValidateBasicTypes(decision map[stri
 			noNegativeFields := []string{"leverage", "position_size_usd", "confidence", "close_percentage", "callback_rate", "additional_position_size_usd"}
 			for _, noNegField := range noNegativeFields {
 				if field == noNegField && floatVal < 0 {
-					result.Errors = append(result.Errors, fmt.Sprintf("❌ 字段 %s 不能为负数，当前: %.2f", field, floatVal))
+					result.Errors = append(result.Errors, fmt.Sprintf("【风控】 ❌ 字段 %s 不能为负数，当前: %.2f", field, floatVal))
 					return fmt.Errorf("negative value in field: %s", field)
 				}
 			}
@@ -189,7 +189,7 @@ func (v *TradeTemplateValidator) sanitizeAndValidateBasicTypes(decision map[stri
 			noZeroFields := []string{"leverage", "position_size_usd", "stop_loss", "take_profit", "new_stop_loss", "new_take_profit"}
 			for _, noZeroField := range noZeroFields {
 				if field == noZeroField && floatVal == 0 {
-					result.Errors = append(result.Errors, fmt.Sprintf("❌ 字段 %s 不能为 0", field))
+					result.Errors = append(result.Errors, fmt.Sprintf("【风控】 ❌ 字段 %s 不能为 0", field))
 					return fmt.Errorf("zero value in field: %s", field)
 				}
 			}
