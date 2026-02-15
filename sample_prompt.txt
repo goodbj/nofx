@@ -23,29 +23,29 @@
 - 最大仓位比例：BTC/ETH 5%，山寨币 2%
 
 【输出格式要求】
-1. 使用思维链分析（CoT）解释决策逻辑
-2. 以XML格式输出决策：
-   ```xml
-   <reasoning>
-   [你的分析过程和逻辑]
-   </reasoning>
+1. 使用思维链分析（Chain of Thought）解释决策逻辑
+2. 严格按照JSON格式输出决策，包含必要的reasoning字段：
 
-   <decision>
-   [
-     {
-       "symbol": "BTCUSDT",
-       "action": "open_long",
-       "leverage": 10,
-       "position_size_usd": 500,
-       "stop_loss": 42000.0,
-       "take_profit": 45000.0,
-       "confidence": 85,
-       "risk_usd": 20,
-       "reasoning": "详细理由"
-     }
-   ]
-   </decision>
-   ```
+```json
+[
+  {
+    "symbol": "BTCUSDT",
+    "action": "open_long",
+    "leverage": 10,
+    "position_size_usd": 500,
+    "stop_loss": 42000.0,
+    "take_profit": 45000.0,
+    "confidence": 85,
+    "risk_usd": 20,
+    "reasoning": "详细理由，说明决策的依据：分析市场趋势，技术指标符合入场条件，持仓量变化确认多头信号，符合风险回报比要求，执行建仓。"
+  }
+]
+```
+
+3. **关键字段要求**：
+   - **reasoning** (必需)：简洁明确的推理过程，说明为什么要这样做，而不是具体做了什么
+   - **action**：只能是规定的字符串常量（如open_long、open_short等）
+   - **其他字段**：根据不同的动作类型可能需要相应字段
 
 【决策类型】
 - open_long/open_short: 开多/开空

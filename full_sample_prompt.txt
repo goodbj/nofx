@@ -121,11 +121,11 @@ Step 2: JSON decision array
 
 ```json
 [
-  {"symbol": "BTCUSDT", "action": "open_short", "leverage": 15, "position_size_usd": 500, "stop_loss": 97000, "take_profit": 91000, "confidence": 85, "risk_usd": 300},
-  {"symbol": "ETHUSDT", "action": "close_long"},
-  {"symbol": "SOLUSDT", "action": "update_stop_loss", "new_stop_loss": 150.5, "confidence": 75},
-  {"symbol": "ADAUSDT", "action": "update_take_profit", "new_take_profit": 0.85, "confidence": 80},
-  {"symbol": "XRPUSDT", "action": "partial_close", "close_percentage": 50, "confidence": 70}
+  {"symbol": "BTCUSDT", "action": "open_short", "leverage": 15, "position_size_usd": 500, "stop_loss": 97000, "take_profit": 91000, "confidence": 85, "risk_usd": 300, "reasoning": "BTC价格跌破关键支撑位，MACD死叉确认下跌趋势，持仓量下降表明多头离场，技术面和资金流向一致看空"},
+  {"symbol": "ETHUSDT", "action": "close_long", "confidence": 80, "reasoning": "ETH多头仓位已盈利3.2%，但RSI进入超买区域且出现顶背离信号，为避免利润回吐选择平仓"},
+  {"symbol": "SOLUSDT", "action": "update_stop_loss", "new_stop_loss": 150.5, "confidence": 75, "reasoning": "SOL价格已从145上涨至165，为保护已有利润将止损上移至150.5，实现盈亏平衡"},
+  {"symbol": "ADAUSDT", "action": "update_take_profit", "new_take_profit": 0.85, "confidence": 80, "reasoning": "ADA突破重要阻力位0.78，上涨动能强劲，将止盈目标上调至0.85以捕捉更多利润"},
+  {"symbol": "XRPUSDT", "action": "partial_close", "close_percentage": 50, "confidence": 70, "reasoning": "XRP多头仓位已盈利8.5%，接近历史峰值，为锁定部分利润并降低风险选择平仓50%"}
 ]
 ```
 </decision>
@@ -134,13 +134,32 @@ Step 2: JSON decision array
 
 - `action`: open_long | open_short | close_long | close_short | hold | wait | update_stop_loss | update_take_profit | partial_close | trailing_stop | dynamic_take_profit
 - `confidence`: 0-100 (opening recommended ≥ 70)
-- Required when opening: leverage, position_size_usd, stop_loss, take_profit, confidence, risk_usd
-- Required when update_stop_loss: new_stop_loss, confidence
-- Required when update_take_profit: new_take_profit, confidence
-- Required when partial_close: close_percentage (1-100), confidence
-- Required when trailing_stop: trail_percentage, activation_price, callback_rate, confidence
-- Required when dynamic_take_profit: target_roi, max_roi, time_limit_hours, confidence
+- `reasoning`: Detailed reasoning for each decision (REQUIRED) - Explain the logic and basis for the decision
+- Required when opening: leverage, position_size_usd, stop_loss, take_profit, confidence, risk_usd, reasoning
+- Required when update_stop_loss: new_stop_loss, confidence, reasoning
+- Required when update_take_profit: new_take_profit, confidence, reasoning
+- Required when partial_close: close_percentage (1-100), confidence, reasoning
+- Required when trailing_stop: trail_percentage, activation_price, callback_rate, confidence, reasoning
+- Required when dynamic_take_profit: target_roi, max_roi, time_limit_hours, confidence, reasoning
 - **IMPORTANT**: All numeric values must be calculated numbers, NOT formulas/expressions (e.g., use `27.76` not `3000 * 0.01`)
+
+## Reasoning Field Guidelines
+
+The `reasoning` field is **REQUIRED** for every decision and should:
+
+1. **Explain the logic** behind the decision, not just what action to take
+2. **Be concise but clear** - typically 20-50 words
+3. **Include key factors** that influenced the decision
+4. **Focus on analysis** rather than execution steps
+
+**Good Examples**:
+- "Technical indicators converging, multi-timeframe trend alignment, OI confirms bullish momentum, risk-reward ratio acceptable"
+- "Current position showing 5% drawdown from peak, trend reversal signals appearing, time to protect capital"
+
+**Poor Examples** (to avoid):
+- "Execute long position with 3x leverage" (describes action, not reasoning)
+- "Set stop loss at 42000 and take profit at 48000" (execution details)
+- "Market looks good" (too vague)
 
 ========================================
            用户提示词 (User Prompt)  

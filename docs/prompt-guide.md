@@ -461,12 +461,65 @@ Your analysis...
     "stop_loss": 97000,
     "take_profit": 91000,
     "confidence": 85,
-    "risk_usd": 300
+    "risk_usd": 300,
+    "reasoning": "BTC price broke support at 95000, MACD death cross confirms downtrend, OI decreased 8% indicating long liquidation, RSI oversold but momentum strong, risk-reward ratio 1:3 acceptable, execute short."
   }
 ]
 ```
 </decision>
 ```
+
+#### Required Fields in JSON Decision
+
+Every decision object in the JSON array **must** include these fields:
+
+**Mandatory Fields**:
+- `symbol`: Trading pair (e.g., "BTCUSDT")
+- `action`: Action type (open_long, open_short, close_long, close_short, hold, wait, etc.)
+- `confidence`: Confidence level 0-100
+- `reasoning`: **Detailed reasoning explaining the decision logic** (REQUIRED)
+
+**Conditional Fields** (required based on action type):
+- `leverage`: Required for opening new positions
+- `position_size_usd`: Required for opening new positions
+- `stop_loss`: Recommended for opening new positions
+- `take_profit`: Recommended for opening new positions
+
+#### Reasoning Field Guidelines
+
+The `reasoning` field is crucial for understanding AI decision-making:
+
+**Purpose**: Explain the analytical logic and decision basis, not just the action
+
+**Requirements**:
+- **Required**: Must be present in every decision object
+- **Content**: Focus on analytical reasoning rather than execution steps
+- **Length**: 20-50 words, concise but comprehensive
+- **Style**: Clear, logical explanation of decision factors
+
+**✅ Good Examples**:
+```
+"Technical indicators converging, multi-timeframe trend alignment, OI confirms bullish momentum, risk-reward ratio acceptable"
+
+"Current position showing 5% drawdown from peak, trend reversal signals appearing, time to protect capital"
+```
+
+**❌ Poor Examples to Avoid**:
+```
+"Execute long position with 3x leverage"  # Describes action, not reasoning
+
+"Set stop loss at 42000 and take profit at 48000"  # Execution details
+
+"Market looks good"  # Too vague
+```
+
+**Key Points**:
+- Explain *why* you're making this decision
+- Mention key technical factors that influenced you
+- Reference risk management considerations
+- Focus on analysis rather than mechanical steps
+
+---
 
 #### JSON Format Prohibitions
 
