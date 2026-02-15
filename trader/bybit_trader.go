@@ -40,6 +40,10 @@ type BybitTrader struct {
 	qtyStepCache      map[string]float64
 	qtyStepCacheMutex sync.RWMutex
 
+	// Price tick size cache (symbol -> tickSize)
+	tickSizeCache      map[string]float64
+	tickSizeCacheMutex sync.RWMutex
+
 	// Cache duration (15 seconds)
 	cacheDuration time.Duration
 }
@@ -81,6 +85,7 @@ func NewBybitTrader(apiKey, secretKey string) *BybitTrader {
 		secretKey:     secretKey,
 		cacheDuration: 15 * time.Second,
 		qtyStepCache:  make(map[string]float64),
+		tickSizeCache: make(map[string]float64),
 	}
 
 	logger.Infof("🔵 [Bybit] Trader initialized")
@@ -770,6 +775,9 @@ func (t *BybitTrader) getQtyStep(symbol string) float64 {
 				LotSizeFilter struct {
 					QtyStep string `json:"qtyStep"`
 				} `json:"lotSizeFilter"`
+				PriceFilter struct {
+					TickSize string `json:"tickSize"`
+				} `json:"priceFilter"`
 			} `json:"list"`
 		} `json:"result"`
 	}
@@ -787,14 +795,80 @@ func (t *BybitTrader) getQtyStep(symbol string) float64 {
 		qtyStep = 1
 	}
 
+	// Also cache tickSize
+	tickSize, _ := strconv.ParseFloat(result.Result.List[0].PriceFilter.TickSize, 64)
+	if tickSize > 0 {
+		t.tickSizeCacheMutex.Lock()
+		t.tickSizeCache[symbol] = tickSize
+		t.tickSizeCacheMutex.Unlock()
+	}
+
 	// Cache result
 	t.qtyStepCacheMutex.Lock()
 	t.qtyStepCache[symbol] = qtyStep
 	t.qtyStepCacheMutex.Unlock()
 
-	logger.Infof("🔵 [Bybit] %s qtyStep: %v", symbol, qtyStep)
+	logger.Infof("🔵 [Bybit] %s qtyStep: %v, tickSize: %v", symbol, qtyStep, tickSize)
 
 	return qtyStep
+}
+
+// getTickSize retrieves the price tick size for a trading pair
+func (t *BybitTrader) getTickSize(symbol string) float64 {
+	// Check cache first
+	t.tickSizeCacheMutex.RLock()
+	if step, ok := t.tickSizeCache[symbol]; ok {
+		t.tickSizeCacheMutex.RUnlock()
+		return step
+	}
+	t.tickSizeCacheMutex.RUnlock()
+
+	// Call public API directly to get contract information
+	url := fmt.Sprintf("https://api.bybit.com/v5/market/instruments-info?category=linear&symbol=%s", symbol)
+	resp, err := http.Get(url)
+	if err != nil {
+		logger.Infof("⚠️ [Bybit] Failed to get tick size info for %s: %v", symbol, err)
+		return 0.01 // Default to 2 decimal places
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return 0.01
+	}
+
+	var result struct {
+		RetCode int `json:"retCode"`
+		Result  struct {
+			List []struct {
+				PriceFilter struct {
+					TickSize string `json:"tickSize"`
+				} `json:"priceFilter"`
+			} `json:"list"`
+		} `json:"result"`
+	}
+
+	if err := json.Unmarshal(body, &result); err != nil {
+		return 0.01
+	}
+
+	if result.RetCode != 0 || len(result.Result.List) == 0 {
+		return 0.01
+	}
+
+	tickSize, _ := strconv.ParseFloat(result.Result.List[0].PriceFilter.TickSize, 64)
+	if tickSize <= 0 {
+		tickSize = 0.01
+	}
+
+	// Cache result
+	t.tickSizeCacheMutex.Lock()
+	t.tickSizeCache[symbol] = tickSize
+	t.tickSizeCacheMutex.Unlock()
+
+	logger.Infof("🟡 [Bybit] %s tickSize: %v", symbol, tickSize)
+
+	return tickSize
 }
 
 // FormatQuantity formats quantity
@@ -817,6 +891,30 @@ func (t *BybitTrader) FormatQuantity(symbol string, quantity float64) (string, e
 	// Format
 	format := fmt.Sprintf("%%.%df", decimals)
 	formatted := fmt.Sprintf(format, alignedQty)
+
+	return formatted, nil
+}
+
+// FormatPrice formats price to correct precision
+func (t *BybitTrader) FormatPrice(symbol string, price float64) (string, error) {
+	// Get tickSize for this symbol
+	tickSize := t.getTickSize(symbol)
+
+	// Align price according to tickSize (round to nearest tick)
+	alignedPrice := math.Round(price/tickSize) * tickSize
+
+	// Calculate required decimal places
+	decimals := 0
+	if tickSize < 1 {
+		stepStr := strconv.FormatFloat(tickSize, 'f', -1, 64)
+		if idx := strings.Index(stepStr, "."); idx >= 0 {
+			decimals = len(stepStr) - idx - 1
+		}
+	}
+
+	// Format
+	format := fmt.Sprintf("%%.%df", decimals)
+	formatted := fmt.Sprintf(format, alignedPrice)
 
 	return formatted, nil
 }

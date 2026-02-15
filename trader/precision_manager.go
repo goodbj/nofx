@@ -68,27 +68,12 @@ func (pm *PrecisionManager) getMarketPrice(symbol string) (float64, error) {
 	return price, nil
 }
 
-// GetPrecisionInfo 获取交易对精度信息（带缓存和自动刷新）
+// GetPrecisionInfo 获取交易对精度信息（简化版本，基于原始nofx实现）
 func (pm *PrecisionManager) GetPrecisionInfo(symbol string) (*SymbolPrecisionInfo, error) {
-	// 1. 先检查缓存
-	pm.cacheMutex.RLock()
-	if info, exists := pm.symbolCache[symbol]; exists {
-		// 检查缓存是否过期
-		if time.Since(info.LastUpdate) < pm.cacheDuration {
-			pm.cacheMutex.RUnlock()
-			logger.Debugf("🎯 使用缓存的精度信息: %s (stepSize: %f)", symbol, info.StepSize)
-			return info, nil
-		}
-	}
-	pm.cacheMutex.RUnlock()
-
-	// 2. 缓存过期或不存在，从API获取
+	// 直接尝试获取精度信息，失败则返回默认值
 	info, err := pm.fetchPrecisionInfo(symbol)
 	if err != nil {
-		logger.Warnf("⚠️ 无法获取 %s 真实精度信息: %v", symbol, err)
-		// 如果无法获取真实精度信息，则使用默认精度
-		// 这样可以确保系统在API不可用时仍能继续运行
-		logger.Infof("🔄 为 %s 创建默认精度信息作为备用", symbol)
+		logger.Debugf("⚠️ 无法获取 %s 精度信息，使用默认值", symbol)
 		return pm.createDefaultPrecisionInfo(symbol), nil
 	}
 

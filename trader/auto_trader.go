@@ -90,9 +90,6 @@ type AutoTraderConfig struct {
 	// Position mode
 	IsCrossMargin bool // true=cross margin mode, false=isolated margin mode
 
-	// Exchange testnet settings
-	ExchangeTestnet bool // Whether to use testnet for exchange
-
 	// Competition visibility
 	ShowInCompetition bool // Whether to show in competition page
 
@@ -401,14 +398,10 @@ func NewAutoTrader(config AutoTraderConfig, st *store.Store, userID string) (*Au
 			endpoint = proxyURL
 			// 真正的目标端点应该是自定义API URL或默认的交易所URL
 			targetEndpoint = getBinanceCustomEndpointForAutoTrader(&config)
-			logger.Infof("🔧 [DEBUG] BinanceCustomAPIURL from config: '%s', ExchangeTestnet: %t, targetEndpoint after getBinanceCustomEndpointForAutoTrader: '%s'",
-				config.BinanceCustomAPIURL, config.ExchangeTestnet, targetEndpoint)
+			logger.Infof("🔧 [DEBUG] BinanceCustomAPIURL from config: '%s', targetEndpoint after getBinanceCustomEndpointForAutoTrader: '%s'",
+				config.BinanceCustomAPIURL, targetEndpoint)
 			if targetEndpoint == "" {
-				if config.ExchangeTestnet {
-					targetEndpoint = "https://testnet.binancefuture.com"
-				} else {
-					targetEndpoint = "https://fapi.binance.com"
-				}
+				targetEndpoint = "https://fapi.binance.com" // Always default to mainnet
 			}
 			logger.Infof("🔧 [DEBUG] Final targetEndpoint: '%s'", targetEndpoint)
 
@@ -626,10 +619,26 @@ func (at *AutoTrader) Run() error {
 	}
 
 	// Start Binance order sync if using Binance exchange
+	// Handle both direct FuturesTrader and ProxyTraderWrapper cases
 	if at.exchange == "binance" {
+		// Check if it's a direct FuturesTrader
 		if binanceTrader, ok := at.trader.(*FuturesTrader); ok && at.store != nil {
 			binanceTrader.StartOrderSync(at.id, at.exchangeID, at.exchange, at.store, 30*time.Second)
-			logger.Infof("🔄 [%s] Binance order+position sync enabled (every 30s)", at.name)
+			logger.Infof("🔄 [%s] Binance order+position sync enabled (every 30s) - Direct Trader", at.name)
+		} else if proxyWrapper, ok := at.trader.(*ProxyTraderWrapper); ok {
+			// For proxy wrapper, we need to check if the underlying trader is FuturesTrader
+			if proxyWrapper.trader != nil {
+				if binanceTrader, ok := proxyWrapper.trader.(*FuturesTrader); ok && at.store != nil {
+					binanceTrader.StartOrderSync(at.id, at.exchangeID, at.exchange, at.store, 30*time.Second)
+					logger.Infof("🔄 [%s] Binance order+position sync enabled (every 30s) - Proxy Wrapped Trader", at.name)
+				} else {
+					logger.Infof("⚠️ [%s] Binance trader type mismatch - expected *FuturesTrader, got %T", at.name, proxyWrapper.trader)
+				}
+			} else {
+				logger.Infof("⚠️ [%s] Proxy wrapper has nil underlying trader", at.name)
+			}
+		} else {
+			logger.Infof("⚠️ [%s] Binance trader type mismatch - expected *FuturesTrader or *ProxyTraderWrapper, got %T", at.name, at.trader)
 		}
 	}
 
@@ -3042,51 +3051,24 @@ func (at *AutoTrader) recordAndConfirmOrder(orderResult map[string]interface{}, 
 
 // recordPositionChange records position change (create record on open, update record on close)
 func (at *AutoTrader) recordPositionChange(orderID, symbol, side, action string, quantity, price float64, leverage int, entryPrice float64, fee float64) {
-	if at.store == nil {
+	if at.store == nil || at.exchangeID == "" {
+		logger.Debugf("⚠️ Skipping position record: store or exchangeID not available")
 		return
 	}
 
-	switch action {
-	case "open_long", "open_short":
-		// Open position: create new position record
-		nowMs := time.Now().UTC().UnixMilli()
-		pos := &store.TraderPosition{
-			TraderID:     at.id,
-			ExchangeID:   at.exchangeID, // Exchange account UUID
-			ExchangeType: at.exchange,   // Exchange type: binance/bybit/okx/etc
-			Symbol:       symbol,
-			Side:         side, // LONG or SHORT
-			Quantity:     quantity,
-			EntryPrice:   price,
-			EntryOrderID: orderID,
-			EntryTime:    nowMs,
-			Leverage:     leverage,
-			Status:       "OPEN",
-			CreatedAt:    nowMs,
-			UpdatedAt:    nowMs,
-		}
-		if err := at.store.Position().Create(pos); err != nil {
-			logger.Infof("  ⚠️ Failed to record position: %v", err)
-		} else {
-			logger.Infof("  📊 Position recorded [%s] %s %s @ %.4f", at.id[:8], symbol, side, price)
-		}
+	// Use PositionBuilder for all position changes (consistent with OrderSync)
+	posBuilder := store.NewPositionBuilder(at.store.Position())
+	tradeTimeMs := time.Now().UTC().UnixMilli()
 
-	case "close_long", "close_short":
-		// Close position using PositionBuilder for consistent handling
-		// PositionBuilder will handle both cases:
-		// 1. If open position exists: close it properly
-		// 2. If no open position (e.g., table cleared): create a closed position record
-		posBuilder := store.NewPositionBuilder(at.store.Position())
-		if err := posBuilder.ProcessTrade(
-			at.id, at.exchangeID, at.exchange,
-			symbol, side, action,
-			quantity, price, fee, 0, // realizedPnL will be calculated
-			time.Now().UTC().UnixMilli(), orderID,
-		); err != nil {
-			logger.Infof("  ⚠️ Failed to process close position: %v", err)
-		} else {
-			logger.Infof("  ✅ Position closed [%s] %s %s @ %.4f", at.id[:8], symbol, side, price)
-		}
+	if err := posBuilder.ProcessTrade(
+		at.id, at.exchangeID, at.exchange,
+		symbol, side, action,
+		quantity, price, fee, 0, // realizedPnL will be calculated by PositionBuilder
+		tradeTimeMs, orderID,
+	); err != nil {
+		logger.Infof("  ⚠️ Failed to process position change via PositionBuilder: %v", err)
+	} else {
+		logger.Infof("  📍 Position updated via PositionBuilder: %s (action: %s, qty: %.6f)", orderID, action, quantity)
 	}
 }
 
@@ -3473,15 +3455,28 @@ func (at *AutoTrader) GetOpenOrders(symbol string) ([]OpenOrder, error) {
 
 // getBinanceCustomEndpointForAutoTrader extracts the custom API endpoint for Binance from auto trader config
 func getBinanceCustomEndpointForAutoTrader(config *AutoTraderConfig) string {
-	// Check if there's a custom endpoint specifically for Binance
-	if config.BinanceCustomAPIURL != "" {
-		return config.BinanceCustomAPIURL // Use custom Binance endpoint if provided
+	// 判断条件a：如果CustomAPIURL为空，使用默认主网API
+	if config.BinanceCustomAPIURL == "" {
+		return "https://fapi.binance.com" // 默认主网API URL
 	}
-	// For now, we'll use the Testnet field to determine if we should use demo endpoint
-	if config.ExchangeTestnet {
-		return "https://testnet.binancefuture.com" // Binance testnet futures endpoint
+
+	// 判断条件b：如果CustomAPIURL不为空且不是空白字符，直接使用CustomAPIURL
+	trimmedURL := strings.TrimSpace(config.BinanceCustomAPIURL)
+	if trimmedURL == "" {
+		return "https://fapi.binance.com" // 默认主网API URL
 	}
-	return "" // Return empty string to use default endpoint
+
+	// 判断条件c：检查是否为本地代理地址（localhost或127.0.0.1）
+	isLocalhost := strings.Contains(trimmedURL, "://localhost:") ||
+		strings.Contains(trimmedURL, "://127.0.0.1:")
+
+	// 判断条件d：如果是本地代理地址，使用默认主网API
+	if isLocalhost {
+		return "https://fapi.binance.com" // 默认主网API URL
+	} else {
+		// 如果不是本地代理地址，直接使用CustomAPIURL
+		return trimmedURL
+	}
 }
 
 // executeUpdateStopLossWithRecord executes update stop loss and records detailed information
@@ -4344,4 +4339,19 @@ func (at *AutoTrader) executeAddToPositionWithRecord(decision *kernel.Decision, 
 	}
 
 	return nil
+}
+
+// GetTrader returns the underlying trader instance
+func (at *AutoTrader) GetTrader() Trader {
+	return at.trader
+}
+
+// GetExchangeID returns the exchange account UUID
+func (at *AutoTrader) GetExchangeID() string {
+	return at.exchangeID
+}
+
+// GetExchangeType returns the exchange type
+func (at *AutoTrader) GetExchangeType() string {
+	return at.exchange
 }

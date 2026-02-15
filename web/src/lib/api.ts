@@ -774,9 +774,14 @@ export const api = {
 
   // Position History API
   async getPositionHistory(traderId: string, limit: number = 100): Promise<PositionHistoryResponse> {
-    const result = await httpClient.get<PositionHistoryResponse>(
-      `${API_BASE}/positions/history?trader_id=${traderId}&limit=${limit}`
-    )
+    const url = `${API_BASE}/positions/history?trader_id=${traderId}&limit=${limit}`
+    console.log("🔍 [DEBUG] PositionHistory API Request - Full URL:", url)
+    console.log("🔍 [DEBUG] PositionHistory API Request - Trader ID:", traderId)
+    console.log("🔍 [DEBUG] PositionHistory API Request - Limit:", limit)
+    
+    const result = await httpClient.get<PositionHistoryResponse>(url)
+    
+    console.log("🔍 [DEBUG] PositionHistory API Response:", result)
     if (!result.success) throw new Error('获取历史仓位失败')
     return result.data!
   },

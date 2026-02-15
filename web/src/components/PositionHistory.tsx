@@ -357,7 +357,11 @@ export function PositionHistory({ traderId, onExport, traderName }: PositionHist
     isValidating
   } = useSWR(
     traderId ? `position-history-${traderId}` : null,
-    () => api.getPositionHistory(traderId, 200),
+    () => {
+      console.log("🔄 [POSITION HISTORY] SWR triggered - Trader ID:", traderId)
+      console.log("🔄 [POSITION HISTORY] SWR triggered - Limit:", 200)
+      return api.getPositionHistory(traderId, 200)
+    },
     {
       revalidateOnFocus: false,
       revalidateOnReconnect: true,
@@ -541,25 +545,7 @@ export function PositionHistory({ traderId, onExport, traderName }: PositionHist
     )
   }
 
-  if (positions.length === 0) {
-    return (
-      <div
-        className="rounded-lg p-12 text-center"
-        style={{
-          background: 'linear-gradient(135deg, #1E2329 0%, #181C21 100%)',
-          border: '1px solid #2B3139',
-        }}
-      >
-        <div className="text-4xl mb-4">📊</div>
-        <div className="text-lg font-semibold mb-2" style={{ color: '#EAECEF' }}>
-          {t('positionHistory.noHistory', language)}
-        </div>
-        <div style={{ color: '#848E9C' }}>
-          {t('positionHistory.noHistoryDesc', language)}
-        </div>
-      </div>
-    )
-  }
+  // Don't show the 'no history' message when positions are empty, let the main component handle it
 
   const handleManualRefresh = () => {
     mutate()
@@ -927,9 +913,25 @@ export function PositionHistory({ traderId, onExport, traderName }: PositionHist
               </tr>
             </thead>
             <tbody>
-              {filteredPositions.map((position) => (
-                <PositionRow key={position.id} position={position} />
-              ))}
+              {filteredPositions.length === 0 ? (
+                <tr>
+                  <td colSpan={9} className="py-8 text-center" style={{ color: '#848E9C' }}>
+                    <div className="flex flex-col items-center justify-center">
+                      <div className="text-3xl mb-2">📊</div>
+                      <div className="text-base font-medium" style={{ color: '#848E9C' }}>
+                        {t('positionHistory.noHistory', language)}
+                      </div>
+                      <div className="text-sm" style={{ color: '#6B7280' }}>
+                        {t('positionHistory.noHistoryDesc', language)}
+                      </div>
+                    </div>
+                  </td>
+                </tr>
+              ) : (
+                filteredPositions.map((position) => (
+                  <PositionRow key={position.id} position={position} />
+                ))
+              )}
             </tbody>
           </table>
         </div>

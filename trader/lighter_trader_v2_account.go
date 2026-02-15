@@ -355,9 +355,44 @@ func (t *LighterTraderV2) GetMarketPrice(symbol string) (float64, error) {
 
 // FormatQuantity Format quantity to correct precision (implements Trader interface)
 func (t *LighterTraderV2) FormatQuantity(symbol string, quantity float64) (string, error) {
-	// TODO: Get symbol precision from API
-	// Using default precision for now
-	return fmt.Sprintf("%.4f", quantity), nil
+	// Get market info to determine precision
+	marketInfo, err := t.getMarketInfo(symbol)
+	if err != nil {
+		logger.Warnf("⚠️ Failed to get market info for %s, using default precision: %v", symbol, err)
+		// Fallback to default precision
+		return fmt.Sprintf("%.4f", quantity), nil
+	}
+
+	// Use dynamic precision from API
+	baseAmount := int64(quantity * float64(pow10(marketInfo.SizeDecimals)))
+	calculatedQuantity := float64(baseAmount) / float64(pow10(marketInfo.SizeDecimals))
+
+	format := fmt.Sprintf("%%.%df", marketInfo.SizeDecimals)
+	formatted := fmt.Sprintf(format, calculatedQuantity)
+	logger.Debugf("Formatted quantity for %s: %s (sizeDecimals: %d)", symbol, formatted, marketInfo.SizeDecimals)
+
+	return formatted, nil
+}
+
+// FormatPrice Format price to correct precision (implements Trader interface)
+func (t *LighterTraderV2) FormatPrice(symbol string, price float64) (string, error) {
+	// Get market info to determine precision
+	marketInfo, err := t.getMarketInfo(symbol)
+	if err != nil {
+		logger.Warnf("⚠️ Failed to get market info for %s, using default precision: %v", symbol, err)
+		// Fallback to default precision
+		return fmt.Sprintf("%.2f", price), nil
+	}
+
+	// Use dynamic precision from API
+	priceAmount := int64(price * float64(pow10(marketInfo.PriceDecimals)))
+	calculatedPrice := float64(priceAmount) / float64(pow10(marketInfo.PriceDecimals))
+
+	format := fmt.Sprintf("%%.%df", marketInfo.PriceDecimals)
+	formatted := fmt.Sprintf(format, calculatedPrice)
+	logger.Debugf("Formatted price for %s: %s (priceDecimals: %d)", symbol, formatted, marketInfo.PriceDecimals)
+
+	return formatted, nil
 }
 
 // GetOrderBook Get order book with best bid/ask prices

@@ -249,6 +249,11 @@ func (s *Store) Position() *PositionStore {
 	return s.position
 }
 
+// NewPositionBuilder creates a new position builder instance
+func (s *Store) NewPositionBuilder() *PositionBuilder {
+	return NewPositionBuilder(s.Position())
+}
+
 // Strategy gets strategy storage
 func (s *Store) Strategy() *StrategyStore {
 	s.mu.Lock()

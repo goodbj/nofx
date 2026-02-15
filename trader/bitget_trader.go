@@ -1014,6 +1014,18 @@ func (t *BitgetTrader) FormatQuantity(symbol string, quantity float64) (string, 
 	return fmt.Sprintf(format, quantity), nil
 }
 
+// FormatPrice formats price to correct precision
+func (t *BitgetTrader) FormatPrice(symbol string, price float64) (string, error) {
+	contract, err := t.getContract(symbol)
+	if err != nil {
+		return fmt.Sprintf("%.4f", price), nil
+	}
+
+	// Format according to price precision
+	format := fmt.Sprintf("%%.%df", contract.PricePlace)
+	return fmt.Sprintf(format, price), nil
+}
+
 // GetOrderStatus gets order status
 func (t *BitgetTrader) GetOrderStatus(symbol string, orderID string) (map[string]interface{}, error) {
 	symbol = t.convertSymbol(symbol)

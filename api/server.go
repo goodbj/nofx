@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"net"
 	"net/http"
 	"nofx/auth"
@@ -263,6 +264,8 @@ func (s *Server) setupRoutes() {
 			protected.GET("/account", s.handleAccount)
 			protected.GET("/positions", s.handlePositions)
 			protected.GET("/positions/history", s.handlePositionHistory)
+			protected.POST("/positions/history/sync", s.handleSyncPositionHistory)
+			protected.POST("/traders/:id/sync-positions", s.handleSyncPositionHistory)
 			protected.GET("/trades", s.handleTrades)
 			protected.GET("/orders", s.handleOrders)               // Order list (all orders)
 			protected.GET("/orders/:id/fills", s.handleOrderFills) // Order fill details
@@ -3129,11 +3132,22 @@ func (s *Server) handlePositions(c *gin.Context) {
 
 // handlePositionHistory Historical closed positions with statistics
 func (s *Server) handlePositionHistory(c *gin.Context) {
+	// 记录请求详细信息
+	logger.Infof("📥 [POSITION HISTORY] API Request received")
+	logger.Infof("   Trader ID from query: %s", c.Query("trader_id"))
+	logger.Infof("   Limit from query: %s", c.Query("limit"))
+	logger.Infof("   Request URL: %s", c.Request.URL.String())
+	logger.Infof("   Request Method: %s", c.Request.Method)
+	logger.Infof("   Request Headers: %v", c.Request.Header)
+
 	_, traderID, err := s.getTraderFromQuery(c)
 	if err != nil {
+		logger.Errorf("❌ [POSITION HISTORY] Invalid trader ID: %v", err)
 		SafeBadRequest(c, "Invalid trader ID")
 		return
 	}
+
+	logger.Infof("✅ [POSITION HISTORY] Valid trader ID: %s", traderID)
 
 	trader, err := s.traderManager.GetTrader(traderID)
 	if err != nil {
@@ -3156,11 +3170,18 @@ func (s *Server) handlePositionHistory(c *gin.Context) {
 	}
 
 	// Get closed positions
+	logger.Infof("🔍 [POSITION HISTORY] Querying database for closed positions")
+	logger.Infof("   Trader ID: %s", trader.GetID())
+	logger.Infof("   Limit: %d", limit)
+
 	positions, err := store.Position().GetClosedPositions(trader.GetID(), limit)
 	if err != nil {
+		logger.Errorf("❌ [POSITION HISTORY] Database query failed: %v", err)
 		SafeInternalError(c, "Get position history", err)
 		return
 	}
+
+	logger.Infof("📊 [POSITION HISTORY] Database query result: found %d closed positions", len(positions))
 
 	// Debug logging
 	logger.Infof("📊 Position history request for trader %s: found %d closed positions (limit: %d)", traderID, len(positions), limit)
@@ -3185,6 +3206,92 @@ func (s *Server) handlePositionHistory(c *gin.Context) {
 		"stats":           stats,
 		"symbol_stats":    symbolStats,
 		"direction_stats": directionStats,
+	})
+}
+
+// handleSyncPositionHistory Sync closed positions from exchange to local database
+func (s *Server) handleSyncPositionHistory(c *gin.Context) {
+	_, traderID, err := s.getTraderFromQuery(c)
+	if err != nil {
+		logger.Errorf("❌ [SYNC HISTORY] Invalid trader ID: %v", err)
+		SafeBadRequest(c, "Invalid trader ID")
+		return
+	}
+
+	logger.Infof("🔄 [SYNC HISTORY] Starting sync for trader: %s", traderID)
+
+	trader, err := s.traderManager.GetTrader(traderID)
+	if err != nil {
+		logger.Errorf("❌ [SYNC HISTORY] Trader not found: %s, error: %v", traderID, err)
+		SafeNotFound(c, "Trader")
+		return
+	}
+
+	// Get store
+	store := trader.GetStore()
+	if store == nil {
+		logger.Errorf("❌ [SYNC HISTORY] Store not available for trader: %s", traderID)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Store not available"})
+		return
+	}
+
+	// Get trader instance to access exchange
+	// trader is already *trader.AutoTrader
+	underlyingTrader := trader.GetTrader()
+	if underlyingTrader == nil {
+		logger.Errorf("❌ [SYNC HISTORY] Underlying trader not available for: %s", traderID)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Exchange trader not available"})
+		return
+	}
+
+	// Get trades from exchange
+	startTime := time.Now().AddDate(0, -6, 0) // 6 months ago
+	logger.Infof("🔍 [SYNC HISTORY] Fetching trades from exchange for trader: %s, start time: %s", traderID, startTime.Format(time.RFC3339))
+
+	closedPnLRecords, err := underlyingTrader.GetClosedPnL(startTime, 1000)
+	if err != nil {
+		logger.Errorf("❌ [SYNC HISTORY] Failed to get closed PnL from exchange for trader %s: %v", traderID, err)
+		SafeInternalError(c, "Sync position history", err)
+		return
+	}
+
+	logger.Infof("📊 [SYNC HISTORY] Retrieved %d closed PnL records from exchange for trader %s", len(closedPnLRecords), traderID)
+
+	// Convert and import trades to database
+	importedCount := 0
+	for _, record := range closedPnLRecords {
+		// Use PositionBuilder to handle trade records properly
+		builder := store.NewPositionBuilder()
+		err := builder.ProcessTrade(
+			traderID,
+			trader.GetExchangeID(),
+			trader.GetExchangeType(),
+			record.Symbol,
+			record.Side,
+			fmt.Sprintf("close_%s", strings.ToLower(record.CloseType)),
+			math.Abs(record.Quantity),
+			record.ExitPrice,
+			record.Fee,
+			record.RealizedPnL,
+			record.ExitTime.UnixMilli(),
+			record.OrderID,
+		)
+		if err != nil {
+			logger.Errorf("❌ [SYNC HISTORY] Failed to process trade record for trader %s: %v", traderID, err)
+			continue
+		}
+		importedCount++
+	}
+
+	logger.Infof("✅ [SYNC HISTORY] Successfully imported %d/%d closed PnL records to database for trader %s", importedCount, len(closedPnLRecords), traderID)
+
+	c.JSON(http.StatusOK, gin.H{
+		"success":      true,
+		"trades_found": len(closedPnLRecords),
+		"imported":     importedCount,
+		"skipped":      len(closedPnLRecords) - importedCount,
+		"trader_id":    traderID,
+		"message":      fmt.Sprintf("Successfully synced %d/%d closed PnL records from exchange", importedCount, len(closedPnLRecords)),
 	})
 }
 

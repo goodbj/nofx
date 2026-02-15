@@ -693,15 +693,15 @@ func (tm *TraderManager) addTraderFromStore(traderCfg *store.Trader, aiModelCfg 
 		BinanceAPIKey:         "",
 		BinanceSecretKey:      "",
 		HyperliquidPrivateKey: "",
-		HyperliquidTestnet:    false, // Testnet field removed
-		UseQwen:               aiModelCfg.Provider == "qwen",
-		DeepSeekKey:           "",
-		QwenKey:               "",
-		CustomAPIURL:          aiModelCfg.CustomAPIURL,
-		CustomModelName:       aiModelCfg.CustomModelName,
+		// HyperliquidTestnet field removed (DEPRECATED)
+		UseQwen:         aiModelCfg.Provider == "qwen",
+		DeepSeekKey:     "",
+		QwenKey:         "",
+		CustomAPIURL:    aiModelCfg.CustomAPIURL,
+		CustomModelName: aiModelCfg.CustomModelName,
 		// Trader does not need to know AI model implementation details
 		// AI model handles browser automation internally
-		ExchangeTestnet:   false, // Testnet field removed
+		// ExchangeTestnet field removed (DEPRECATED)
 		ScanInterval:      time.Duration(traderCfg.ScanIntervalMinutes) * time.Minute,
 		InitialBalance:    traderCfg.InitialBalance,
 		IsCrossMargin:     traderCfg.IsCrossMargin,
@@ -743,7 +743,7 @@ func (tm *TraderManager) addTraderFromStore(traderCfg *store.Trader, aiModelCfg 
 		traderConfig.LighterWalletAddr = exchangeCfg.LighterWalletAddr
 		traderConfig.LighterAPIKeyPrivateKey = string(exchangeCfg.LighterAPIKeyPrivateKey)
 		traderConfig.LighterAPIKeyIndex = exchangeCfg.LighterAPIKeyIndex
-		traderConfig.LighterTestnet = false // Testnet field removed
+		// LighterTestnet field removed (DEPRECATED)
 	}
 
 	// Set API keys based on AI model (convert EncryptedString to string)

@@ -1247,6 +1247,29 @@ func (t *OKXTrader) FormatQuantity(symbol string, quantity float64) (string, err
 	return t.formatSize(sz, inst), nil
 }
 
+// FormatPrice formats price to correct precision
+func (t *OKXTrader) FormatPrice(symbol string, price float64) (string, error) {
+	inst, err := t.getInstrument(symbol)
+	if err != nil {
+		return fmt.Sprintf("%.4f", price), nil
+	}
+
+	// Calculate precision from tick size
+	tickSzFloat := inst.TickSz
+	decimals := 0
+	if tickSzFloat < 1 {
+		tickSzStr := fmt.Sprintf("%.10f", tickSzFloat)
+		tickSzStr = strings.TrimRight(tickSzStr, "0")
+		if dotIndex := strings.Index(tickSzStr, "."); dotIndex != -1 {
+			decimals = len(tickSzStr) - dotIndex - 1
+		}
+	}
+
+	// Format according to calculated precision
+	format := fmt.Sprintf("%%.%df", decimals)
+	return fmt.Sprintf(format, price), nil
+}
+
 // formatSize formats contract size
 func (t *OKXTrader) formatSize(sz float64, inst *OKXInstrument) string {
 	// Determine precision based on lotSz

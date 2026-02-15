@@ -1856,6 +1856,12 @@ func (t *HyperliquidTrader) FormatQuantity(symbol string, quantity float64) (str
 	return fmt.Sprintf(formatStr, quantity), nil
 }
 
+// FormatPrice formats price to correct precision
+func (t *HyperliquidTrader) FormatPrice(symbol string, price float64) (string, error) {
+	// Hyperliquid uses 5 significant figures for price
+	return fmt.Sprintf("%.5f", t.roundPriceToSigfigs(price)), nil
+}
+
 // getSzDecimals gets quantity precision for coin
 func (t *HyperliquidTrader) getSzDecimals(coin string) int {
 	// ✅ Concurrency safe: Use read lock to protect meta field access

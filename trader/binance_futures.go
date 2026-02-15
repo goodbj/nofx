@@ -1677,47 +1677,31 @@ func trimTrailingZeros(s string) string {
 }
 
 // FormatQuantity formats quantity to correct precision with step size alignment
-// Uses the new PrecisionManager for better accuracy and caching
+// Based on original nofx implementation - uses direct precision handling
 func (t *FuturesTrader) FormatQuantity(symbol string, quantity float64) (string, error) {
-	// Use the new PrecisionManager for better accuracy
-	if t.precisionManager != nil {
-		return t.precisionManager.FormatQuantityWithValidation(symbol, quantity)
-	}
-
-	// Fallback to original implementation if precisionManager is not available
-	// First try to get step size for proper alignment
+	// Get step size for proper alignment
 	stepSize, err := t.GetSymbolStepSize(symbol)
-	if err == nil && stepSize > 0 {
-		// Align quantity to step size (round down to nearest step)
-		alignedQty := math.Floor(quantity/stepSize) * stepSize
-
-		// Calculate required decimal places from step size
-		decimals := 0
-		if stepSize < 1 {
-			stepStr := strconv.FormatFloat(stepSize, 'f', -1, 64)
-			if idx := strings.Index(stepStr, "."); idx >= 0 {
-				decimals = len(stepStr) - idx - 1
-			}
-		}
-
-		format := fmt.Sprintf("%%.%df", decimals)
-		formatted := fmt.Sprintf(format, alignedQty)
-		logger.Debugf("Formatted quantity for %s: %s (stepSize: %f, aligned: %f)", symbol, formatted, stepSize, alignedQty)
-		return formatted, nil
-	}
-
-	// Fallback to precision-based formatting
-	precision, err := t.GetSymbolPrecision(symbol)
 	if err != nil {
-		// If retrieval fails, use default format
-		formatted := fmt.Sprintf("%.3f", quantity)
-		logger.Warnf("⚠️ Using default precision for %s, formatted quantity: %s", symbol, formatted)
-		return formatted, nil
+		// Fallback to basic precision formatting
+		return fmt.Sprintf("%.3f", quantity), nil
 	}
 
-	format := fmt.Sprintf("%%.%df", precision)
-	formatted := fmt.Sprintf(format, quantity)
-	logger.Debugf("Formatted quantity for %s: %s (precision: %d)", symbol, formatted, precision)
+	// Align quantity to step size (round down to nearest step)
+	alignedQty := math.Floor(quantity/stepSize) * stepSize
+
+	// Calculate required decimal places from step size
+	decimals := 0
+	if stepSize < 1 {
+		stepStr := strconv.FormatFloat(stepSize, 'f', -1, 64)
+		if idx := strings.Index(stepStr, "."); idx >= 0 {
+			decimals = len(stepStr) - idx - 1
+		}
+	}
+
+	format := fmt.Sprintf("%%.%df", decimals)
+	formatted := fmt.Sprintf(format, alignedQty)
+	logger.Debugf("Formatted quantity for %s: %s (stepSize: %f, aligned: %f)", symbol, formatted, stepSize, alignedQty)
+
 	return formatted, nil
 }
 
@@ -1890,17 +1874,17 @@ func (t *FuturesTrader) GetPricePrecision(symbol string) (int, error) {
 
 // FormatPrice formats price to correct precision
 func (t *FuturesTrader) FormatPrice(symbol string, price float64) (string, error) {
+	// Get price precision for this symbol
 	precision, err := t.GetPricePrecision(symbol)
 	if err != nil {
-		// If retrieval fails, use default format
-		formatted := fmt.Sprintf("%.2f", price)
-		logger.Warnf("⚠️ Using default precision for %s, formatted price: %s", symbol, formatted)
-		return formatted, nil
+		// Fallback to basic precision formatting
+		return fmt.Sprintf("%.2f", price), nil
 	}
 
 	format := fmt.Sprintf("%%.%df", precision)
 	formatted := fmt.Sprintf(format, price)
 	logger.Debugf("Formatted price for %s: %s (precision: %d)", symbol, formatted, precision)
+
 	return formatted, nil
 }
 

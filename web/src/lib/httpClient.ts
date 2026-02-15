@@ -60,6 +60,17 @@ export class HttpClient {
         if (token) {
           config.headers.Authorization = `Bearer ${token}`
         }
+        
+        // 添加详细的请求日志
+        console.log("📡 [HTTP CLIENT] Request Details:")
+        console.log("   Method:", config.method?.toUpperCase() || 'GET')
+        console.log("   Base URL:", config.baseURL || '/')
+        console.log("   Endpoint URL:", config.url || '')
+        console.log("   Full Request URL:", (config.baseURL || '') + (config.url || ''))
+        console.log("   Headers:", config.headers)
+        console.log("   Params:", config.params)
+        console.log("   Data:", config.data)
+        
         return config
       },
       (error) => {
