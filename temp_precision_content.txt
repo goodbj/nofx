@@ -1,4 +1,4 @@
-package trader
+﻿package trader
 
 import (
 	"context"
@@ -575,3 +575,4 @@ func (pm *PrecisionManager) GetPrecisionInfoForced(symbol string) (*SymbolPrecis
 	logger.Warnf("⚠️ [强制主网] %s 精度信息未找到", symbol)
 	return nil, fmt.Errorf("symbol %s not found in exchange info", symbol)
 }
+

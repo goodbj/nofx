@@ -55,64 +55,6 @@ func fetchExchangeInfoWithForcedMainnet(client *futures.Client, timeout time.Dur
 	return exchangeInfo, nil
 }
 
-// GetSymbolPrecisionForced 强制使用主网获取符号精度（仅用于精度获取）
-func GetSymbolPrecisionForced(client *futures.Client, symbol string) (int, error) {
-	// 使用强制主网连接获取exchangeInfo
-	exchangeInfo, err := fetchExchangeInfoWithForcedMainnet(client, 30*time.Second)
-	if err != nil {
-		logger.Warnf("⚠️ 强制主网获取精度失败 %s, 使用默认精度 3: %v", symbol, err)
-		return 3, nil // 降级到默认精度
-	}
-
-	// 从返回的数据中提取精度信息
-	for _, s := range exchangeInfo.Symbols {
-		if s.Symbol == symbol {
-			// 获取LOT_SIZE过滤器的精度
-			for _, filter := range s.Filters {
-				if filterType, ok := filter["filterType"].(string); ok && filterType == "LOT_SIZE" {
-					if stepSize, ok := filter["stepSize"].(string); ok {
-						precision := calculatePrecisionForced(stepSize)
-						logger.Infof("✅ [强制主网] %s 数量精度: %d (步长: %s)", symbol, precision, stepSize)
-						return precision, nil
-					}
-				}
-			}
-		}
-	}
-
-	logger.Warnf("⚠️ [强制主网] %s 精度信息未找到, 使用默认精度 3", symbol)
-	return 3, nil
-}
-
-// GetPricePrecisionForced 强制使用主网获取价格精度（仅用于精度获取）
-func GetPricePrecisionForced(client *futures.Client, symbol string) (int, error) {
-	// 使用强制主网连接获取exchangeInfo
-	exchangeInfo, err := fetchExchangeInfoWithForcedMainnet(client, 30*time.Second)
-	if err != nil {
-		logger.Warnf("⚠️ 强制主网获取价格精度失败 %s, 使用默认精度 2: %v", symbol, err)
-		return 2, nil // 降级到默认精度
-	}
-
-	// 从返回的数据中提取价格精度信息
-	for _, s := range exchangeInfo.Symbols {
-		if s.Symbol == symbol {
-			// 获取PRICE_FILTER过滤器的精度
-			for _, filter := range s.Filters {
-				if filterType, ok := filter["filterType"].(string); ok && filterType == "PRICE_FILTER" {
-					if tickSize, ok := filter["tickSize"].(string); ok {
-						precision := calculatePrecisionForced(tickSize)
-						logger.Infof("✅ [强制主网] %s 价格精度: %d (价格步长: %s)", symbol, precision, tickSize)
-						return precision, nil
-					}
-				}
-			}
-		}
-	}
-
-	logger.Warnf("⚠️ [强制主网] %s 价格精度信息未找到, 使用默认精度 2", symbol)
-	return 2, nil
-}
-
 // calculatePrecisionForced 计算精度位数（避免重复定义）
 func calculatePrecisionForced(stepSize string) int {
 	if stepSize == "" {
@@ -134,4 +76,38 @@ func calculatePrecisionForced(stepSize string) int {
 	}
 
 	return 0
+}
+
+// GetSymbolPrecisionForcedFromManager 通过PrecisionManager强制获取符号精度
+func GetSymbolPrecisionForcedFromManager(manager *PrecisionManager, symbol string) (int, error) {
+	info, err := manager.GetPrecisionInfoForced(symbol)
+	if err != nil {
+		return 0, err
+	}
+	return info.Precision, nil
+}
+
+// GetPricePrecisionForcedFromManager 通过PrecisionManager强制获取价格精度
+func GetPricePrecisionForcedFromManager(manager *PrecisionManager, symbol string) (int, error) {
+	info, err := manager.GetPrecisionInfoForced(symbol)
+	if err != nil {
+		return 0, err
+	}
+	return info.Precision, nil // 使用相同的Precision字段
+}
+
+// Deprecated: 旧的函数，保留是为了向后兼容
+// 请使用PrecisionManager中的方法
+func GetSymbolPrecisionForced(client *futures.Client, symbol string) (int, error) {
+	// 创建临时的PrecisionManager实例
+	manager := NewPrecisionManager(client)
+	return GetSymbolPrecisionForcedFromManager(manager, symbol)
+}
+
+// Deprecated: 旧的函数，保留是为了向后兼容
+// 请使用PrecisionManager中的方法
+func GetPricePrecisionForced(client *futures.Client, symbol string) (int, error) {
+	// 创建临时的PrecisionManager实例
+	manager := NewPrecisionManager(client)
+	return GetPricePrecisionForcedFromManager(manager, symbol)
 }

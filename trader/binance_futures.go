@@ -1732,284 +1732,75 @@ func trimTrailingZeros(s string) string {
 }
 
 // FormatQuantity formats quantity to correct precision with step size alignment
-// Uses the new PrecisionManager for better caching and error handling
+// Now uses the unified PrecisionManager exclusively
 func (t *FuturesTrader) FormatQuantity(symbol string, quantity float64) (string, error) {
 	logger.Debugf("🔍 BinanceTrader - FormatQuantity: symbol=%s, raw_quantity=%.8f", symbol, quantity)
 
-	// 使用新的精度管理器
+	// 直接使用统一的精度管理器
 	formatted, err := t.precisionManager.FormatQuantityWithValidation(symbol, quantity)
 	if err != nil {
-		logger.Errorf("❌ FormatQuantity failed with PrecisionManager: %v, falling back to legacy method", err)
-		// 回退到旧方法
-		return t.formatQuantityLegacy(symbol, quantity)
+		logger.Errorf("❌ FormatQuantity failed with PrecisionManager: %v", err)
+		return "", err
 	}
 
 	logger.Debugf("✅ BinanceTrader - Final formatted quantity: %s", formatted)
 	return formatted, nil
 }
 
-// formatQuantityLegacy 旧的格式化方法，作为回退选项
+// formatQuantityLegacy 旧的格式化方法，已弃用
 func (t *FuturesTrader) formatQuantityLegacy(symbol string, quantity float64) (string, error) {
-	logger.Debugf("🔍 BinanceTrader - Using legacy FormatQuantity: symbol=%s, raw_quantity=%.8f", symbol, quantity)
-
-	// 获取step size进行精度对齐
-	stepSize, err := t.GetSymbolStepSize(symbol)
-	if err != nil {
-		logger.Warnf("⚠️ BinanceTrader - Failed to get step size for %s: %v, using fallback", symbol, err)
-		// 使用默认精度格式化
-		formatted := fmt.Sprintf("%.3f", quantity)
-		logger.Debugf("🔧 BinanceTrader - Using fallback: %.8f -> %s", quantity, formatted)
-		return formatted, nil
-	}
-
-	logger.Debugf("📏 BinanceTrader - Step size for %s: %f", symbol, stepSize)
-
-	// 对齐数量到step size（向下取整到最近的step）
-	alignedQty := math.Floor(quantity/stepSize) * stepSize
-	logger.Debugf("📐 BinanceTrader - Aligned quantity: %.8f -> %.8f", quantity, alignedQty)
-
-	// 根据step size计算所需的小数位数
-	decimals := 0
-	if stepSize < 1 {
-		stepStr := strconv.FormatFloat(stepSize, 'f', -1, 64)
-		if idx := strings.Index(stepStr, "."); idx >= 0 {
-			decimals = len(stepStr) - idx - 1
-		}
-	}
-	logger.Debugf("🔢 BinanceTrader - Decimal places: %d", decimals)
-
-	// 格式化验证：确保不超过Binance的最大精度限制
-	if decimals > 8 {
-		logger.Warnf("⚠️ %s 的精度要求过高 (%d位小数)，调整为Binance最大支持的8位小数", symbol, decimals)
-		decimals = 8
-	}
-
-	format := fmt.Sprintf("%%.%df", decimals)
-	formatted := fmt.Sprintf(format, alignedQty)
-	logger.Debugf("✅ BinanceTrader - Final formatted quantity: %s (stepSize: %f, aligned: %f)", formatted, stepSize, alignedQty)
-
-	// 最终验证：确保格式化后的数量符合step size要求
-	if err := t.validateFormattedQuantity(formatted, stepSize); err != nil {
-		logger.Errorf("❌ 数量格式化验证失败: %v", err)
-		return "", err
-	}
-
-	return formatted, nil
+	logger.Warnf("⚠️ formatQuantityLegacy 已弃用，使用PrecisionManager替代: symbol=%s", symbol)
+	// 直接使用PrecisionManager进行格式化
+	return t.precisionManager.FormatQuantityWithValidation(symbol, quantity)
 }
 
-// GetSymbolStepSize gets the step size for a symbol from exchange info
+// GetSymbolStepSize 获取交易对的step size（已弃用，请使用PrecisionManager）
 func (t *FuturesTrader) GetSymbolStepSize(symbol string) (float64, error) {
-	// Try to get exchange info with retry logic for network errors
-	var exchangeInfo *futures.ExchangeInfo
-	var err error
-
-	// First try with longer timeout for better reliability
-	logger.Debugf("🌐 Attempting to connect to Binance API for exchange info, Base URL: %s", t.client.BaseURL)
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
-	exchangeInfo, err = t.client.NewExchangeInfoService().Do(ctx)
-	cancel()
-
+	logger.Warnf("⚠️ GetSymbolStepSize 已弃用，使用PrecisionManager替代: symbol=%s", symbol)
+	// 获取精度信息
+	info, err := t.precisionManager.GetPrecisionInfo(symbol)
 	if err != nil {
-		// Retry logic for network errors
-		isRetryable := strings.Contains(err.Error(), "EOF") ||
-			strings.Contains(err.Error(), "connection reset") ||
-			strings.Contains(err.Error(), "timeout") ||
-			strings.Contains(err.Error(), "i/o timeout")
-
-		if isRetryable {
-			maxRetries := 5
-			for attempt := 1; attempt <= maxRetries; attempt++ {
-				logger.Infof("❌ Exchange info API call failed (attempt %d/%d): %v", attempt, maxRetries, err)
-				waitTime := time.Duration(attempt) * 500 * time.Millisecond
-				logger.Infof("⏳ Retrying in %v...", waitTime)
-				time.Sleep(waitTime)
-
-				logger.Debugf("🌐 Retrying to connect to Binance API for exchange info, Base URL: %s (attempt %d/%d)", t.client.BaseURL, attempt, maxRetries)
-				ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-				exchangeInfo, err = t.client.NewExchangeInfoService().Do(ctx)
-				cancel()
-
-				if err == nil {
-					break
-				}
-
-				isRetryable = strings.Contains(err.Error(), "EOF") ||
-					strings.Contains(err.Error(), "connection reset") ||
-					strings.Contains(err.Error(), "timeout") ||
-					strings.Contains(err.Error(), "i/o timeout")
-
-				if !isRetryable {
-					break
-				}
-			}
-		}
+		logger.Errorf("❌ GetSymbolStepSize fallback error: %v", err)
+		// 返回默认值
+		return 0.001, nil
 	}
-
-	if err != nil {
-		logger.Errorf("❌ 严重错误：无法获取 %s 的精度信息，重试失败: %v", symbol, err)
-		logger.Infof("🔧 启用紧急fallback机制，使用默认精度值")
-
-		// 紧急fallback：根据交易对类型使用合理的默认精度
-		defaultStepSize := getDefaultStepSize(symbol)
-		logger.Infof("📦 为 %s 使用紧急fallback step size: %f", symbol, defaultStepSize)
-		return defaultStepSize, nil
-	}
-
-	for _, s := range exchangeInfo.Symbols {
-		if s.Symbol == symbol {
-			// Get step size from LOT_SIZE filter
-			for _, filter := range s.Filters {
-				if filter["filterType"] == "LOT_SIZE" {
-					if stepSizeStr, ok := filter["stepSize"].(string); ok {
-						stepSize, parseErr := strconv.ParseFloat(stepSizeStr, 64)
-						if parseErr != nil {
-							logger.Warnf("⚠️ Failed to parse step size '%s' for %s: %v", stepSizeStr, symbol, parseErr)
-							return 0, parseErr
-						}
-						logger.Debugf("  %s step size: %f", symbol, stepSize)
-						return stepSize, nil
-					}
-				}
-			}
-		}
-	}
-
-	logger.Warnf("⚠️ Step size information not found for %s", symbol)
-	return 0, fmt.Errorf("step size not found for symbol %s", symbol)
+	return info.StepSize, nil
 }
 
-// GetPricePrecision gets the price precision for a trading pair
+// GetPricePrecision 获取交易对的价格精度（已弃用，请使用PrecisionManager）
 func (t *FuturesTrader) GetPricePrecision(symbol string) (int, error) {
-	// Try to get exchange info with retry logic for network errors
-	var exchangeInfo *futures.ExchangeInfo
-	var err error
-
-	// First try with shorter timeout for quick response
-	logger.Debugf("🌐 Attempting to connect to Binance API for price precision, Base URL: %s", t.client.BaseURL)
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	exchangeInfo, err = t.client.NewExchangeInfoService().Do(ctx)
-	cancel()
-
-	if err == nil {
-		// Success on first try, no need for retry
-		for _, s := range exchangeInfo.Symbols {
-			if s.Symbol == symbol {
-				// Get precision from PRICE_FILTER
-				for _, filter := range s.Filters {
-					if filter["filterType"] == "PRICE_FILTER" {
-						tickSize := filter["tickSize"].(string)
-						precision := calculatePrecision(tickSize)
-						logger.Infof("  %s price precision: %d (tickSize: %s)", symbol, precision, tickSize)
-						return precision, nil
-					}
-				}
-			}
-		}
-
-		logger.Infof("  ⚠ %s price precision information not found, using default precision 2", symbol)
-		return 2, nil // Default price precision is 2
-	}
-
-	// If first attempt failed with network error, try with retry logic
-	isRetryable := strings.Contains(err.Error(), "EOF") ||
-		strings.Contains(err.Error(), "connection reset") ||
-		strings.Contains(err.Error(), "timeout") ||
-		strings.Contains(err.Error(), "i/o timeout")
-
-	if isRetryable {
-		// Perform retry logic only for network-related errors
-		maxRetries := 2
-
-		for attempt := 1; attempt <= maxRetries; attempt++ {
-			logger.Infof("❌ Exchange info API call failed (attempt %d/%d): %v", attempt, maxRetries, err)
-
-			// Wait before retry (shorter backoff)
-			waitTime := time.Duration(attempt) * 500 * time.Millisecond
-			logger.Infof("⏳ Retrying in %v...", waitTime)
-			time.Sleep(waitTime)
-
-			ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-			exchangeInfo, err = t.client.NewExchangeInfoService().Do(ctx)
-			cancel()
-
-			if err == nil {
-				break // Success, exit retry loop
-			}
-
-			// Check again if error is still retryable
-			isRetryable = strings.Contains(err.Error(), "EOF") ||
-				strings.Contains(err.Error(), "connection reset") ||
-				strings.Contains(err.Error(), "timeout") ||
-				strings.Contains(err.Error(), "i/o timeout")
-
-			if !isRetryable {
-				// Non-retryable error, break retry loop
-				break
-			}
-		}
-	}
-
+	logger.Warnf("⚠️ GetPricePrecision 已弃用，使用PrecisionManager替代: symbol=%s", symbol)
+	// 获取精度信息
+	info, err := t.precisionManager.GetPrecisionInfo(symbol)
 	if err != nil {
-		logger.Warnf("⚠️ Failed to get price precision for %s, using default precision 2: %v", symbol, err)
-		return 2, nil // Return default precision instead of error to prevent failure
+		logger.Errorf("❌ GetPricePrecision fallback error: %v", err)
+		// 返回默认值
+		return 2, nil
 	}
-
-	for _, s := range exchangeInfo.Symbols {
-		if s.Symbol == symbol {
-			// Get precision from PRICE_FILTER
-			for _, filter := range s.Filters {
-				if filter["filterType"] == "PRICE_FILTER" {
-					tickSize := filter["tickSize"].(string)
-					precision := calculatePrecision(tickSize)
-					logger.Infof("  %s price precision: %d (tickSize: %s)", symbol, precision, tickSize)
-					return precision, nil
-				}
-			}
-		}
-	}
-
-	logger.Infof("  ⚠ %s price precision information not found, using default precision 2", symbol)
-	return 2, nil // Default price precision is 2
+	return info.Precision, nil
 }
 
 // FormatPrice formats price to correct precision
-// Uses the new PrecisionManager for better caching and error handling
+// Now uses the unified PrecisionManager exclusively
 func (t *FuturesTrader) FormatPrice(symbol string, price float64) (string, error) {
 	logger.Debugf("🔍 BinanceTrader - FormatPrice: symbol=%s, raw_price=%.8f", symbol, price)
 
-	// 使用新的精度管理器
+	// 直接使用统一的精度管理器
 	formatted, err := t.precisionManager.FormatPriceWithValidation(symbol, price)
 	if err != nil {
-		logger.Errorf("❌ FormatPrice failed with PrecisionManager: %v, falling back to legacy method", err)
-		// 回退到旧方法
-		return t.formatPriceLegacy(symbol, price)
+		logger.Errorf("❌ FormatPrice failed with PrecisionManager: %v", err)
+		return "", err
 	}
 
 	logger.Debugf("✅ BinanceTrader - Final formatted price: %s", formatted)
 	return formatted, nil
 }
 
-// formatPriceLegacy 旧的价格格式化方法，作为回退选项
+// formatPriceLegacy 旧的价格格式化方法，已弃用
 func (t *FuturesTrader) formatPriceLegacy(symbol string, price float64) (string, error) {
-	logger.Debugf("🔍 BinanceTrader - Using legacy FormatPrice: symbol=%s, raw_price=%.8f", symbol, price)
-
-	// Get price precision for this symbol
-	precision, err := t.GetPricePrecision(symbol)
-	if err != nil {
-		logger.Warnf("⚠️ BinanceTrader - Failed to get price precision for %s: %v, using fallback", symbol, err)
-		// Fallback to basic precision formatting
-		formatted := fmt.Sprintf("%.2f", price)
-		logger.Debugf("🔧 BinanceTrader - Using fallback: %.8f -> %s", price, formatted)
-		return formatted, nil
-	}
-
-	logger.Debugf("🔢 BinanceTrader - Price precision for %s: %d", symbol, precision)
-
-	format := fmt.Sprintf("%%.%df", precision)
-	formatted := fmt.Sprintf(format, price)
-	logger.Debugf("✅ BinanceTrader - Final formatted price: %s (precision: %d)", formatted, precision)
-
-	return formatted, nil
+	logger.Warnf("⚠️ formatPriceLegacy 已弃用，使用PrecisionManager替代: symbol=%s", symbol)
+	// 直接使用PrecisionManager进行格式化
+	return t.precisionManager.FormatPriceWithValidation(symbol, price)
 }
 
 // Helper functions
