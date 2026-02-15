@@ -1024,7 +1024,7 @@ func (s *Server) handleUpdateTrader(c *gin.Context) {
 	// 检查并创建交易员的浏览器数据目录（如果不存在）
 	dirName := filepath.Join(mcp.GuardianBrowserDataDir, traderID)
 	if _, statErr := os.Stat(dirName); os.IsNotExist(statErr) {
-		logger.Infof("?? Browser data directory for trader %s does not exist, creating it", traderID)
+		logger.Infof("⚠️ Browser data directory for trader %s does not exist, creating it", traderID)
 		err = s.createTraderBrowserDataDir(traderID)
 		if err != nil {
 			logger.Errorf("Failed to create browser data directory for trader %s during update: %v", traderID, err)
@@ -1080,7 +1080,7 @@ func (s *Server) handleDeleteTrader(c *gin.Context) {
 		status := trader.GetStatus()
 		if isRunning, ok := status["is_running"].(bool); ok && isRunning {
 			trader.Stop()
-			logger.Infof("?? Stopped running trader: %s", traderID)
+			logger.Infof("⏹  Stopped running trader: %s", traderID)
 		}
 	}
 
@@ -1539,7 +1539,7 @@ func (s *Server) handleToggleCompetition(c *gin.Context) {
 	if !req.ShowInCompetition {
 		status = "hidden"
 	}
-	logger.Infof("??Trader %s competition visibility updated: %s", traderID, status)
+	logger.Infof("✓ Trader %s competition visibility updated: %s", traderID, status)
 	c.JSON(http.StatusOK, gin.H{
 		"message":             "Competition visibility updated",
 		"show_in_competition": req.ShowInCompetition,
@@ -2227,11 +2227,11 @@ func (s *Server) handleDeleteModelConfig(c *gin.Context) {
 	// Reload all traders for this user to make changes take effect immediately
 	err = s.traderManager.LoadUserTradersFromStore(s.store, userID)
 	if err != nil {
-		logger.Infof("?? Failed to reload user traders into memory: %v", err)
+		logger.Infof("⚠️ Failed to reload user traders into memory: %v", err)
 		// Don't return error here since model was successfully deleted from database
 	}
 
-	logger.Infof("??Deleted AI model: id=%s, userID=%s", modelID, userID)
+	logger.Infof("⚠️ Deleted AI model: id=%s, userID=%s", modelID, userID)
 	c.JSON(http.StatusOK, gin.H{"message": "Model configuration deleted"})
 }
 
@@ -2635,7 +2635,7 @@ func (s *Server) handleAccount(c *gin.Context) {
 	// First, ensure user's traders are loaded into memory
 	err := s.traderManager.LoadUserTradersFromStore(s.store, userID)
 	if err != nil {
-		logger.Infof("?? Failed to load traders for user %s: %v", userID, err)
+		logger.Infof("⚠️ Failed to load traders for user %s: %v", userID, err)
 		SafeInternalError(c, "Failed to load traders", err)
 		return
 	}
@@ -2645,7 +2645,7 @@ func (s *Server) handleAccount(c *gin.Context) {
 	if err != nil {
 		// If trader is not found, it might be because it was just created and not fully initialized
 		// Let's wait a bit and retry
-		logger.Infof("?? Trader %s not found in memory, reloading user traders...", traderID)
+		logger.Infof("⚠️ Trader %s not found in memory, reloading user traders...", traderID)
 
 		// Reload user traders to ensure the trader is loaded
 		err = s.traderManager.LoadUserTradersFromStore(s.store, userID)
@@ -2658,13 +2658,13 @@ func (s *Server) handleAccount(c *gin.Context) {
 		// Retry getting the trader
 		trader, err = s.traderManager.GetTrader(traderID)
 		if err != nil {
-			logger.Infof("?? Trader %s still not found after reload: %v", traderID, err)
+			logger.Infof("⚠️ Trader %s still not found after reload: %v", traderID, err)
 			SafeNotFound(c, "Trader not found after reload")
 			return
 		}
 	}
 
-	logger.Infof("?? Received account info request [%s]", trader.GetName())
+	logger.Infof("⚠️ Received account info request [%s]", trader.GetName())
 
 	// Get trader's full configuration to determine the correct endpoint
 	// Direct approach: force refresh for any non-empty CustomAPIURL
@@ -2700,7 +2700,7 @@ func (s *Server) handleAccount(c *gin.Context) {
 	// Try to get account info with potential retry if proxy configuration is not ready
 	account, err := trader.GetAccountInfo()
 	if err != nil {
-		logger.Infof("?? Get account info failed for trader %s: %v", trader.GetName(), err)
+		logger.Infof("⚠️ Get account info failed for trader %s: %v", trader.GetName(), err)
 
 		// Check if this is a proxy forwarding error specifically
 		errMsg := err.Error()
@@ -2729,7 +2729,7 @@ func (s *Server) handleAccount(c *gin.Context) {
 		if strings.Contains(errMsg, "API-key format invalid") || strings.Contains(errMsg, "401") ||
 			strings.Contains(errMsg, "dial tcp") || strings.Contains(errMsg, "connection refused") ||
 			strings.Contains(errMsg, "timeout") || strings.Contains(errMsg, "no such host") {
-			logger.Infof("?? Detected API key, proxy or network issue, checking if trader %s is executing manual scan...", traderID)
+			logger.Infof("⚠️ Detected API key, proxy or network issue, checking if trader %s is executing manual scan...", traderID)
 
 			// 🔥 检查是否正在执行手动扫描
 			if traderInstance, getErr := s.traderManager.GetTrader(traderID); getErr == nil {
@@ -2739,7 +2739,7 @@ func (s *Server) handleAccount(c *gin.Context) {
 					// Still try to get account info one more time with current trader
 					account, err = trader.GetAccountInfo()
 					if err != nil {
-						logger.Infof("?? Second attempt to get account info failed: %v", err)
+						logger.Infof("⚠️ Second attempt to get account info failed: %v", err)
 
 						// Final fallback for proxy errors
 						errMsg2 := err.Error()
@@ -2842,7 +2842,7 @@ func (s *Server) handleAccount(c *gin.Context) {
 				}
 			} else {
 				// If we can't get trader status, proceed with normal refresh logic
-				logger.Infof("?? Could not get trader status, proceeding with normal refresh logic")
+				logger.Infof("⚠️ Could not get trader status, proceeding with normal refresh logic")
 				refreshErr := s.traderManager.ForceRefreshTrader(traderID, s.store)
 				if refreshErr != nil {
 					logger.Infof("⚠️ Force refresh failed: %v", refreshErr)
@@ -2990,7 +2990,7 @@ func (s *Server) handleForceRefreshTrader(c *gin.Context) {
 		return
 	}
 
-	logger.Infof("?? Trader %s successfully refreshed", traderID)
+	logger.Infof("⚠️ Trader %s successfully refreshed", traderID)
 	c.JSON(http.StatusOK, gin.H{
 		"message":   "Trader refreshed successfully",
 		"trader_id": traderID,
