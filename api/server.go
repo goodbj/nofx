@@ -461,7 +461,7 @@ func (s *Server) getTraderFromQuery(c *gin.Context) (*manager.TraderManager, str
 	// Ensure user's traders are loaded into memory
 	err := s.traderManager.LoadUserTradersFromStore(s.store, userID)
 	if err != nil {
-		logger.Infof("?? Failed to load traders for user %s: %v", userID, err)
+		logger.Infof("⚠️ Failed to load traders for user %s: %v", userID, err)
 	}
 
 	if traderID == "" {
@@ -483,10 +483,10 @@ func (s *Server) getTraderFromQuery(c *gin.Context) (*manager.TraderManager, str
 	// Verify that the specific trader exists in memory, if not try to reload
 	_, err = s.traderManager.GetTrader(traderID)
 	if err != nil {
-		logger.Infof("?? Trader %s not found in memory, attempting reload...", traderID)
+		logger.Infof("⚠️ Trader %s not found in memory, attempting reload...", traderID)
 		err = s.traderManager.LoadUserTradersFromStore(s.store, userID)
 		if err != nil {
-			logger.Infof("?? Failed to reload traders for user %s: %v", userID, err)
+			logger.Infof("⚠️ Failed to reload traders for user %s: %v", userID, err)
 		}
 		// Try again after reload
 		_, err = s.traderManager.GetTrader(traderID)
@@ -670,7 +670,7 @@ func (s *Server) handleCreateTrader(c *gin.Context) {
 	actualBalance := req.InitialBalance // Default to use user input
 	exchanges, err := s.store.Exchange().List(userID)
 	if err != nil {
-		logger.Infof("?? Failed to get exchange config, using user input for initial balance: %v", err)
+		logger.Infof("⚠️ Failed to get exchange config, using user input for initial balance: %v", err)
 	}
 
 	// Find matching exchange configuration
@@ -683,9 +683,9 @@ func (s *Server) handleCreateTrader(c *gin.Context) {
 	}
 
 	if exchangeCfg == nil {
-		logger.Infof("?? Exchange %s configuration not found, using user input for initial balance", req.ExchangeID)
+		logger.Infof("⚠️ Exchange %s configuration not found, using user input for initial balance", req.ExchangeID)
 	} else if !exchangeCfg.Enabled {
-		logger.Infof("?? Exchange %s not enabled, using user input for initial balance", req.ExchangeID)
+		logger.Infof("⚠️ Exchange %s not enabled, using user input for initial balance", req.ExchangeID)
 	} else {
 		// Create temporary trader based on exchange type to query balance
 		var tempTrader trader.Trader
@@ -738,16 +738,16 @@ func (s *Server) handleCreateTrader(c *gin.Context) {
 				createErr = fmt.Errorf("Lighter requires wallet address and API Key private key")
 			}
 		default:
-			logger.Infof("?? Unsupported exchange type: %s, using user input for initial balance", exchangeCfg.ExchangeType)
+			logger.Infof("⚠️ Unsupported exchange type: %s, using user input for initial balance", exchangeCfg.ExchangeType)
 		}
 
 		if createErr != nil {
-			logger.Infof("?? Failed to create temporary trader, using user input for initial balance: %v", createErr)
+			logger.Infof("⚠️ Failed to create temporary trader, using user input for initial balance: %v", createErr)
 		} else if tempTrader != nil {
 			// Query actual balance
 			balanceInfo, balanceErr := tempTrader.GetBalance()
 			if balanceErr != nil {
-				logger.Infof("?? Failed to query exchange balance, using user input for initial balance: %v", balanceErr)
+				logger.Infof("⚠️ Failed to query exchange balance, using user input for initial balance: %v", balanceErr)
 			} else {
 				// Extract total equity (account total value = wallet balance + unrealized PnL)
 				// Priority: total_equity > totalWalletBalance > wallet_balance > totalEq > balance
@@ -756,19 +756,19 @@ func (s *Server) handleCreateTrader(c *gin.Context) {
 				for _, key := range balanceKeys {
 					if balance, ok := balanceInfo[key].(float64); ok && balance > 0 {
 						actualBalance = balance
-						logger.Infof("??Queried exchange total equity (%s): %.2f USDT (user input: %.2f USDT)", key, actualBalance, req.InitialBalance)
+						logger.Infof("✓ Queried exchange total equity (%s): %.2f USDT (user input: %.2f USDT)", key, actualBalance, req.InitialBalance)
 						break
 					}
 				}
 				if actualBalance <= 0 {
-					logger.Infof("?? Unable to extract total equity from balance info, balanceInfo=%v, using user input for initial balance", balanceInfo)
+					logger.Infof("⚠️ Unable to extract total equity from balance info, balanceInfo=%v, using user input for initial balance", balanceInfo)
 				}
 			}
 		}
 	}
 
 	// Create trader configuration (database entity)
-	logger.Infof("?? DEBUG: Starting to create trader config, ID=%s, Name=%s, AIModel=%s, Exchange=%s, StrategyID=%s", traderID, req.Name, req.AIModelID, req.ExchangeID, req.StrategyID)
+	logger.Infof("🔧 DEBUG: Starting to create trader config, ID=%s, Name=%s, AIModel=%s, Exchange=%s, StrategyID=%s", traderID, req.Name, req.AIModelID, req.ExchangeID, req.StrategyID)
 	traderRecord := &store.Trader{
 		ID:                   traderID,
 		UserID:               userID,
@@ -792,23 +792,23 @@ func (s *Server) handleCreateTrader(c *gin.Context) {
 	}
 
 	// Save to database
-	logger.Infof("?? DEBUG: Preparing to call CreateTrader")
+	logger.Infof("🔧 DEBUG: Preparing to call CreateTrader")
 	err = s.store.Trader().Create(traderRecord)
 	if err != nil {
-		logger.Infof("??Failed to create trader: %v", err)
+		logger.Infof("❌ Failed to create trader: %v", err)
 		SafeInternalError(c, "Failed to create trader", err)
 		return
 	}
-	logger.Infof("?? DEBUG: CreateTrader succeeded")
+	logger.Infof("🔧 DEBUG: CreateTrader succeeded")
 
 	// Immediately load new trader into TraderManager
-	logger.Infof("?? DEBUG: Preparing to call LoadUserTraders")
+	logger.Infof("🔧 DEBUG: Preparing to call LoadUserTraders")
 	err = s.traderManager.LoadUserTradersFromStore(s.store, userID)
 	if err != nil {
-		logger.Infof("?? Failed to load user traders into memory: %v", err)
+		logger.Infof("⚠️ Failed to load user traders into memory: %v", err)
 		// Don't return error here since trader was successfully created in database
 	}
-	logger.Infof("?? DEBUG: LoadUserTraders completed")
+	logger.Infof("🔧 DEBUG: LoadUserTraders completed")
 
 	// 创建交易员的浏览器数据目录
 	err = s.createTraderBrowserDataDir(traderID)
@@ -817,7 +817,7 @@ func (s *Server) handleCreateTrader(c *gin.Context) {
 		// 不返回错误，因为交易员已经创建成功，这只是辅助目录
 	}
 
-	logger.Infof("??Trader created successfully: %s (model: %s, exchange: %s)", req.Name, req.AIModelID, req.ExchangeID)
+	logger.Infof("✓ Trader created successfully: %s (model: %s, exchange: %s)", req.Name, req.AIModelID, req.ExchangeID)
 
 	c.JSON(http.StatusCreated, gin.H{
 		"trader_id":   traderID,
@@ -872,7 +872,7 @@ func (s *Server) ensureAllTraderBrowserDataDirs() error {
 	for _, trader := range allTraders {
 		dirName := filepath.Join(mcp.GuardianBrowserDataDir, trader.ID)
 		if _, err := os.Stat(dirName); os.IsNotExist(err) {
-			logger.Infof("?? Browser data directory for trader %s does not exist, creating it", trader.ID)
+			logger.Infof("✓ Browser data directory for trader %s does not exist, creating it", trader.ID)
 			if err := s.createTraderBrowserDataDir(trader.ID); err != nil {
 				logger.Errorf("Failed to create browser data directory for trader %s: %v", trader.ID, err)
 				// 继续处理其他交易员
@@ -961,13 +961,13 @@ func (s *Server) handleUpdateTrader(c *gin.Context) {
 
 	// Set scan interval, allow updates
 	scanIntervalMinutes := req.ScanIntervalMinutes
-	logger.Infof("?? Update trader scan_interval: req=%d, existing=%d", req.ScanIntervalMinutes, existingTrader.ScanIntervalMinutes)
+	logger.Infof("📊 Update trader scan_interval: req=%d, existing=%d", req.ScanIntervalMinutes, existingTrader.ScanIntervalMinutes)
 	if scanIntervalMinutes <= 0 {
 		scanIntervalMinutes = existingTrader.ScanIntervalMinutes // Keep original value
 	} else if scanIntervalMinutes < 3 {
 		scanIntervalMinutes = 3
 	}
-	logger.Infof("?? Final scan_interval_minutes: %d", scanIntervalMinutes)
+	logger.Infof("📊 Final scan_interval_minutes: %d", scanIntervalMinutes)
 
 	// Set system prompt template
 	systemPromptTemplate := req.SystemPromptTemplate
@@ -1008,12 +1008,12 @@ func (s *Server) handleUpdateTrader(c *gin.Context) {
 		status := existingMemTrader.GetStatus()
 		if running, ok := status["is_running"].(bool); ok && running {
 			wasRunning = true
-			logger.Infof("?? Trader %s was running, will restart with new config after update", traderID)
+			logger.Infof("🔄 Trader %s was running, will restart with new config after update", traderID)
 		}
 	}
 
 	// Update database
-	logger.Infof("?? Updating trader: ID=%s, Name=%s, AIModelID=%s, StrategyID=%s, ScanInterval=%d min",
+	logger.Infof("🔄 Updating trader: ID=%s, Name=%s, AIModelID=%s, StrategyID=%s, ScanInterval=%d min",
 		traderRecord.ID, traderRecord.Name, traderRecord.AIModelID, traderRecord.StrategyID, scanIntervalMinutes)
 	err = s.store.Trader().Update(traderRecord)
 	if err != nil {
@@ -1038,22 +1038,22 @@ func (s *Server) handleUpdateTrader(c *gin.Context) {
 	// Reload traders into memory with fresh config
 	err = s.traderManager.LoadUserTradersFromStore(s.store, userID)
 	if err != nil {
-		logger.Infof("?? Failed to reload user traders into memory: %v", err)
+		logger.Infof("⚠️ Failed to reload user traders into memory: %v", err)
 	}
 
 	// If trader was running before, restart it with new config
 	if wasRunning {
 		if reloadedTrader, getErr := s.traderManager.GetTrader(traderID); getErr == nil {
 			go func() {
-				logger.Infof("?? Restarting trader %s with new config...", traderID)
+				logger.Infof("▶️ Restarting trader %s with new config...", traderID)
 				if runErr := reloadedTrader.Run(); runErr != nil {
-					logger.Infof("??Trader %s runtime error: %v", traderID, runErr)
+					logger.Infof("❌ Trader %s runtime error: %v", traderID, runErr)
 				}
 			}()
 		}
 	}
 
-	logger.Infof("??Trader updated successfully: %s (model: %s, exchange: %s, strategy: %s)", req.Name, req.AIModelID, req.ExchangeID, strategyID)
+	logger.Infof("✓ Trader updated successfully: %s (model: %s, exchange: %s, strategy: %s)", req.Name, req.AIModelID, req.ExchangeID, strategyID)
 
 	c.JSON(http.StatusOK, gin.H{
 		"trader_id":   traderID,
@@ -1094,7 +1094,7 @@ func (s *Server) handleDeleteTrader(c *gin.Context) {
 		// 不返回错误，因为交易员已经从内存中移除
 	}
 
-	logger.Infof("??Trader deleted: %s", traderID)
+	logger.Infof("✓ Trader deleted: %s", traderID)
 	c.JSON(http.StatusOK, gin.H{"message": "Trader deleted"})
 }
 
@@ -1119,14 +1119,14 @@ func (s *Server) handleStartTrader(c *gin.Context) {
 			return
 		}
 		// Trader exists but is stopped - remove from memory to reload fresh config
-		logger.Infof("?? Removing stopped trader %s from memory to reload config...", traderID)
+		logger.Infof("🔄 Removing stopped trader %s from memory to reload config...", traderID)
 		s.traderManager.RemoveTrader(traderID)
 	}
 
 	// Load trader from database (always reload to get latest config)
-	logger.Infof("?? Loading trader %s from database...", traderID)
+	logger.Infof("🔄 Loading trader %s from database...", traderID)
 	if loadErr := s.traderManager.LoadUserTradersFromStore(s.store, userID); loadErr != nil {
-		logger.Infof("??Failed to load user traders: %v", loadErr)
+		logger.Infof("❌ Failed to load user traders: %v", loadErr)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to load trader: " + loadErr.Error()})
 		return
 	}
@@ -1171,19 +1171,19 @@ func (s *Server) handleStartTrader(c *gin.Context) {
 
 	// Start trader
 	go func() {
-		logger.Infof("??  Starting trader %s (%s)", traderID, trader.GetName())
+		logger.Infof("▶️  Starting trader %s (%s)", traderID, trader.GetName())
 		if err := trader.Run(); err != nil {
-			logger.Infof("??Trader %s runtime error: %v", trader.GetName(), err)
+			logger.Infof("❌ Trader %s runtime error: %v", trader.GetName(), err)
 		}
 	}()
 
 	// Update running status in database
 	err = s.store.Trader().UpdateStatus(userID, traderID, true)
 	if err != nil {
-		logger.Infof("??  Failed to update trader status: %v", err)
+		logger.Infof("⚠️  Failed to update trader status: %v", err)
 	}
 
-	logger.Infof("??Trader %s started", trader.GetName())
+	logger.Infof("✓ Trader %s started", trader.GetName())
 	c.JSON(http.StatusOK, gin.H{"message": "Trader started"})
 }
 
@@ -1211,7 +1211,7 @@ func (s *Server) handleStopTrader(c *gin.Context) {
 	// Update running status in database to ensure consistency
 	err = s.store.Trader().UpdateStatus(userID, traderID, false)
 	if err != nil {
-		logger.Infof("??  Failed to update trader status: %v", err)
+		logger.Infof("⚠️  Failed to update trader status: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update trader status in database"})
 		return
 	}
@@ -1503,7 +1503,7 @@ func (s *Server) handleUpdateTraderPrompt(c *gin.Context) {
 	if err == nil {
 		trader.SetCustomPrompt(req.CustomPrompt)
 		trader.SetOverrideBasePrompt(req.OverrideBasePrompt)
-		logger.Infof("??Updated trader %s custom prompt (override base=%v)", trader.GetName(), req.OverrideBasePrompt)
+		logger.Infof("✓ Updated trader %s custom prompt (override base=%v)", trader.GetName(), req.OverrideBasePrompt)
 	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "Custom prompt updated"})
@@ -1551,7 +1551,7 @@ func (s *Server) handleSyncBalance(c *gin.Context) {
 	userID := c.GetString("user_id")
 	traderID := c.Param("id")
 
-	logger.Infof("?? User %s requested balance sync for trader %s", userID, traderID)
+	logger.Infof("🔄 User %s requested balance sync for trader %s", userID, traderID)
 
 	// Get trader configuration from database (including exchange info)
 	fullConfig, err := s.store.Trader().GetFullConfig(userID, traderID)
@@ -1624,7 +1624,7 @@ func (s *Server) handleSyncBalance(c *gin.Context) {
 	}
 
 	if createErr != nil {
-		logger.Infof("?? Failed to create temporary trader: %v", createErr)
+		logger.Infof("⚠️ Failed to create temporary trader: %v", createErr)
 		SafeInternalError(c, "Failed to connect to exchange", createErr)
 		return
 	}
@@ -1632,7 +1632,7 @@ func (s *Server) handleSyncBalance(c *gin.Context) {
 	// Query actual balance
 	balanceInfo, balanceErr := tempTrader.GetBalance()
 	if balanceErr != nil {
-		logger.Infof("?? Failed to query exchange balance: %v", balanceErr)
+		logger.Infof("⚠️ Failed to query exchange balance: %v", balanceErr)
 		SafeInternalError(c, "Failed to query balance", balanceErr)
 		return
 	}
@@ -1654,20 +1654,20 @@ func (s *Server) handleSyncBalance(c *gin.Context) {
 
 	oldBalance := traderConfig.InitialBalance
 
-	// ??Option C: Smart balance change detection
+	// ✅ Option C: Smart balance change detection
 	changePercent := ((actualBalance - oldBalance) / oldBalance) * 100
 	changeType := "increase"
 	if changePercent < 0 {
 		changeType = "decrease"
 	}
 
-	logger.Infof("??Queried actual exchange balance: %.2f USDT (current config: %.2f USDT, change: %.2f%%)",
+	logger.Infof("✓ Queried actual exchange balance: %.2f USDT (current config: %.2f USDT, change: %.2f%%)",
 		actualBalance, oldBalance, changePercent)
 
 	// Update initial_balance in database
 	err = s.store.Trader().UpdateInitialBalance(userID, traderID, actualBalance)
 	if err != nil {
-		logger.Infof("??Failed to update initial_balance: %v", err)
+		logger.Infof("❌ Failed to update initial_balance: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update balance"})
 		return
 	}
@@ -1675,10 +1675,10 @@ func (s *Server) handleSyncBalance(c *gin.Context) {
 	// Reload traders into memory
 	err = s.traderManager.LoadUserTradersFromStore(s.store, userID)
 	if err != nil {
-		logger.Infof("?? Failed to reload user traders into memory: %v", err)
+		logger.Infof("⚠️ Failed to reload user traders into memory: %v", err)
 	}
 
-	logger.Infof("??Synced balance: %.2f ??%.2f USDT (%s %.2f%%)", oldBalance, actualBalance, changeType, changePercent)
+	logger.Infof("✅ Synced balance: %.2f → %.2f USDT (%s %.2f%%)", oldBalance, actualBalance, changeType, changePercent)
 
 	c.JSON(http.StatusOK, gin.H{
 		"message":        "Balance synced successfully",
@@ -1704,7 +1704,7 @@ func (s *Server) handleClosePosition(c *gin.Context) {
 		return
 	}
 
-	logger.Infof("?? User %s requested position close: trader=%s, symbol=%s, side=%s", userID, traderID, req.Symbol, req.Side)
+	logger.Infof("🔻 User %s requested position close: trader=%s, symbol=%s, side=%s", userID, traderID, req.Symbol, req.Side)
 
 	// Get trader configuration from database (including exchange info)
 	fullConfig, err := s.store.Trader().GetFullConfig(userID, traderID)
@@ -1776,7 +1776,7 @@ func (s *Server) handleClosePosition(c *gin.Context) {
 	}
 
 	if createErr != nil {
-		logger.Infof("?? Failed to create temporary trader: %v", createErr)
+		logger.Infof("⚠️ Failed to create temporary trader: %v", createErr)
 		SafeInternalError(c, "Failed to connect to exchange", createErr)
 		return
 	}
@@ -1784,7 +1784,7 @@ func (s *Server) handleClosePosition(c *gin.Context) {
 	// Get current position info BEFORE closing (to get quantity and price)
 	positions, err := tempTrader.GetPositions()
 	if err != nil {
-		logger.Infof("?? Failed to get positions: %v", err)
+		logger.Infof("⚠️ Failed to get positions: %v", err)
 	}
 
 	var posQty float64
@@ -1818,7 +1818,7 @@ func (s *Server) handleClosePosition(c *gin.Context) {
 	}
 
 	if closeErr != nil {
-		logger.Infof("??Close position failed: symbol=%s, side=%s, error=%v", req.Symbol, req.Side, closeErr)
+		logger.Infof("❌ Close position failed: symbol=%s, side=%s, error=%v", req.Symbol, req.Side, closeErr)
 		SafeInternalError(c, "Failed to close position", closeErr)
 		return
 	}
@@ -1830,7 +1830,7 @@ func (s *Server) handleClosePosition(c *gin.Context) {
 		logger.Infof("  ✓ Cancelled all pending orders after closing position for %s", req.Symbol)
 	}
 
-	logger.Infof("??Position closed successfully: symbol=%s, side=%s, qty=%.6f, result=%v", req.Symbol, req.Side, posQty, result)
+	logger.Infof("✅ Position closed successfully: symbol=%s, side=%s, qty=%.6f, result=%v", req.Symbol, req.Side, posQty, result)
 
 	// Record order to database (for chart markers and history)
 	s.recordClosePositionOrder(traderID, exchangeCfg.ID, exchangeCfg.ExchangeType, req.Symbol, req.Side, posQty, entryPrice, result)
@@ -1848,7 +1848,7 @@ func (s *Server) recordClosePositionOrder(traderID, exchangeID, exchangeType, sy
 	// For exchanges with OrderSync, still record basic position close info to ensure history visibility
 	switch exchangeType {
 	case "binance", "lighter", "hyperliquid", "bybit", "okx", "bitget", "aster":
-		logger.Infof("  ?? Close order will be synced by OrderSync, recording basic close info for history")
+		logger.Infof("  📝 Close order will be synced by OrderSync, recording basic close info for history")
 		// Continue to record basic close information for history tracking
 	default:
 		// For other exchanges, proceed with normal recording
@@ -1857,7 +1857,7 @@ func (s *Server) recordClosePositionOrder(traderID, exchangeID, exchangeType, sy
 	// Check if order was placed (skip if NO_POSITION)
 	status, _ := result["status"].(string)
 	if status == "NO_POSITION" {
-		logger.Infof("  ?? No position to close, skipping order record")
+		logger.Infof("  ⚠️ No position to close, skipping order record")
 		return
 	}
 
@@ -1875,7 +1875,7 @@ func (s *Server) recordClosePositionOrder(traderID, exchangeID, exchangeType, sy
 	}
 
 	if orderID == "" || orderID == "0" {
-		logger.Infof("  ?? Order ID is empty, skipping record")
+		logger.Infof("  ⚠️ Order ID is empty, skipping record")
 		return
 	}
 
@@ -1918,11 +1918,11 @@ func (s *Server) recordClosePositionOrder(traderID, exchangeID, exchangeType, sy
 	}
 
 	if err := s.store.Order().CreateOrder(orderRecord); err != nil {
-		logger.Infof("  ?? Failed to record order: %v", err)
+		logger.Infof("  ⚠️ Failed to record order: %v", err)
 		return
 	}
 
-	logger.Infof("  ??Order recorded as FILLED: %s [%s] %s qty=%.6f price=%.6f", orderID, orderAction, symbol, quantity, exitPrice)
+	logger.Infof("  ✅ Order recorded as FILLED: %s [%s] %s qty=%.6f price=%.6f", orderID, orderAction, symbol, quantity, exitPrice)
 
 	// Create fill record immediately
 	tradeID := fmt.Sprintf("%s-%d", orderID, time.Now().UnixNano())
@@ -1946,9 +1946,9 @@ func (s *Server) recordClosePositionOrder(traderID, exchangeID, exchangeType, sy
 	}
 
 	if err := s.store.Order().CreateFill(fillRecord); err != nil {
-		logger.Infof("  ?? Failed to record fill: %v", err)
+		logger.Infof("  ⚠️ Failed to record fill: %v", err)
 	} else {
-		logger.Infof("  ??Fill record created: price=%.6f qty=%.6f", exitPrice, quantity)
+		logger.Infof("  ✅ Fill record created: price=%.6f qty=%.6f", exitPrice, quantity)
 	}
 }
 
@@ -1971,7 +1971,7 @@ func (s *Server) pollAndUpdateOrderStatus(orderRecordID int64, traderID, exchang
 	for i := 0; i < 5; i++ {
 		status, err := tempTrader.GetOrderStatus(symbol, orderID)
 		if err != nil {
-			logger.Infof("  ?? GetOrderStatus failed (attempt %d/5): %v", i+1, err)
+			logger.Infof("  ⚠️ GetOrderStatus failed (attempt %d/5): %v", i+1, err)
 			time.Sleep(500 * time.Millisecond)
 			continue
 		}
@@ -1991,11 +1991,11 @@ func (s *Server) pollAndUpdateOrderStatus(orderRecordID int64, traderID, exchang
 					fee = commission
 				}
 
-				logger.Infof("  ??Order filled: avgPrice=%.6f, qty=%.6f, fee=%.6f", actualPrice, actualQty, fee)
+				logger.Infof("  ✅ Order filled: avgPrice=%.6f, qty=%.6f, fee=%.6f", actualPrice, actualQty, fee)
 
 				// Update order status to FILLED
 				if err := s.store.Order().UpdateOrderStatus(orderRecordID, "FILLED", actualQty, actualPrice, fee); err != nil {
-					logger.Infof("  ?? Failed to update order status: %v", err)
+					logger.Infof("  ⚠️ Failed to update order status: %v", err)
 					return
 				}
 
@@ -2021,14 +2021,14 @@ func (s *Server) pollAndUpdateOrderStatus(orderRecordID int64, traderID, exchang
 				}
 
 				if err := s.store.Order().CreateFill(fillRecord); err != nil {
-					logger.Infof("  ?? Failed to record fill: %v", err)
+					logger.Infof("  ⚠️ Failed to record fill: %v", err)
 				} else {
-					logger.Infof("  ?? Fill recorded: price=%.6f, qty=%.6f", actualPrice, actualQty)
+					logger.Infof("  📝 Fill recorded: price=%.6f, qty=%.6f", actualPrice, actualQty)
 				}
 
 				return
 			} else if statusStr == "CANCELED" || statusStr == "EXPIRED" || statusStr == "REJECTED" {
-				logger.Infof("  ?? Order %s, updating status", statusStr)
+				logger.Infof("  ⚠️ Order %s, updating status", statusStr)
 				s.store.Order().UpdateOrderStatus(orderRecordID, statusStr, 0, 0, 0)
 				return
 			}
@@ -2036,7 +2036,7 @@ func (s *Server) pollAndUpdateOrderStatus(orderRecordID int64, traderID, exchang
 		time.Sleep(500 * time.Millisecond)
 	}
 
-	logger.Infof("  ?? Failed to confirm order fill after polling, order may still be pending")
+	logger.Infof("  ⚠️ Failed to confirm order fill after polling, order may still be pending")
 }
 
 // pollLighterTradeHistory No longer used - Lighter orders are marked as FILLED immediately
@@ -2044,7 +2044,7 @@ func (s *Server) pollAndUpdateOrderStatus(orderRecordID int64, traderID, exchang
 func (s *Server) pollLighterTradeHistory(orderRecordID int64, traderID, exchangeID, exchangeType, orderID, symbol, orderAction string, tempTrader trader.Trader) {
 	// For Lighter, orders are now recorded as FILLED immediately in recordClosePositionOrder
 	// This function is no longer called for Lighter exchange
-	logger.Infof("  ?? pollLighterTradeHistory called but not needed (order already marked FILLED)")
+	logger.Infof("  ℹ️ pollLighterTradeHistory called but not needed (order already marked FILLED)")
 }
 
 // getSideFromAction Get order side (BUY/SELL) from order action
@@ -2062,17 +2062,17 @@ func getSideFromAction(action string) string {
 // handleGetModelConfigs Get AI model configurations
 func (s *Server) handleGetModelConfigs(c *gin.Context) {
 	userID := c.GetString("user_id")
-	logger.Infof("?? Querying AI model configs for user %s", userID)
+	logger.Infof("🔍 Querying AI model configs for user %s", userID)
 	models, err := s.store.AIModel().List(userID)
 	if err != nil {
-		logger.Infof("??Failed to get AI model configs: %v", err)
+		logger.Infof("❌ Failed to get AI model configs: %v", err)
 		SafeInternalError(c, "Failed to get AI model configs", err)
 		return
 	}
 
 	// If no models in database, return default models
 	if len(models) == 0 {
-		logger.Infof("?? No AI models in database, returning defaults")
+		logger.Infof("⚠️ No AI models in database, returning defaults")
 		defaultModels := []SafeModelConfig{
 			{ID: "deepseek", Name: "DeepSeek AI", Provider: "deepseek", Enabled: false, UseBrowserAutomation: false},
 			{ID: "qwen", Name: "Qwen AI", Provider: "qwen", Enabled: false, UseBrowserAutomation: false},
@@ -2087,7 +2087,7 @@ func (s *Server) handleGetModelConfigs(c *gin.Context) {
 		return
 	}
 
-	logger.Infof("??Found %d AI model configs", len(models))
+	logger.Infof("✅ Found %d AI model configs", len(models))
 
 	// Convert to safe response structure, remove sensitive information
 	safeModels := make([]SafeModelConfig, len(models))
@@ -2124,23 +2124,23 @@ func (s *Server) handleUpdateModelConfigs(c *gin.Context) {
 	if !cfg.TransportEncryption {
 		// Transport encryption disabled, accept plain JSON
 		if err := json.Unmarshal(bodyBytes, &req); err != nil {
-			logger.Infof("??Failed to parse plain JSON request: %v", err)
+			logger.Infof("❌ Failed to parse plain JSON request: %v", err)
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request format"})
 			return
 		}
-		logger.Infof("?? Received plain text model config (UserID: %s)", userID)
+		logger.Infof("📝 Received plain text model config (UserID: %s)", userID)
 	} else {
 		// Transport encryption enabled, require encrypted payload
 		var encryptedPayload crypto.EncryptedPayload
 		if err := json.Unmarshal(bodyBytes, &encryptedPayload); err != nil {
-			logger.Infof("??Failed to parse encrypted payload: %v", err)
+			logger.Infof("❌ Failed to parse encrypted payload: %v", err)
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request format, encrypted transmission required"})
 			return
 		}
 
 		// Verify encrypted data
 		if encryptedPayload.WrappedKey == "" {
-			logger.Infof("??Detected unencrypted request (UserID: %s)", userID)
+			logger.Infof("❌ Detected unencrypted request (UserID: %s)", userID)
 			c.JSON(http.StatusBadRequest, gin.H{
 				"error":   "This endpoint only supports encrypted transmission, please use encrypted client",
 				"code":    "ENCRYPTION_REQUIRED",
@@ -2152,18 +2152,18 @@ func (s *Server) handleUpdateModelConfigs(c *gin.Context) {
 		// Decrypt data
 		decrypted, err := s.cryptoHandler.cryptoService.DecryptSensitiveData(&encryptedPayload)
 		if err != nil {
-			logger.Infof("??Failed to decrypt model config (UserID: %s): %v", userID, err)
+			logger.Infof("❌ Failed to decrypt model config (UserID: %s): %v", userID, err)
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Failed to decrypt data"})
 			return
 		}
 
 		// Parse decrypted data
 		if err := json.Unmarshal([]byte(decrypted), &req); err != nil {
-			logger.Infof("??Failed to parse decrypted data: %v", err)
+			logger.Infof("❌ Failed to parse decrypted data: %v", err)
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Failed to parse decrypted data"})
 			return
 		}
-		logger.Infof("?? Decrypted model config data (UserID: %s)", userID)
+		logger.Infof("🔓 Decrypted model config data (UserID: %s)", userID)
 	}
 
 	// Update each model's configuration
@@ -2178,11 +2178,11 @@ func (s *Server) handleUpdateModelConfigs(c *gin.Context) {
 	// Reload all traders for this user to make new config take effect immediately
 	err = s.traderManager.LoadUserTradersFromStore(s.store, userID)
 	if err != nil {
-		logger.Infof("?? Failed to reload user traders into memory: %v", err)
+		logger.Infof("⚠️ Failed to reload user traders into memory: %v", err)
 		// Don't return error here since model config was successfully updated to database
 	}
 
-	logger.Infof("??AI model config updated: %d models for user %s", len(req.Models), userID)
+	logger.Infof("✓ AI model config updated: %d models for user %s", len(req.Models), userID)
 	c.JSON(http.StatusOK, gin.H{"message": "Model configuration updated"})
 }
 
@@ -2238,7 +2238,7 @@ func (s *Server) handleDeleteModelConfig(c *gin.Context) {
 // handleGetExchangeConfigs Get exchange configurations
 func (s *Server) handleGetExchangeConfigs(c *gin.Context) {
 	userID := c.GetString("user_id")
-	logger.Infof("?? Querying exchange configs for user %s", userID)
+	logger.Infof("🔍 Querying exchange configs for user %s", userID)
 	exchanges, err := s.store.Exchange().List(userID)
 	if err != nil {
 		SafeInternalError(c, "Failed to get exchange configs", err)
@@ -2247,12 +2247,12 @@ func (s *Server) handleGetExchangeConfigs(c *gin.Context) {
 
 	// If no exchanges in database, return empty array (user needs to create accounts)
 	if len(exchanges) == 0 {
-		logger.Infof("?? No exchanges in database for user %s", userID)
+		logger.Infof("⚠️ No exchanges in database for user %s", userID)
 		c.JSON(http.StatusOK, []SafeExchangeConfig{})
 		return
 	}
 
-	logger.Infof("??Found %d exchange configs", len(exchanges))
+	logger.Infof("✅ Found %d exchange configs", len(exchanges))
 
 	// Convert to safe response structure, remove sensitive information
 	safeExchanges := make([]SafeExchangeConfig, len(exchanges))
@@ -2294,23 +2294,23 @@ func (s *Server) handleUpdateExchangeConfigs(c *gin.Context) {
 	if !cfg.TransportEncryption {
 		// Transport encryption disabled, accept plain JSON
 		if err := json.Unmarshal(bodyBytes, &req); err != nil {
-			logger.Infof("??Failed to parse plain JSON request: %v", err)
+			logger.Infof("❌ Failed to parse plain JSON request: %v", err)
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request format"})
 			return
 		}
-		logger.Infof("?? Received plain text exchange config (UserID: %s)", userID)
+		logger.Infof("📝 Received plain text exchange config (UserID: %s)", userID)
 	} else {
 		// Transport encryption enabled, require encrypted payload
 		var encryptedPayload crypto.EncryptedPayload
 		if err := json.Unmarshal(bodyBytes, &encryptedPayload); err != nil {
-			logger.Infof("??Failed to parse encrypted payload: %v", err)
+			logger.Infof("❌ Failed to parse encrypted payload: %v", err)
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request format, encrypted transmission required"})
 			return
 		}
 
 		// Verify encrypted data
 		if encryptedPayload.WrappedKey == "" {
-			logger.Infof("??Detected unencrypted request (UserID: %s)", userID)
+			logger.Infof("❌ Detected unencrypted request (UserID: %s)", userID)
 			c.JSON(http.StatusBadRequest, gin.H{
 				"error":   "This endpoint only supports encrypted transmission, please use encrypted client",
 				"code":    "ENCRYPTION_REQUIRED",
@@ -2322,18 +2322,18 @@ func (s *Server) handleUpdateExchangeConfigs(c *gin.Context) {
 		// Decrypt data
 		decrypted, err := s.cryptoHandler.cryptoService.DecryptSensitiveData(&encryptedPayload)
 		if err != nil {
-			logger.Infof("??Failed to decrypt exchange config (UserID: %s): %v", userID, err)
+			logger.Infof("❌ Failed to decrypt exchange config (UserID: %s): %v", userID, err)
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Failed to decrypt data"})
 			return
 		}
 
 		// Parse decrypted data
 		if err := json.Unmarshal([]byte(decrypted), &req); err != nil {
-			logger.Infof("??Failed to parse decrypted data: %v", err)
+			logger.Infof("❌ Failed to parse decrypted data: %v", err)
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Failed to parse decrypted data"})
 			return
 		}
-		logger.Infof("?? Decrypted exchange config data (UserID: %s)", userID)
+		logger.Infof("🔓 Decrypted exchange config data (UserID: %s)", userID)
 	}
 
 	// Update each exchange's configuration
@@ -2348,11 +2348,11 @@ func (s *Server) handleUpdateExchangeConfigs(c *gin.Context) {
 	// Reload all traders for this user to make new config take effect immediately
 	err = s.traderManager.LoadUserTradersFromStore(s.store, userID)
 	if err != nil {
-		logger.Infof("?? Failed to reload user traders into memory: %v", err)
+		logger.Infof("⚠️ Failed to reload user traders into memory: %v", err)
 		// Don't return error here since exchange config was successfully updated to database
 	}
 
-	logger.Infof("??Exchange config updated: %d exchanges for user %s", len(req.Exchanges), userID)
+	logger.Infof("✓ Exchange config updated: %d exchanges for user %s", len(req.Exchanges), userID)
 	c.JSON(http.StatusOK, gin.H{"message": "Exchange configuration updated"})
 }
 
@@ -2394,7 +2394,7 @@ func (s *Server) handleCreateExchange(c *gin.Context) {
 	if !cfg.TransportEncryption {
 		// Transport encryption disabled, accept plain JSON
 		if err := json.Unmarshal(bodyBytes, &req); err != nil {
-			logger.Infof("??Failed to parse plain JSON request: %v", err)
+			logger.Infof("❌ Failed to parse plain JSON request: %v", err)
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request format"})
 			return
 		}
@@ -2445,12 +2445,12 @@ func (s *Server) handleCreateExchange(c *gin.Context) {
 		req.LighterWalletAddr, req.LighterPrivateKey, req.LighterAPIKeyPrivateKey, req.LighterAPIKeyIndex,
 	)
 	if err != nil {
-		logger.Infof("??Failed to create exchange account: %v", err)
+		logger.Infof("❌ Failed to create exchange account: %v", err)
 		SafeInternalError(c, "Failed to create exchange account", err)
 		return
 	}
 
-	logger.Infof("??Created exchange account: type=%s, name=%s, id=%s", req.ExchangeType, req.AccountName, id)
+	logger.Infof("✓ Created exchange account: type=%s, name=%s, id=%s", req.ExchangeType, req.AccountName, id)
 	c.JSON(http.StatusOK, gin.H{
 		"message": "Exchange account created",
 		"id":      id,
@@ -2488,12 +2488,12 @@ func (s *Server) handleDeleteExchange(c *gin.Context) {
 	// Delete exchange account
 	err = s.store.Exchange().Delete(userID, exchangeID)
 	if err != nil {
-		logger.Infof("??Failed to delete exchange account: %v", err)
+		logger.Infof("❌ Failed to delete exchange account: %v", err)
 		SafeInternalError(c, "Failed to delete exchange account", err)
 		return
 	}
 
-	logger.Infof("??Deleted exchange account: id=%s", exchangeID)
+	logger.Infof("✓ Deleted exchange account: id=%s", exchangeID)
 	c.JSON(http.StatusOK, gin.H{"message": "Exchange account deleted"})
 }
 
@@ -2650,7 +2650,7 @@ func (s *Server) handleAccount(c *gin.Context) {
 		// Reload user traders to ensure the trader is loaded
 		err = s.traderManager.LoadUserTradersFromStore(s.store, userID)
 		if err != nil {
-			logger.Infof("?? Failed to reload traders for user %s: %v", userID, err)
+			logger.Infof("✅ Failed to reload traders for user %s: %v", userID, err)
 			SafeInternalError(c, "Failed to reload traders", err)
 			return
 		}
@@ -2680,17 +2680,17 @@ func (s *Server) handleAccount(c *gin.Context) {
 			} else {
 				// Force refresh for any non-empty CustomAPIURL
 				// This mimics the successful "save modification" behavior regardless of URL type
-				logger.Infof("?? Detected non-empty CustomAPIURL '%s' for trader %s, forcing refresh for proper initialization", targetEndpoint, traderID)
+				logger.Infof("⚠️ Detected non-empty CustomAPIURL '%s' for trader %s, forcing refresh for proper initialization", targetEndpoint, traderID)
 				refreshErr := s.traderManager.ForceRefreshTrader(traderID, s.store)
 				if refreshErr != nil {
-					logger.Warnf("?? Failed to force refresh trader %s: %v", traderID, refreshErr)
+					logger.Warnf("⚠️ Failed to force refresh trader %s: %v", traderID, refreshErr)
 					// Continue with original trader if refresh fails
 				} else {
 					// Try to get the refreshed trader
 					refreshedTrader, refreshGetErr := s.traderManager.GetTrader(traderID)
 					if refreshGetErr == nil {
 						trader = refreshedTrader
-						logger.Infof("?? Successfully refreshed trader %s with CustomAPIURL '%s'", traderID, targetEndpoint)
+						logger.Infof("⚠️ Successfully refreshed trader %s with CustomAPIURL '%s'", traderID, targetEndpoint)
 					}
 				}
 			}
@@ -2766,15 +2766,15 @@ func (s *Server) handleAccount(c *gin.Context) {
 						return
 					}
 				} else {
-					logger.Infof("?? Trader %s is not executing, attempting to force refresh", traderID)
+					logger.Infof("⚠️ Trader %s is not executing, attempting to force refresh", traderID)
 					// Force refresh the trader to ensure proxy configuration is properly set
 					refreshErr := s.traderManager.ForceRefreshTrader(traderID, s.store)
 					if refreshErr != nil {
-						logger.Infof("?? Force refresh failed: %v", refreshErr)
+						logger.Infof("⚠️ Force refresh failed: %v", refreshErr)
 						// Still try to get account info one more time
 						account, err = trader.GetAccountInfo()
 						if err != nil {
-							logger.Infof("?? Second attempt to get account info failed: %v", err)
+							logger.Infof("⚠️ Second attempt to get account info failed: %v", err)
 
 							// Final fallback for proxy errors
 							errMsg2 := err.Error()
@@ -2804,7 +2804,7 @@ func (s *Server) handleAccount(c *gin.Context) {
 						// Retry getting the trader after refresh
 						refreshedTrader, getErr := s.traderManager.GetTrader(traderID)
 						if getErr != nil {
-							logger.Infof("?? Could not get refreshed trader: %v", getErr)
+							logger.Infof("⚠️ Could not get refreshed trader: %v", getErr)
 							SafeInternalError(c, "Get account info", err)
 							return
 						}
@@ -2812,7 +2812,7 @@ func (s *Server) handleAccount(c *gin.Context) {
 						// Try to get account info with the refreshed trader
 						account, err = refreshedTrader.GetAccountInfo()
 						if err != nil {
-							logger.Infof("?? Get account info failed even after refresh: %v", err)
+							logger.Infof("⚠️ Get account info failed even after refresh: %v", err)
 
 							// Final fallback for proxy errors
 							errMsg2 := err.Error()
@@ -2845,11 +2845,11 @@ func (s *Server) handleAccount(c *gin.Context) {
 				logger.Infof("?? Could not get trader status, proceeding with normal refresh logic")
 				refreshErr := s.traderManager.ForceRefreshTrader(traderID, s.store)
 				if refreshErr != nil {
-					logger.Infof("?? Force refresh failed: %v", refreshErr)
+					logger.Infof("⚠️ Force refresh failed: %v", refreshErr)
 					// Still try to get account info one more time
 					account, err = trader.GetAccountInfo()
 					if err != nil {
-						logger.Infof("?? Second attempt to get account info failed: %v", err)
+						logger.Infof("⚠️ Second attempt to get account info failed: %v", err)
 
 						// Final fallback for proxy errors
 						errMsg2 := err.Error()
@@ -2879,7 +2879,7 @@ func (s *Server) handleAccount(c *gin.Context) {
 					// Retry getting the trader after refresh
 					refreshedTrader, getErr := s.traderManager.GetTrader(traderID)
 					if getErr != nil {
-						logger.Infof("?? Could not get refreshed trader: %v", getErr)
+						logger.Infof("⚠️ Could not get refreshed trader: %v", getErr)
 						SafeInternalError(c, "Get account info", err)
 						return
 					}
@@ -2887,7 +2887,7 @@ func (s *Server) handleAccount(c *gin.Context) {
 					// Try to get account info with the refreshed trader
 					account, err = refreshedTrader.GetAccountInfo()
 					if err != nil {
-						logger.Infof("?? Get account info failed even after refresh: %v", err)
+						logger.Infof("⚠️ Get account info failed even after refresh: %v", err)
 
 						// Final fallback for proxy errors
 						errMsg2 := err.Error()
@@ -2945,7 +2945,7 @@ func (s *Server) handleAccount(c *gin.Context) {
 	// Cache the result
 	s.accountCache.Set(traderID, account)
 
-	logger.Infof("??Returning account info [%s]: equity=%.2f, available=%.2f, pnl=%.2f (%.2f%%)",
+	logger.Infof("✓ Returning account info [%s]: equity=%.2f, available=%.2f, pnl=%.2f (%.2f%%)",
 		trader.GetName(),
 		account["total_equity"],
 		account["available_balance"],
@@ -2985,7 +2985,7 @@ func (s *Server) handleForceRefreshTrader(c *gin.Context) {
 	// Force refresh the trader
 	err = s.traderManager.ForceRefreshTrader(traderID, s.store)
 	if err != nil {
-		logger.Infof("?? Force refresh trader %s failed: %v", traderID, err)
+		logger.Infof("✓ Force refresh trader %s failed: %v", traderID, err)
 		SafeInternalError(c, "Failed to refresh trader", err)
 		return
 	}
@@ -3554,7 +3554,7 @@ func (s *Server) getKlinesFromCoinank(symbol, interval, exchange string, limit i
 		coinankExchange = coinank_enum.Binance
 	default:
 		// For any unknown exchange, default to Binance
-		logger.Warnf("?? Unknown exchange '%s', defaulting to Binance for CoinAnk", exchange)
+		logger.Warnf("⚠️ Unknown exchange '%s', defaulting to Binance for CoinAnk", exchange)
 		coinankExchange = coinank_enum.Binance
 	}
 
@@ -3625,7 +3625,7 @@ func (s *Server) getKlinesFromCoinank(symbol, interval, exchange string, limit i
 		// Free API doesn't support all exchanges (e.g., OKX, Bitget)
 		// Fallback to Binance data as reference
 		if coinankExchange != coinank_enum.Binance {
-			logger.Warnf("?? CoinAnk free API doesn't support %s, falling back to Binance data", coinankExchange)
+			logger.Warnf("⚠️ CoinAnk free API doesn't support %s, falling back to Binance data", coinankExchange)
 			coinankKlines, err = coinank_api.Kline(ctx, symbol, coinank_enum.Binance, ts, coinank_enum.To, limit, coinankInterval)
 			if err != nil {
 				return nil, fmt.Errorf("coinank API error (fallback): %w", err)
@@ -3636,7 +3636,7 @@ func (s *Server) getKlinesFromCoinank(symbol, interval, exchange string, limit i
 	}
 
 	// Convert coinank kline format to market.Kline format
-	// Coinank: Volume = BTC 数量, Quantity = USDT 成交??
+	// Coinank: Volume = BTC 数量, Quantity = USDT 成交额
 	klines := make([]market.Kline, len(coinankKlines))
 	for i, ck := range coinankKlines {
 		klines[i] = market.Kline{
@@ -3646,7 +3646,7 @@ func (s *Server) getKlinesFromCoinank(symbol, interval, exchange string, limit i
 			Low:         ck.Low,
 			Close:       ck.Close,
 			Volume:      ck.Volume,   // BTC 数量
-			QuoteVolume: ck.Quantity, // USDT 成交??
+			QuoteVolume: ck.Quantity, // USDT 成交额
 			CloseTime:   ck.EndTime,
 		}
 	}
@@ -3679,7 +3679,7 @@ func (s *Server) getKlinesFromAlpaca(symbol, interval string, limit int) ([]mark
 			Low:         bar.Low,
 			Close:       bar.Close,
 			Volume:      float64(bar.Volume),             // 股数
-			QuoteVolume: float64(bar.Volume) * bar.Close, // 成交??= 股数 * 收盘??(USD)
+			QuoteVolume: float64(bar.Volume) * bar.Close, // 成交额 = 股数 * 收盘价 (USD)
 			CloseTime:   bar.Timestamp.UnixMilli(),
 		}
 	}
@@ -3708,7 +3708,7 @@ func (s *Server) getKlinesFromTwelveData(symbol, interval string, limit int) ([]
 	for i, bar := range result.Values {
 		open, high, low, close, volume, timestamp, err := twelvedata.ParseBar(bar)
 		if err != nil {
-			logger.Warnf("?? Failed to parse TwelveData bar: %v", err)
+			logger.Warnf("⚠️ Failed to parse TwelveData bar: %v", err)
 			continue
 		}
 
@@ -3761,7 +3761,7 @@ func (s *Server) getKlinesFromHyperliquid(symbol, interval string, limit int) ([
 			Low:         low,
 			Close:       close,
 			Volume:      volume,         // 合约数量
-			QuoteVolume: volume * close, // 成交??(USD)
+			QuoteVolume: volume * close, // 成交额 (USD)
 			CloseTime:   candle.CloseTime,
 		}
 	}
@@ -3995,7 +3995,7 @@ func (s *Server) handleCompetition(c *gin.Context) {
 	// Ensure user's traders are loaded into memory
 	err := s.traderManager.LoadUserTradersFromStore(s.store, userID)
 	if err != nil {
-		logger.Infof("?? Failed to load traders for user %s: %v", userID, err)
+		logger.Infof("⚠️ Failed to load traders for user %s: %v", userID, err)
 	}
 
 	competition, err := s.traderManager.GetCompetitionData()
