@@ -182,6 +182,7 @@ func NewFuturesTraderViaProxy(apiKey, secretKey, userId, proxyURL, targetEndpoin
 	}
 
 	// 创建CustomTransport，将真正的目标端点传递给代理
+	logger.Debugf("🔍 NewFuturesTraderViaProxy - proxyURL: %s, targetEndpoint: %s", proxyURL, targetEndpoint)
 	customTransport := &CustomTransport{
 		Transport:      transport,
 		TargetEndpoint: targetEndpoint, // 真正的目标URL
@@ -1546,8 +1547,8 @@ func (t *FuturesTrader) GetSymbolPrecision(symbol string) (int, error) {
 	var exchangeInfo *futures.ExchangeInfo
 	var err error
 
-	// First try with shorter timeout for quick response
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	// First try with longer timeout for better reliability
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	exchangeInfo, err = t.client.NewExchangeInfoService().Do(ctx)
 	cancel()
 
@@ -1679,15 +1680,23 @@ func trimTrailingZeros(s string) string {
 // FormatQuantity formats quantity to correct precision with step size alignment
 // Based on original nofx implementation - uses direct precision handling
 func (t *FuturesTrader) FormatQuantity(symbol string, quantity float64) (string, error) {
+	logger.Debugf("🔍 BinanceTrader - FormatQuantity: symbol=%s, raw_quantity=%.8f", symbol, quantity)
+
 	// Get step size for proper alignment
 	stepSize, err := t.GetSymbolStepSize(symbol)
 	if err != nil {
+		logger.Warnf("⚠️ BinanceTrader - Failed to get step size for %s: %v, using fallback", symbol, err)
 		// Fallback to basic precision formatting
-		return fmt.Sprintf("%.3f", quantity), nil
+		formatted := fmt.Sprintf("%.3f", quantity)
+		logger.Debugf("🔧 BinanceTrader - Using fallback: %.8f -> %s", quantity, formatted)
+		return formatted, nil
 	}
+
+	logger.Debugf("📏 BinanceTrader - Step size for %s: %f", symbol, stepSize)
 
 	// Align quantity to step size (round down to nearest step)
 	alignedQty := math.Floor(quantity/stepSize) * stepSize
+	logger.Debugf("📐 BinanceTrader - Aligned quantity: %.8f -> %.8f", quantity, alignedQty)
 
 	// Calculate required decimal places from step size
 	decimals := 0
@@ -1697,10 +1706,11 @@ func (t *FuturesTrader) FormatQuantity(symbol string, quantity float64) (string,
 			decimals = len(stepStr) - idx - 1
 		}
 	}
+	logger.Debugf("🔢 BinanceTrader - Decimal places: %d", decimals)
 
 	format := fmt.Sprintf("%%.%df", decimals)
 	formatted := fmt.Sprintf(format, alignedQty)
-	logger.Debugf("Formatted quantity for %s: %s (stepSize: %f, aligned: %f)", symbol, formatted, stepSize, alignedQty)
+	logger.Debugf("✅ BinanceTrader - Final formatted quantity: %s (stepSize: %f, aligned: %f)", formatted, stepSize, alignedQty)
 
 	return formatted, nil
 }
@@ -1712,6 +1722,7 @@ func (t *FuturesTrader) GetSymbolStepSize(symbol string) (float64, error) {
 	var err error
 
 	// First try with shorter timeout for quick response
+	logger.Debugf("🌐 Attempting to connect to Binance API for exchange info, Base URL: %s", t.client.BaseURL)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	exchangeInfo, err = t.client.NewExchangeInfoService().Do(ctx)
 	cancel()
@@ -1731,6 +1742,7 @@ func (t *FuturesTrader) GetSymbolStepSize(symbol string) (float64, error) {
 				logger.Infof("⏳ Retrying in %v...", waitTime)
 				time.Sleep(waitTime)
 
+				logger.Debugf("🌐 Retrying to connect to Binance API for exchange info, Base URL: %s (attempt %d/%d)", t.client.BaseURL, attempt, maxRetries)
 				ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 				exchangeInfo, err = t.client.NewExchangeInfoService().Do(ctx)
 				cancel()
@@ -1786,6 +1798,7 @@ func (t *FuturesTrader) GetPricePrecision(symbol string) (int, error) {
 	var err error
 
 	// First try with shorter timeout for quick response
+	logger.Debugf("🌐 Attempting to connect to Binance API for price precision, Base URL: %s", t.client.BaseURL)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	exchangeInfo, err = t.client.NewExchangeInfoService().Do(ctx)
 	cancel()
@@ -1874,16 +1887,23 @@ func (t *FuturesTrader) GetPricePrecision(symbol string) (int, error) {
 
 // FormatPrice formats price to correct precision
 func (t *FuturesTrader) FormatPrice(symbol string, price float64) (string, error) {
+	logger.Debugf("🔍 BinanceTrader - FormatPrice: symbol=%s, raw_price=%.8f", symbol, price)
+
 	// Get price precision for this symbol
 	precision, err := t.GetPricePrecision(symbol)
 	if err != nil {
+		logger.Warnf("⚠️ BinanceTrader - Failed to get price precision for %s: %v, using fallback", symbol, err)
 		// Fallback to basic precision formatting
-		return fmt.Sprintf("%.2f", price), nil
+		formatted := fmt.Sprintf("%.2f", price)
+		logger.Debugf("🔧 BinanceTrader - Using fallback: %.8f -> %s", price, formatted)
+		return formatted, nil
 	}
+
+	logger.Debugf("🔢 BinanceTrader - Price precision for %s: %d", symbol, precision)
 
 	format := fmt.Sprintf("%%.%df", precision)
 	formatted := fmt.Sprintf(format, price)
-	logger.Debugf("Formatted price for %s: %s (precision: %d)", symbol, formatted, precision)
+	logger.Debugf("✅ BinanceTrader - Final formatted price: %s (precision: %d)", formatted, precision)
 
 	return formatted, nil
 }
@@ -2245,10 +2265,42 @@ type CustomTransport struct {
 
 // RoundTrip 实现RoundTripper接口
 func (ct *CustomTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	logger.Debugf("🔄 CustomTransport.RoundTrip called - TargetEndpoint: %s", ct.TargetEndpoint)
+	// 记录完整的请求URL（提交给交易所前一刻的完整网址）
+	fullURL := req.URL.String()
+	if req.URL.Scheme == "" || req.URL.Host == "" {
+		// 如果URL是相对路径，补充基础URL信息
+		fullURL = req.URL.Path
+		if req.URL.RawQuery != "" {
+			fullURL += "?" + req.URL.RawQuery
+		}
+		logger.Debugf("🌐 API请求 - Method: %s, Path: %s, BaseURL: %s", req.Method, fullURL, ct.TargetEndpoint)
+	} else {
+		logger.Debugf("🌐 API请求 - Method: %s, Full URL: %s", req.Method, req.URL.String())
+	}
+
+	// 记录关键请求头信息
+	if req.Header.Get("X-Target-URL") != "" {
+		logger.Debugf("🔗 转发目标: %s", req.Header.Get("X-Target-URL"))
+	}
+
 	// 如果我们正在使用代理，将真实的目标端点添加到请求头中
 	// 这样代理就知道应该将请求转发到哪里
 	if ct.TargetEndpoint != "" {
+		originalTarget := req.Header.Get("X-Target-URL")
+		if originalTarget != "" && originalTarget != ct.TargetEndpoint {
+			logger.Warnf("⚠️ X-Target-URL header already exists with different value: %s, replacing with: %s", originalTarget, ct.TargetEndpoint)
+		}
 		req.Header.Set("X-Target-URL", ct.TargetEndpoint)
+		logger.Debugf("🔄 代理转发 - 目标URL: %s", ct.TargetEndpoint)
 	}
-	return ct.Transport.RoundTrip(req)
+
+	logger.Debugf("📤 代理请求: %s %s", req.Method, req.URL.String())
+	resp, err := ct.Transport.RoundTrip(req)
+	if err != nil {
+		logger.Errorf("❌ Request failed: %v", err)
+		return resp, err
+	}
+	logger.Debugf("✅ 请求成功, 状态码: %d", resp.StatusCode)
+	return resp, err
 }

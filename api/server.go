@@ -1335,10 +1335,17 @@ func (s *Server) handleExecuteMultipleDecisions(c *gin.Context) {
 
 	logger.Infof("✅ Received %d decisions to execute", len(decisions))
 
+	// Log initial decisions for tracking
+	for i, decision := range decisions {
+		logger.Debugf("📋 批量决策 %d 初始状态: Symbol=%s, Action=%s, Leverage=%d, PositionSizeUSD=%.2f, StopLoss=%.4f, TakeProfit=%.4f, Confidence=%d",
+			i+1, decision.Symbol, decision.Action, decision.Leverage, decision.PositionSizeUSD, decision.StopLoss, decision.TakeProfit, decision.Confidence)
+	}
+
 	// Execute each decision
 	results := make([]map[string]interface{}, 0, len(decisions))
 	for i, decision := range decisions {
 		logger.Infof("Executing decision %d: %s %s", i+1, decision.Action, decision.Symbol)
+		logger.Debugf("📋 决策 %d 执行前: %+v", i+1, decision)
 
 		result := map[string]interface{}{
 			"index":   i,

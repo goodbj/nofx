@@ -1323,35 +1323,76 @@ func (at *AutoTrader) executeDecisionWithRecord(decision *kernel.Decision, actio
 	// case "dynamic_take_profit":
 	// 	logger.Infof("     Target ROI: %.2f%%, Max ROI: %.2f%%, Time Limit: %.2f hours", decision.TargetROI, decision.MaxROI, decision.TimeLimitHours)
 	// }
+	logger.Debugf("  🔄 决策进入执行前: Symbol=%s, Action=%s, Leverage=%d, PositionSizeUSD=%.2f, StopLoss=%.4f, TakeProfit=%.4f, Confidence=%d",
+		decision.Symbol, decision.Action, decision.Leverage, decision.PositionSizeUSD, decision.StopLoss, decision.TakeProfit, decision.Confidence)
+
 	switch decision.Action {
 	case "open_long":
-		return at.executeOpenLongWithRecord(decision, actionRecord)
+		logger.Infof("  📈 执行开多操作")
+		result := at.executeOpenLongWithRecord(decision, actionRecord)
+		logger.Debugf("  ✅ 开多操作完成，结果: %v", result)
+		return result
 	case "open_short":
-		return at.executeOpenShortWithRecord(decision, actionRecord)
+		logger.Infof("  📉 执行开空操作")
+		result := at.executeOpenShortWithRecord(decision, actionRecord)
+		logger.Debugf("  ✅ 开空操作完成，结果: %v", result)
+		return result
 	case "close_long":
-		return at.executeCloseLongWithRecord(decision, actionRecord)
+		logger.Infof("  🔄 执行平多操作")
+		result := at.executeCloseLongWithRecord(decision, actionRecord)
+		logger.Debugf("  ✅ 平多操作完成，结果: %v", result)
+		return result
 	case "close_short":
-		return at.executeCloseShortWithRecord(decision, actionRecord)
+		logger.Infof("  🔄 执行平空操作")
+		result := at.executeCloseShortWithRecord(decision, actionRecord)
+		logger.Debugf("  ✅ 平空操作完成，结果: %v", result)
+		return result
 	case "hold", "wait":
+		logger.Infof("  ⏱️ 决策为 HOLD/WAIT，无需执行")
 		// No execution needed, just record
 		return nil
 	case "update_stop_loss":
-		return at.executeUpdateStopLossWithRecord(decision, actionRecord)
+		logger.Infof("  🔄 执行更新止损操作")
+		result := at.executeUpdateStopLossWithRecord(decision, actionRecord)
+		logger.Debugf("  ✅ 更新止损操作完成，结果: %v", result)
+		return result
 	case "update_take_profit":
-		return at.executeUpdateTakeProfitWithRecord(decision, actionRecord)
+		logger.Infof("  🔄 执行更新止盈操作")
+		result := at.executeUpdateTakeProfitWithRecord(decision, actionRecord)
+		logger.Debugf("  ✅ 更新止盈操作完成，结果: %v", result)
+		return result
 	case "partial_close":
-		return at.executePartialCloseWithRecord(decision, actionRecord)
+		logger.Infof("  🔄 执行部分平仓操作")
+		result := at.executePartialCloseWithRecord(decision, actionRecord)
+		logger.Debugf("  ✅ 部分平仓操作完成，结果: %v", result)
+		return result
 	case "trailing_stop":
-		return at.executeTrailingStopWithRecord(decision, actionRecord)
+		logger.Infof("  🔄 执行移动止损操作")
+		result := at.executeTrailingStopWithRecord(decision, actionRecord)
+		logger.Debugf("  ✅ 移动止损操作完成，结果: %v", result)
+		return result
 	case "dynamic_take_profit":
-		return at.executeDynamicTakeProfitWithRecord(decision, actionRecord)
+		logger.Infof("  🔄 执行动态止盈操作")
+		result := at.executeDynamicTakeProfitWithRecord(decision, actionRecord)
+		logger.Debugf("  ✅ 动态止盈操作完成，结果: %v", result)
+		return result
 	case "oco_order":
-		return at.executeOCOOrderWithRecord(decision, actionRecord)
+		logger.Infof("  🔄 执行OCO订单操作")
+		result := at.executeOCOOrderWithRecord(decision, actionRecord)
+		logger.Debugf("  ✅ OCO订单操作完成，结果: %v", result)
+		return result
 	case "bracket_order":
-		return at.executeBracketOrderWithRecord(decision, actionRecord)
+		logger.Infof("  🔄 执行挂单订单操作")
+		result := at.executeBracketOrderWithRecord(decision, actionRecord)
+		logger.Debugf("  ✅ 挂单订单操作完成，结果: %v", result)
+		return result
 	case "add_to_position":
-		return at.executeAddToPositionWithRecord(decision, actionRecord)
+		logger.Infof("  ➕ 执行加仓操作")
+		result := at.executeAddToPositionWithRecord(decision, actionRecord)
+		logger.Debugf("  ✅ 加仓操作完成，结果: %v", result)
+		return result
 	default:
+		logger.Errorf("  ❌ 未知操作类型: %s", decision.Action)
 		return fmt.Errorf("unknown action: %s", decision.Action)
 	}
 }
@@ -1360,6 +1401,7 @@ func (at *AutoTrader) executeDecisionWithRecord(decision *kernel.Decision, actio
 // This is a public method that can be called by other modules
 func (at *AutoTrader) ExecuteDecision(d *kernel.Decision) error {
 	logger.Infof("[%s] Executing external decision: %s %s", at.name, d.Action, d.Symbol)
+	logger.Debugf("📋 决策执行前完整状态: %+v", *d)
 
 	// Create a minimal action record for tracking
 	actionRecord := &store.DecisionAction{
@@ -1382,6 +1424,8 @@ func (at *AutoTrader) ExecuteDecision(d *kernel.Decision) error {
 		TimeLimitHours:            d.TimeLimitHours,
 		AdditionalPositionSizeUSD: d.AdditionalPositionSizeUSD,
 	}
+
+	logger.Debugf("📊 创建的ActionRecord: %+v", *actionRecord)
 
 	// Execute the decision
 	err := at.executeDecisionWithRecord(d, actionRecord)

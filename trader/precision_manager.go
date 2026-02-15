@@ -82,8 +82,8 @@ func (pm *PrecisionManager) GetPrecisionInfo(symbol string) (*SymbolPrecisionInf
 
 // fetchPrecisionInfo 从API获取精度信息（带重试机制）
 func (pm *PrecisionManager) fetchPrecisionInfo(symbol string) (*SymbolPrecisionInfo, error) {
-	// First try with shorter timeout for quick response
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	// First try with longer timeout for better reliability
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	exchangeInfo, err := pm.client.NewExchangeInfoService().Do(ctx)
 	cancel()
 

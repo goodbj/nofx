@@ -882,9 +882,13 @@ func filterAndFormatDecisions(decisions []kernel.Decision) []kernel.Decision {
 		return decisions
 	}
 
+	logger.Infof("🔍 开始过滤和格式化 %d 个决策", len(decisions))
 	filtered := make([]kernel.Decision, 0, len(decisions))
 
-	for _, decision := range decisions {
+	for i, originalDecision := range decisions {
+		logger.Debugf("📋 决策 %d 处理前: %+v", i+1, originalDecision)
+		decision := originalDecision // 创建副本以进行修改
+
 		// 基础验证
 		if decision.Symbol == "" || decision.Action == "" {
 			logger.Warnf("Skipping invalid decision: symbol=%s, action=%s", decision.Symbol, decision.Action)
@@ -892,34 +896,60 @@ func filterAndFormatDecisions(decisions []kernel.Decision) []kernel.Decision {
 		}
 
 		// 规范化符号名称（去除空格、转换大小写等）
+		oldSymbol := decision.Symbol
 		decision.Symbol = strings.TrimSpace(strings.ToUpper(decision.Symbol))
+		if oldSymbol != decision.Symbol {
+			logger.Infof("🔄 符号标准化: %s -> %s", oldSymbol, decision.Symbol)
+		}
 
 		// 验证并限制数值范围
+		originalValues := map[string]interface{}{
+			"PositionSizeUSD": decision.PositionSizeUSD,
+			"Leverage":        decision.Leverage,
+			"Confidence":      decision.Confidence,
+			"StopLoss":        decision.StopLoss,
+			"TakeProfit":      decision.TakeProfit,
+		}
+
 		if decision.PositionSizeUSD < 0 {
 			decision.PositionSizeUSD = 0
+			logger.Infof("🔧 修正 PositionSizeUSD: %.2f -> 0", originalValues["PositionSizeUSD"])
 		}
 		if decision.PositionSizeUSD > 1000000 { // 设置最大仓位限制为100万美元
 			decision.PositionSizeUSD = 1000000
+			logger.Infof("🔧 修正 PositionSizeUSD: %.2f -> 1000000", originalValues["PositionSizeUSD"])
 		}
 		if decision.Leverage < 0 {
 			decision.Leverage = 0
+			logger.Infof("🔧 修正 Leverage: %d -> 0", originalValues["Leverage"])
 		}
 		if decision.Leverage > 100 { // 设置最大杠杆限制
 			decision.Leverage = 100
+			logger.Infof("🔧 修正 Leverage: %d -> 100", originalValues["Leverage"])
 		}
 		if decision.Confidence < 0 {
 			decision.Confidence = 0
+			logger.Infof("🔧 修正 Confidence: %d -> 0", originalValues["Confidence"])
 		}
 		if decision.Confidence > 100 {
 			decision.Confidence = 100
+			logger.Infof("🔧 修正 Confidence: %d -> 100", originalValues["Confidence"])
 		}
 
 		// 验证价格相关字段
 		if decision.StopLoss < 0 {
+			oldValue := decision.StopLoss
 			decision.StopLoss = 0
+			if oldValue != decision.StopLoss {
+				logger.Infof("🔧 修正 StopLoss: %.4f -> 0", oldValue)
+			}
 		}
 		if decision.TakeProfit < 0 {
+			oldValue := decision.TakeProfit
 			decision.TakeProfit = 0
+			if oldValue != decision.TakeProfit {
+				logger.Infof("🔧 修正 TakeProfit: %.4f -> 0", oldValue)
+			}
 		}
 
 		// 验证动作类型是否合法
@@ -937,10 +967,12 @@ func filterAndFormatDecisions(decisions []kernel.Decision) []kernel.Decision {
 			continue
 		}
 
+		logger.Debugf("✅ 决策 %d 处理后: %+v", i+1, decision)
 		// 添加到过滤后的决策列表
 		filtered = append(filtered, decision)
 	}
 
+	logger.Infof("✅ 过滤和格式化完成，共保留 %d 个有效决策", len(filtered))
 	return filtered
 }
 
