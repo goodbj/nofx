@@ -988,25 +988,32 @@ func (e *StrategyEngine) BuildSystemPrompt(accountEquity float64, variant string
 		accountEquity*btcEthPosValueRatio, accountEquity, btcEthPosValueRatio))
 	sb.WriteString(fmt.Sprintf("- Max Margin Usage: ≤%.0f%%\n", riskControl.MaxMarginUsage*100))
 	sb.WriteString(fmt.Sprintf("- Min Position Size: ≥%.0f USDT\n", riskControl.MinPositionSize))
-	if riskControl.MaxDailyTrades > 0 {
-		sb.WriteString(fmt.Sprintf("- Max Daily Trades: %d trades\n", riskControl.MaxDailyTrades))
+
+	// Advanced Risk Control Parameters
+	if riskControl.MaxDailyTrades > 0 || riskControl.MaxHourlyTrades > 0 || riskControl.MaxTradesPerSymbolPerHour > 0 {
+		sb.WriteString("\n## 🛡️ Advanced Risk Control (Trade Frequency Limits)\n")
+		if riskControl.MaxDailyTrades > 0 {
+			sb.WriteString(fmt.Sprintf("- Max Daily Trades: %d trades per day\n", riskControl.MaxDailyTrades))
+		}
+		if riskControl.MaxHourlyTrades > 0 {
+			sb.WriteString(fmt.Sprintf("- Max Hourly Trades: %d trades per hour\n", riskControl.MaxHourlyTrades))
+		}
+		if riskControl.MaxTradesPerSymbolPerHour > 0 {
+			sb.WriteString(fmt.Sprintf("- Max Trades Per Symbol Per Hour: %d trades per symbol per hour\n", riskControl.MaxTradesPerSymbolPerHour))
+		}
+		if riskControl.MinHoldTimeMinutes > 0 {
+			sb.WriteString(fmt.Sprintf("- Min Hold Time: %d minutes minimum holding period\n", riskControl.MinHoldTimeMinutes))
+		}
+		if riskControl.MaxLossPerTradePercent > 0 {
+			sb.WriteString(fmt.Sprintf("- Max Loss Per Trade: %.2f%% maximum loss per trade\n", riskControl.MaxLossPerTradePercent))
+		}
+		if riskControl.DailyLossLimitPercent > 0 {
+			sb.WriteString(fmt.Sprintf("- Daily Loss Limit: %.2f%% maximum daily loss\n", riskControl.DailyLossLimitPercent))
+		}
+		sb.WriteString("\n⚠️ These limits are strictly enforced by the backend system. Exceeding any limit will result in trade rejection.\n\n")
+	} else {
+		sb.WriteString("\n")
 	}
-	if riskControl.MaxHourlyTrades > 0 {
-		sb.WriteString(fmt.Sprintf("- Max Hourly Trades: %d trades\n", riskControl.MaxHourlyTrades))
-	}
-	if riskControl.MaxTradesPerSymbolPerHour > 0 {
-		sb.WriteString(fmt.Sprintf("- Max Trades Per Symbol Per Hour: %d trades\n", riskControl.MaxTradesPerSymbolPerHour))
-	}
-	if riskControl.MinHoldTimeMinutes > 0 {
-		sb.WriteString(fmt.Sprintf("- Min Hold Time: %d minutes\n", riskControl.MinHoldTimeMinutes))
-	}
-	if riskControl.MaxLossPerTradePercent > 0 {
-		sb.WriteString(fmt.Sprintf("- Max Loss Per Trade: %.2f%%\n", riskControl.MaxLossPerTradePercent))
-	}
-	if riskControl.DailyLossLimitPercent > 0 {
-		sb.WriteString(fmt.Sprintf("- Daily Loss Limit: %.2f%%\n", riskControl.DailyLossLimitPercent))
-	}
-	sb.WriteString("\n")
 
 	sb.WriteString("## AI GUIDED (Recommended, you should follow):\n")
 	sb.WriteString(fmt.Sprintf("- Trading Leverage: Altcoins max %dx | BTC/ETH max %dx\n",
@@ -1213,6 +1220,47 @@ func (e *StrategyEngine) BuildUserPrompt(ctx *Context) string {
 				resultStr, order.RealizedPnL, order.PnLPct,
 				order.EntryTime, order.ExitTime, order.HoldDuration))
 		}
+		sb.WriteString("\n")
+	}
+
+	// Risk control status (helps AI understand current constraints)
+	riskControl := e.config.RiskControl
+	if riskControl.MaxDailyTrades > 0 || riskControl.MaxHourlyTrades > 0 || riskControl.MaxTradesPerSymbolPerHour > 0 {
+		// Get trade frequency tracker from auto trader (if available through context)
+		// Note: This requires the context to have access to the auto trader instance
+		// For now, we'll show the configured limits without current usage
+		sb.WriteString("## 🛡️ 风险控制配置\n")
+		if riskControl.MaxDailyTrades > 0 {
+			sb.WriteString(fmt.Sprintf("- 每日最大交易次数: %d 笔\n", riskControl.MaxDailyTrades))
+		}
+		if riskControl.MaxHourlyTrades > 0 {
+			sb.WriteString(fmt.Sprintf("- 每小时最大交易次数: %d 笔\n", riskControl.MaxHourlyTrades))
+		}
+		if riskControl.MaxTradesPerSymbolPerHour > 0 {
+			sb.WriteString(fmt.Sprintf("- 每小时每品种最大交易: %d 笔\n", riskControl.MaxTradesPerSymbolPerHour))
+		}
+		if riskControl.MinHoldTimeMinutes > 0 {
+			sb.WriteString(fmt.Sprintf("- 最小持仓时间: %d分钟\n", riskControl.MinHoldTimeMinutes))
+		}
+		if riskControl.MaxLossPerTradePercent > 0 {
+			sb.WriteString(fmt.Sprintf("- 单笔最大亏损: %.2f%%\n", riskControl.MaxLossPerTradePercent))
+		}
+		if riskControl.DailyLossLimitPercent > 0 {
+			sb.WriteString(fmt.Sprintf("- 每日亏损限制: %.2f%%\n", riskControl.DailyLossLimitPercent))
+		}
+		sb.WriteString("\n")
+	}
+
+	// Strategy configuration status
+	if e.config != nil {
+		sb.WriteString("## 📊 当前策略配置\n")
+		sb.WriteString(fmt.Sprintf("- 币种来源: %s\n", e.config.CoinSource.SourceType))
+		indicators := e.config.Indicators
+		indicatorStatus := fmt.Sprintf("EMA=%t, MACD=%t, RSI=%t, Volume=%t",
+			indicators.EnableEMA, indicators.EnableMACD, indicators.EnableRSI, indicators.EnableVolume)
+		sb.WriteString(fmt.Sprintf("- 启用指标: %s\n", indicatorStatus))
+		sb.WriteString(fmt.Sprintf("- 交易风格: %s\n", indicators.Klines.TradingStylePreset))
+		sb.WriteString(fmt.Sprintf("- 时间框架: %v\n", indicators.Klines.SelectedTimeframes))
 		sb.WriteString("\n")
 	}
 

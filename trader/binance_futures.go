@@ -1596,13 +1596,28 @@ func (t *FuturesTrader) CheckMinNotional(symbol string, quantity float64) error 
 }
 
 // GetSymbolPrecision gets the quantity precision for a trading pair
+// Enhanced version with improved network handling for large data responses
 func (t *FuturesTrader) GetSymbolPrecision(symbol string) (int, error) {
-	// Try to get exchange info with retry logic for network errors
+	// Try to get exchange info with enhanced retry logic for network errors
 	var exchangeInfo *futures.ExchangeInfo
 	var err error
 
-	// First try with longer timeout for better reliability
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	// First try with optimized timeout and transport settings for better reliability
+	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+
+	// Enhance HTTP client configuration for large data handling
+	if t.client.HTTPClient != nil {
+		transport, ok := t.client.HTTPClient.Transport.(*http.Transport)
+		if ok {
+			// Optimize transport settings for large responses
+			transport.ResponseHeaderTimeout = 30 * time.Second
+			transport.TLSHandshakeTimeout = 15 * time.Second
+			transport.IdleConnTimeout = 120 * time.Second
+			transport.MaxIdleConns = 100
+			transport.MaxIdleConnsPerHost = 10
+		}
+	}
+
 	exchangeInfo, err = t.client.NewExchangeInfoService().Do(ctx)
 	cancel()
 
@@ -1622,54 +1637,71 @@ func (t *FuturesTrader) GetSymbolPrecision(symbol string) (int, error) {
 			}
 		}
 
-		logger.Infof("  ⚠ %s precision information not found, using default precision 3", symbol)
-		return 3, nil // Default precision is 3
+		logger.Errorf("❌ %s precision information not found in exchange info", symbol)
+		return 0, fmt.Errorf("precision information not found for symbol %s", symbol)
 	}
 
-	// If first attempt failed with network error, try with retry logic
+	// Enhanced retry logic for network-related errors including EOF
 	isRetryable := strings.Contains(err.Error(), "EOF") ||
 		strings.Contains(err.Error(), "connection reset") ||
 		strings.Contains(err.Error(), "timeout") ||
-		strings.Contains(err.Error(), "i/o timeout")
+		strings.Contains(err.Error(), "i/o timeout") ||
+		strings.Contains(err.Error(), "unexpected EOF") ||
+		strings.Contains(err.Error(), "connection closed") ||
+		strings.Contains(err.Error(), "broken pipe")
 
 	if isRetryable {
-		// Perform retry logic only for network-related errors
-		maxRetries := 2
+		// Perform retry logic with exponential backoff for network-related errors
+		maxRetries := 3
+		baseDelay := 1 * time.Second
 
 		for attempt := 1; attempt <= maxRetries; attempt++ {
 			logger.Infof("❌ Exchange info API call failed (attempt %d/%d): %v", attempt, maxRetries, err)
 
-			// Wait before retry (shorter backoff)
-			waitTime := time.Duration(attempt) * 500 * time.Millisecond
+			// Exponential backoff with jitter
+			waitTime := time.Duration(math.Pow(2, float64(attempt-1))) * baseDelay
+			// Add simple jitter to prevent thundering herd
+			jitter := time.Duration((time.Now().UnixNano() % 500) * int64(time.Millisecond))
+			waitTime += jitter
+
 			logger.Infof("⏳ Retrying in %v...", waitTime)
 			time.Sleep(waitTime)
 
-			ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+			// Use shorter timeout for retries to be more responsive
+			ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 			exchangeInfo, err = t.client.NewExchangeInfoService().Do(ctx)
 			cancel()
 
 			if err == nil {
-				break // Success, exit retry loop
+				// Success, exit retry loop
+				logger.Infof("✅ Exchange info API call succeeded on attempt %d", attempt)
+				break
 			}
 
 			// Check again if error is still retryable
 			isRetryable = strings.Contains(err.Error(), "EOF") ||
 				strings.Contains(err.Error(), "connection reset") ||
 				strings.Contains(err.Error(), "timeout") ||
-				strings.Contains(err.Error(), "i/o timeout")
+				strings.Contains(err.Error(), "i/o timeout") ||
+				strings.Contains(err.Error(), "unexpected EOF") ||
+				strings.Contains(err.Error(), "connection closed") ||
+				strings.Contains(err.Error(), "broken pipe")
 
 			if !isRetryable {
 				// Non-retryable error, break retry loop
+				logger.Warnf("⚠️ Non-retryable error encountered: %v", err)
 				break
 			}
 		}
 	}
 
 	if err != nil {
-		logger.Warnf("⚠️ Failed to get exchange info for %s, using default precision 3: %v", symbol, err)
-		return 3, nil // Return default precision instead of error to prevent failure
+		logger.Errorf("❌ Failed to get exchange info for %s after all retries: %v", symbol, err)
+		// 禁止备选方案 - 直接返回错误
+		return 0, fmt.Errorf("precision retrieval failed for %s: %w", symbol, err)
 	}
 
+	// Process successful response
 	for _, s := range exchangeInfo.Symbols {
 		if s.Symbol == symbol {
 			// Get precision from LOT_SIZE filter
@@ -1684,8 +1716,8 @@ func (t *FuturesTrader) GetSymbolPrecision(symbol string) (int, error) {
 		}
 	}
 
-	logger.Infof("  ⚠ %s precision information not found, using default precision 3", symbol)
-	return 3, nil // Default precision is 3
+	logger.Errorf("❌ %s precision information not found in exchange info after processing", symbol)
+	return 0, fmt.Errorf("precision information not found for symbol %s after full processing", symbol)
 }
 
 // calculatePrecision calculates precision from stepSize

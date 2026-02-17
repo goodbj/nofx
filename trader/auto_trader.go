@@ -721,6 +721,7 @@ func (at *AutoTrader) runCycle() error {
 	logger.Info(strings.Repeat("=", 70))
 
 	// 0. Check if trader is stopped (early exit to prevent trades after Stop() is called)
+	// 🔥 注意：此检查仅阻止新周期的启动，不影响正在进行的AI生成过程
 	at.isRunningMutex.RLock()
 	running := at.isRunning
 	at.isRunningMutex.RUnlock()
@@ -728,16 +729,17 @@ func (at *AutoTrader) runCycle() error {
 		// Enhanced stop reason detection to avoid false positives
 		stopReason := at.determineStopReason()
 
-		logger.Infof("⏹ [%s] Trader was stopped before starting cycle #%d", stopReason, at.callCount)
+		logger.Infof("⏹ [%s] Trader was stopped before starting new cycle #%d", stopReason, at.callCount)
+		logger.Infof("   - 此检查仅阻止新周期启动，不影响正在进行的AI生成")
 
 		// Enhanced error message with specific reason
 		var errorMessage string
 		switch stopReason {
 		case "USER_MANUAL_STOP":
-			errorMessage = fmt.Sprintf("[USER_MANUAL_STOP] Trader was manually stopped by user before starting decision cycle #%d - this is normal behavior when user stops trader", at.callCount)
+			errorMessage = fmt.Sprintf("[USER_MANUAL_STOP] Trader was manually stopped by user before starting new decision cycle #%d - existing AI processes will complete", at.callCount)
 		case "RISK_CONTROL_AUTO_PAUSE":
 			remaining := at.stopUntil.Sub(time.Now())
-			errorMessage = fmt.Sprintf("[RISK_CONTROL_AUTO_PAUSE] Trading automatically paused by system risk control for %.0f more minutes - cycle #%d blocked for safety", remaining.Minutes(), at.callCount)
+			errorMessage = fmt.Sprintf("[RISK_CONTROL_AUTO_PAUSE] Trading automatically paused by system risk control for %.0f more minutes - new cycles blocked, existing AI processes continue", remaining.Minutes(), at.callCount)
 		case "SYSTEM_ERROR_STOP":
 			errorMessage = fmt.Sprintf("[SYSTEM_ERROR_STOP] Trader stopped due to system error or abnormal condition in cycle #%d - please check system logs", at.callCount)
 		default:
@@ -801,6 +803,9 @@ func (at *AutoTrader) runCycle() error {
 
 	// 5. Use strategy engine to call AI for decision
 	logger.Infof("🤖 Requesting AI analysis and decision... [Strategy Engine]")
+
+	// 🔥 重要：在AI提示词生成阶段不检查停止状态，确保完整执行
+	// AI生成过程可能需要较长时间，应该让其完整执行完毕
 	aiDecision, err := kernel.GetFullDecisionWithStrategy(ctx, at.mcpClient, at.strategyEngine, "balanced")
 
 	if aiDecision != nil && aiDecision.AIRequestDurationMs > 0 {
@@ -885,43 +890,13 @@ func (at *AutoTrader) runCycle() error {
 	}
 	logger.Info()
 
-	// Check if trader is stopped before executing any decisions (prevent trades after Stop())
-	at.isRunningMutex.RLock()
-	running = at.isRunning
-	at.isRunningMutex.RUnlock()
-	if !running {
-		stopReason := at.determineStopReason()
-
-		logger.Infof("⏹ [%s] Trader stopped before decision execution, cycle #%d", stopReason, at.callCount)
-		logger.Infof("   - AI decisions generated: %d", len(sortedDecisions))
-		logger.Infof("   - Execution aborted to respect stop command")
-
-		// Enhanced error message with specific reason
-		var errorMessage string
-		switch stopReason {
-		case "USER_MANUAL_STOP":
-			errorMessage = fmt.Sprintf("[USER_MANUAL_STOP] Trader was manually stopped by user before executing %d decisions - this is normal behavior when user stops trader during AI processing", len(sortedDecisions))
-		case "RISK_CONTROL_AUTO_PAUSE":
-			remaining := at.stopUntil.Sub(time.Now())
-			errorMessage = fmt.Sprintf("[RISK_CONTROL_AUTO_PAUSE] Trading automatically paused by system risk control for %.0f more minutes - execution blocked for safety", remaining.Minutes())
-		case "SYSTEM_ERROR_STOP":
-			errorMessage = fmt.Sprintf("[SYSTEM_ERROR_STOP] Trader stopped due to system error before executing %d decisions - please check system logs", len(sortedDecisions))
-		default:
-			errorMessage = fmt.Sprintf("[UNKNOWN_STOP] Trader stopped for unknown reason before executing %d decisions", len(sortedDecisions))
-		}
-
-		// Even though we're not executing the decisions, save the AI-generated decision record for tracking
-		record.Success = false
-		record.ErrorMessage = errorMessage
-		if err := at.saveDecision(record); err != nil {
-			logger.Infof("⚠ Failed to save decision record: %v", err)
-		}
-		return nil
-	}
+	// 🔥 移除此处的状态检查，让AI提示词生成完整执行
+	// 状态检查将移到决策执行阶段，确保AI生成过程不被中断
 
 	// Execute decisions and record results
 	for _, d := range sortedDecisions {
-		// Check if trader is stopped before each decision (allow immediate stop during execution)
+		// 🔥 在每个决策执行前检查停止状态
+		// 这样确保AI提示词生成完整执行，只在实际交易执行时才响应停止命令
 		at.isRunningMutex.RLock()
 		running = at.isRunning
 		at.isRunningMutex.RUnlock()
@@ -929,6 +904,8 @@ func (at *AutoTrader) runCycle() error {
 			stopReason := at.determineStopReason()
 
 			logger.Infof("⏹ [%s] Trader stopped during decision execution, aborting remaining decisions", stopReason)
+			logger.Infof("   - AI提示词已完整生成并保存")
+			logger.Infof("   - 仅跳过实际交易执行，不影响AI分析结果")
 			break
 		}
 

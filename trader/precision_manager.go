@@ -51,11 +51,19 @@ func (pm *PrecisionManager) getMarketPrice(symbol string) (float64, error) {
 
 // GetPrecisionInfo 获取交易对精度信息（简化版本，基于原始nofx实现）
 func (pm *PrecisionManager) GetPrecisionInfo(symbol string) (*SymbolPrecisionInfo, error) {
-	// 直接尝试获取精度信息，失败则返回默认值
+	// 直接尝试获取精度信息
 	info, err := pm.fetchPrecisionInfo(symbol)
 	if err != nil {
-		logger.Debugf("⚠️ 无法获取 %s 精度信息，使用默认值", symbol)
-		return pm.createDefaultPrecisionInfo(symbol), nil
+		logger.Debugf("⚠️ 无法通过正常方式获取 %s 精度信息，尝试强制主网模式", symbol)
+
+		// 如果正常方式失败，尝试强制主网模式
+		info, forcedErr := pm.GetPrecisionInfoForced(symbol)
+		if forcedErr != nil {
+			logger.Debugf("⚠️ 强制主网模式也失败，使用默认值: %v", forcedErr)
+			return pm.createDefaultPrecisionInfo(symbol), nil
+		}
+
+		return info, nil
 	}
 
 	return info, nil
@@ -63,7 +71,7 @@ func (pm *PrecisionManager) GetPrecisionInfo(symbol string) (*SymbolPrecisionInf
 
 // fetchPrecisionInfo 从API获取精度信息（带重试机制）
 func (pm *PrecisionManager) fetchPrecisionInfo(symbol string) (*SymbolPrecisionInfo, error) {
-	// First try with longer timeout for better reliability
+	// First try normal method (through proxy if configured)
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	exchangeInfo, err := pm.client.NewExchangeInfoService().Do(ctx)
 	cancel()
@@ -126,8 +134,11 @@ func (pm *PrecisionManager) fetchPrecisionInfo(symbol string) (*SymbolPrecisionI
 	}
 
 	if err != nil {
-		logger.Warnf("⚠️ Failed to get exchange info for %s after retries: %v", symbol, err)
-		return nil, fmt.Errorf("failed to get exchange info for %s: %w", symbol, err)
+		logger.Warnf("⚠️ Failed to get exchange info for %s via proxy after retries: %v", symbol, err)
+
+		// Try forced mainnet mode as fallback
+		logger.Infof("🔄 Switching to forced mainnet mode for precision retrieval...")
+		return pm.GetPrecisionInfoForced(symbol)
 	}
 
 	// If all retries fail, return error
