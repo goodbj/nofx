@@ -13,6 +13,7 @@ import (
 	"nofx/hook"
 	"nofx/logger"
 	"nofx/store"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -67,7 +68,7 @@ type FuturesTrader struct {
 	cacheDuration time.Duration
 
 	// Precision manager for handling quantity/price formatting
-	precisionManager *PrecisionManager
+	precisionManager PrecisionManagerInterface
 
 	// Trader identification for sync operations
 	traderID     string
@@ -200,8 +201,8 @@ func NewFuturesTrader(apiKey, secretKey, userId, customEndpoint string) *Futures
 	// Sync time to avoid "Timestamp ahead" error
 	syncBinanceServerTime(client)
 
-	// Create precision manager
-	precisionManager := NewPrecisionManager(client)
+	// Create precision manager with file-based cache
+	precisionManager := NewFileBasedPrecisionManager(client, filepath.Join("trader", "jingdu.json"))
 
 	trader := &FuturesTrader{
 		client:           client,
@@ -267,8 +268,8 @@ func NewFuturesTraderViaProxy(apiKey, secretKey, userId, proxyURL, targetEndpoin
 	// Sync time to avoid "Timestamp ahead" error
 	syncBinanceServerTime(client)
 
-	// Create precision manager
-	precisionManager := NewPrecisionManager(client)
+	// Create precision manager with file-based cache
+	precisionManager := NewFileBasedPrecisionManager(client, filepath.Join("trader", "jingdu.json"))
 
 	trader := &FuturesTrader{
 		client:           client,
@@ -467,6 +468,28 @@ func (t *FuturesTrader) GetPositions() ([]map[string]interface{}, error) {
 	defer cancel()
 	positions, err := t.client.NewGetPositionRiskService().Do(ctx)
 	if err != nil {
+		// 检查是否为代理转发错误
+		errMsg := err.Error()
+		if strings.Contains(errMsg, "Error forwarding request") ||
+			strings.Contains(errMsg, "forwarding request") ||
+			strings.Contains(errMsg, "proxy error") {
+			logger.Warnf("⚠️ 代理转发失败，尝试使用缓存数据: %v", err)
+
+			// 如果有缓存数据，即使过期也返回缓存数据
+			t.positionsCacheMutex.RLock()
+			if t.cachedPositions != nil {
+				cacheAge := time.Since(t.positionsCacheTime)
+				t.positionsCacheMutex.RUnlock()
+				logger.Warnf("⚠️ 返回过期的缓存数据 (cache age: %.1f seconds ago)", cacheAge.Seconds())
+				return t.cachedPositions, nil
+			}
+			t.positionsCacheMutex.RUnlock()
+
+			// 如果没有缓存数据，返回空数组而不是错误
+			logger.Warnf("⚠️ 无缓存数据可用，返回空持仓列表")
+			return []map[string]interface{}{}, nil
+		}
+
 		return nil, fmt.Errorf("failed to get positions: %w", err)
 	}
 
@@ -1439,8 +1462,8 @@ func (t *FuturesTrader) CalculatePositionSize(balance, riskPercent, price float6
 	return quantity
 }
 
-// SetStopLoss sets stop-loss order using new Algo Order API
-// Binance has migrated stop orders to Algo Order system (error -4120 STOP_ORDER_SWITCH_ALGO)
+// SetStopLoss sets stop-loss order using traditional order API
+// If algo order fails, fallback to traditional stop market order
 func (t *FuturesTrader) SetStopLoss(symbol string, positionSide string, quantity, stopPrice float64) error {
 	var side futures.SideType
 	var posSide futures.PositionSideType
@@ -1459,30 +1482,64 @@ func (t *FuturesTrader) SetStopLoss(symbol string, positionSide string, quantity
 		return fmt.Errorf("failed to format price: %w", err)
 	}
 
-	// Use new Algo Order API
+	// Format quantity to correct precision
+	qtyStr, err := t.FormatQuantity(symbol, quantity)
+	if err != nil {
+		return fmt.Errorf("failed to format quantity: %w", err)
+	}
+
+	// First, try the traditional stop market order (this should work for most cases)
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
-	_, err = t.client.NewCreateAlgoOrderService().
+
+	// Try traditional order first
+	order := t.client.NewCreateOrderService().
 		Symbol(symbol).
 		Side(side).
 		PositionSide(posSide).
-		Type(futures.AlgoOrderTypeStopMarket).
-		TriggerPrice(priceStr). // Use formatted price
+		Type("STOP_MARKET"). // Use string constant for stop market order
+		StopPrice(priceStr). // Use StopPrice for traditional API
+		Quantity(qtyStr).    // Use quantity for traditional API
 		WorkingType(futures.WorkingTypeContractPrice).
-		ClosePosition(true).
-		ClientAlgoId(getBrOrderID()).
-		Do(ctx)
+		ReduceOnly(true) // Add reduceOnly parameter
+
+	_, err = order.Do(ctx)
 
 	if err != nil {
-		return fmt.Errorf("failed to set stop-loss: %w", err)
+		// If traditional order fails, try the algo order as fallback
+		logger.Infof("  ℹ️ Traditional stop-market order failed: %v, trying algo order", err)
+
+		// Generate a new client algo ID for the algo order
+		algoID := getBrOrderID()
+
+		_, algoErr := t.client.NewCreateAlgoOrderService().
+			Symbol(symbol).
+			Side(side).
+			PositionSide(posSide).
+			Type(futures.AlgoOrderTypeStopMarket).
+			TriggerPrice(priceStr). // Use TriggerPrice for algo API
+			WorkingType(futures.WorkingTypeContractPrice).
+			ClosePosition(true). // Close entire position for stop loss
+			ReduceOnly(true).    // Add reduceOnly parameter
+			ClientAlgoId(algoID).
+			Do(ctx)
+
+		if algoErr != nil {
+			return fmt.Errorf("failed to set stop-loss with both traditional (%v) and algo (%v) orders", err, algoErr)
+		}
+
+		logger.Infof("  Stop-loss price set (Algo Order): %s", priceStr)
+		return nil
 	}
 
-	logger.Infof("  Stop-loss price set (Algo Order): %s", priceStr)
+	logger.Infof("  Stop-loss price set (Traditional Order): %s", priceStr)
 	return nil
 }
 
 // SetTakeProfit sets take-profit order using new Algo Order API
 // Binance has migrated stop orders to Algo Order system (error -4120 STOP_ORDER_SWITCH_ALGO)
+// SetTakeProfit sets take-profit order using traditional order API
+// If algo order fails, fallback to traditional take-profit market order
 func (t *FuturesTrader) SetTakeProfit(symbol string, positionSide string, quantity, takeProfitPrice float64) error {
 	var side futures.SideType
 	var posSide futures.PositionSideType
@@ -1507,26 +1564,47 @@ func (t *FuturesTrader) SetTakeProfit(symbol string, positionSide string, quanti
 		return fmt.Errorf("failed to format price: %w", err)
 	}
 
-	// Use new Algo Order API
-	// Note: Using Quantity instead of ClosePosition for consistency and best practices
+	// First, try the traditional take-profit market order
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
-	_, err = t.client.NewCreateAlgoOrderService().
+
+	_, err = t.client.NewCreateOrderService().
 		Symbol(symbol).
 		Side(side).
 		PositionSide(posSide).
-		Type(futures.AlgoOrderTypeTakeProfitMarket).
-		TriggerPrice(priceStr). // Use formatted price
+		Type("TAKE_PROFIT_MARKET"). // Use string constant for take-profit market order
+		StopPrice(priceStr).        // Use StopPrice for traditional API
+		Quantity(quantityStr).      // Use quantity for traditional API
 		WorkingType(futures.WorkingTypeContractPrice).
-		Quantity(quantityStr). // Use quantity instead of ClosePosition
-		ClientAlgoId(getBrOrderID()).
 		Do(ctx)
 
 	if err != nil {
-		return fmt.Errorf("failed to set take-profit: %w", err)
+		// If traditional order fails, try the algo order as fallback
+		logger.Infof("  ℹ️ Traditional take-profit-market order failed: %v, trying algo order", err)
+
+		// Generate a new client algo ID for the algo order
+		algoID := getBrOrderID()
+
+		_, algoErr := t.client.NewCreateAlgoOrderService().
+			Symbol(symbol).
+			Side(side).
+			PositionSide(posSide).
+			Type(futures.AlgoOrderTypeTakeProfitMarket).
+			TriggerPrice(priceStr). // Use TriggerPrice for algo API
+			WorkingType(futures.WorkingTypeContractPrice).
+			Quantity(quantityStr). // Use quantity instead of ClosePosition
+			ClientAlgoId(algoID).
+			Do(ctx)
+
+		if algoErr != nil {
+			return fmt.Errorf("failed to set take-profit with both traditional (%v) and algo (%v) orders", err, algoErr)
+		}
+
+		logger.Infof("  Take-profit price set (Algo Order): %s, quantity: %s", priceStr, quantityStr)
+		return nil
 	}
 
-	logger.Infof("  Take-profit price set (Algo Order): %s, quantity: %s", priceStr, quantityStr)
+	logger.Infof("  Take-profit price set (Traditional Order): %s, quantity: %s", priceStr, quantityStr)
 	return nil
 }
 
@@ -1567,10 +1645,16 @@ func (t *FuturesTrader) SetTrailingStop(symbol string, positionSide string, quan
 	}
 
 	// Binance API expects callbackRate in range [0.1, 10] where 1 = 1%
-	// Frontend sends percentage value (e.g., 2.0 for 2%), which is already in correct format
-	// No conversion needed - just validate range
-	if callbackRate < 0.1 || callbackRate > 10.0 {
-		return fmt.Errorf("callback rate must be between 0.1 and 10 (got %.2f)", callbackRate)
+	// If callbackRate is 0 or invalid, use a default value of 0.5 (0.5%)
+	if callbackRate <= 0 {
+		logger.Infof("  ⚠️ Callback rate is %.2f, using default value of 0.5 (0.5%%)", callbackRate)
+		callbackRate = 0.5
+	}
+
+	// Validate range (now that we have a positive value)
+	if callbackRate > 10.0 {
+		logger.Infof("  ⚠️ Callback rate %.2f exceeds maximum of 10.0, capping at 10.0", callbackRate)
+		callbackRate = 10.0
 	}
 
 	// Use new Algo Order API with trailing stop parameters

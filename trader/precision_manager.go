@@ -15,12 +15,13 @@ import (
 	"github.com/adshao/go-binance/v2/futures"
 )
 
-// PrecisionManager 精度管理器 - 通用精度处理解决方案
+// PrecisionManager 精度管理器 - 支持文件缓存的通用精度处理解决方案
 type PrecisionManager struct {
 	client        *futures.Client
 	symbolCache   map[string]*SymbolPrecisionInfo
 	cacheMutex    sync.RWMutex
 	cacheDuration time.Duration
+	cacheFile     string // 本地缓存文件路径
 }
 
 // SymbolPrecisionInfo 交易对精度信息
@@ -35,12 +36,18 @@ type SymbolPrecisionInfo struct {
 }
 
 // NewPrecisionManager 创建精度管理器
-func NewPrecisionManager(client *futures.Client) *PrecisionManager {
+func NewPrecisionManager(client *futures.Client) PrecisionManagerInterface {
 	return &PrecisionManager{
 		client:        client,
 		symbolCache:   make(map[string]*SymbolPrecisionInfo),
 		cacheDuration: 5 * time.Minute, // 5分钟缓存
 	}
+}
+
+// CheckAndRefreshFileIfNeeded 空实现（原始PrecisionManager不支持文件更新）
+func (pm *PrecisionManager) CheckAndRefreshFileIfNeeded() {
+	// 原始精度管理器不支持文件更新功能
+	logger.Debugf("🔄 原始PrecisionManager不支持文件更新功能")
 }
 
 // getMarketPrice 获取市场价格的内部方法

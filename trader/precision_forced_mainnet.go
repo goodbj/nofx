@@ -79,8 +79,18 @@ func calculatePrecisionForced(stepSize string) int {
 }
 
 // GetSymbolPrecisionForcedFromManager 通过PrecisionManager强制获取符号精度
-func GetSymbolPrecisionForcedFromManager(manager *PrecisionManager, symbol string) (int, error) {
-	info, err := manager.GetPrecisionInfoForced(symbol)
+func GetSymbolPrecisionForcedFromManager(manager PrecisionManagerInterface, symbol string) (int, error) {
+	// 类型断言获取具体实现
+	if pm, ok := manager.(*PrecisionManager); ok {
+		info, err := pm.GetPrecisionInfoForced(symbol)
+		if err != nil {
+			return 0, err
+		}
+		return info.Precision, nil
+	}
+
+	// 如果是FileBasedPrecisionManager，使用普通方法
+	info, err := manager.GetPrecisionInfo(symbol)
 	if err != nil {
 		return 0, err
 	}
@@ -88,8 +98,18 @@ func GetSymbolPrecisionForcedFromManager(manager *PrecisionManager, symbol strin
 }
 
 // GetPricePrecisionForcedFromManager 通过PrecisionManager强制获取价格精度
-func GetPricePrecisionForcedFromManager(manager *PrecisionManager, symbol string) (int, error) {
-	info, err := manager.GetPrecisionInfoForced(symbol)
+func GetPricePrecisionForcedFromManager(manager PrecisionManagerInterface, symbol string) (int, error) {
+	// 类型断言获取具体实现
+	if pm, ok := manager.(*PrecisionManager); ok {
+		info, err := pm.GetPrecisionInfoForced(symbol)
+		if err != nil {
+			return 0, err
+		}
+		return info.Precision, nil
+	}
+
+	// 如果是FileBasedPrecisionManager，使用普通方法
+	info, err := manager.GetPrecisionInfo(symbol)
 	if err != nil {
 		return 0, err
 	}

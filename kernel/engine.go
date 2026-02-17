@@ -2044,12 +2044,18 @@ func validateDecision(d *Decision, accountEquity float64, btcEthLeverage, altcoi
 
 	// Validate dynamic stop loss and take profit parameters
 	if d.Action == "trailing_stop" {
+		// 为trail_percentage设置默认值
 		if d.TrailPercentage <= 0 {
-			return fmt.Errorf("trail_percentage must be greater than 0 for trailing_stop action")
+			d.TrailPercentage = 2.0 // 默认2%回撤
+			logger.Warnf("⚠️ trail_percentage未设置或为0，使用默认值2.0")
 		}
+
+		// 为callback_rate设置默认值
 		if d.CallbackRate <= 0 {
-			return fmt.Errorf("callback_rate must be greater than 0 for trailing_stop action")
+			d.CallbackRate = 1.0 // 默认1%回调率
+			logger.Warnf("⚠️ callback_rate未设置或为0，使用默认值1.0")
 		}
+
 		if d.ActivationPrice <= 0 {
 			return fmt.Errorf("activation_price must be greater than 0 for trailing_stop action")
 		}
