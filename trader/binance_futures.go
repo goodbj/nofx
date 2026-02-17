@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"nofx/hook"
 	"nofx/logger"
+	"nofx/store"
 	"strconv"
 	"strings"
 	"sync"
@@ -67,6 +68,12 @@ type FuturesTrader struct {
 
 	// Precision manager for handling quantity/price formatting
 	precisionManager *PrecisionManager
+
+	// Trader identification for sync operations
+	traderID     string
+	exchangeID   string
+	exchangeType string
+	store        *store.Store
 }
 
 // validateFormattedQuantity 验证格式化后的数量是否符合step size要求
@@ -835,6 +842,17 @@ func (t *FuturesTrader) CloseLong(symbol string, quantity float64) (map[string]i
 		logger.Infof("  ⚠ Failed to cancel pending orders: %v", err)
 	}
 
+	// Trigger order sync after successful close
+	if t.store != nil && t.traderID != "" && t.exchangeID != "" && t.exchangeType != "" {
+		go func() {
+			if err := t.SyncOrdersFromBinance(t.traderID, t.exchangeID, t.exchangeType, t.store); err != nil {
+				logger.Infof("⚠️ Order sync after close long failed: %v", err)
+			} else {
+				logger.Infof("✅ Order sync triggered after closing long position for %s", symbol)
+			}
+		}()
+	}
+
 	result := make(map[string]interface{})
 	result["orderId"] = order.OrderID
 	result["symbol"] = order.Symbol
@@ -904,6 +922,17 @@ func (t *FuturesTrader) CloseShort(symbol string, quantity float64) (map[string]
 	// After closing position, cancel all pending orders for this symbol (stop-loss and take-profit orders)
 	if err := t.CancelAllOrders(symbol); err != nil {
 		logger.Infof("  ⚠ Failed to cancel pending orders: %v", err)
+	}
+
+	// Trigger order sync after successful close
+	if t.store != nil && t.traderID != "" && t.exchangeID != "" && t.exchangeType != "" {
+		go func() {
+			if err := t.SyncOrdersFromBinance(t.traderID, t.exchangeID, t.exchangeType, t.store); err != nil {
+				logger.Infof("⚠️ Order sync after close short failed: %v", err)
+			} else {
+				logger.Infof("✅ Order sync triggered after closing short position for %s", symbol)
+			}
+		}()
 	}
 
 	result := make(map[string]interface{})
@@ -2230,4 +2259,12 @@ func (ct *CustomTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 	}
 	logger.Debugf("✅ 请求成功, 状态码: %d", resp.StatusCode)
 	return resp, err
+}
+
+// SetTraderInfo sets trader identification info for sync operations
+func (t *FuturesTrader) SetTraderInfo(traderID, exchangeID, exchangeType string, store *store.Store) {
+	t.traderID = traderID
+	t.exchangeID = exchangeID
+	t.exchangeType = exchangeType
+	t.store = store
 }

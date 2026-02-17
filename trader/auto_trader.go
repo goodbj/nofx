@@ -623,14 +623,16 @@ func (at *AutoTrader) Run() error {
 	if at.exchange == "binance" {
 		// Check if it's a direct FuturesTrader
 		if binanceTrader, ok := at.trader.(*FuturesTrader); ok && at.store != nil {
-			binanceTrader.StartOrderSync(at.id, at.exchangeID, at.exchange, at.store, 30*time.Second)
-			logger.Infof("🔄 [%s] Binance order+position sync enabled (every 30s) - Direct Trader", at.name)
+			// Set trader info for sync operations
+			binanceTrader.SetTraderInfo(at.id, at.exchangeID, at.exchange, at.store)
+			logger.Infof("🔄 [%s] Binance trader info set for on-demand sync - Direct Trader", at.name)
 		} else if proxyWrapper, ok := at.trader.(*ProxyTraderWrapper); ok {
 			// For proxy wrapper, we need to check if the underlying trader is FuturesTrader
 			if proxyWrapper.trader != nil {
 				if binanceTrader, ok := proxyWrapper.trader.(*FuturesTrader); ok && at.store != nil {
-					binanceTrader.StartOrderSync(at.id, at.exchangeID, at.exchange, at.store, 30*time.Second)
-					logger.Infof("🔄 [%s] Binance order+position sync enabled (every 30s) - Proxy Wrapped Trader", at.name)
+					// Set trader info for sync operations
+					binanceTrader.SetTraderInfo(at.id, at.exchangeID, at.exchange, at.store)
+					logger.Infof("🔄 [%s] Binance trader info set for on-demand sync - Proxy Wrapped Trader", at.name)
 				} else {
 					logger.Infof("⚠️ [%s] Binance trader type mismatch - expected *FuturesTrader, got %T", at.name, proxyWrapper.trader)
 				}
