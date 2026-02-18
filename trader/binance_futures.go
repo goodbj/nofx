@@ -1490,10 +1490,32 @@ func (t *FuturesTrader) SetStopLoss(symbol string, positionSide string, quantity
 
 	// Validate formatted strings are not empty
 	if priceStr == "" {
-		return fmt.Errorf("formatted price is empty for symbol %s, stopPrice: %f", symbol, stopPrice)
+		logger.Warnf("⚠️ formatted price is empty for symbol %s, stopPrice: %f, clearing cache and retrying", symbol, stopPrice)
+		// Clear the cache to force reloading from file
+		t.precisionManager.ClearCache()
+		// Try formatting again after clearing cache
+		priceStr, err = t.FormatPrice(symbol, stopPrice)
+		if err != nil {
+			return fmt.Errorf("failed to format price after cache clear: %w", err)
+		}
+		if priceStr == "" {
+			return fmt.Errorf("formatted price is still empty for symbol %s, stopPrice: %f", symbol, stopPrice)
+		}
+		logger.Infof("✅ Successfully formatted price after cache clear: %s", priceStr)
 	}
 	if qtyStr == "" {
-		return fmt.Errorf("formatted quantity is empty for symbol %s, quantity: %f", symbol, quantity)
+		logger.Warnf("⚠️ formatted quantity is empty for symbol %s, quantity: %f, clearing cache and retrying", symbol, quantity)
+		// Clear the cache to force reloading from file
+		t.precisionManager.ClearCache()
+		// Try formatting again after clearing cache
+		qtyStr, err = t.FormatQuantity(symbol, quantity)
+		if err != nil {
+			return fmt.Errorf("failed to format quantity after cache clear: %w", err)
+		}
+		if qtyStr == "" {
+			return fmt.Errorf("formatted quantity is still empty for symbol %s, quantity: %f", symbol, quantity)
+		}
+		logger.Infof("✅ Successfully formatted quantity after cache clear: %s", qtyStr)
 	}
 
 	// First, try the traditional stop market order (this should work for most cases)

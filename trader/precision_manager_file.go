@@ -557,7 +557,29 @@ func (pm *FileBasedPrecisionManager) FormatPriceWithValidation(symbol string, pr
 		pricePrecision = 8 // 价格精度上限
 	}
 
+	// 确保精度为非负数，防止formatWithPrecision返回空字符串
+	if pricePrecision < 0 {
+		pricePrecision = 2 // 使用安全的默认值
+	}
+
 	formatted := pm.formatWithPrecision(alignedPrice, pricePrecision)
+
+	// 如果格式化结果为空，提供安全的后备方案
+	if formatted == "" {
+		// 使用基于价格范围的安全默认格式化
+		switch {
+		case price >= 1000:
+			formatted = fmt.Sprintf("%.2f", alignedPrice)
+		case price >= 1:
+			formatted = fmt.Sprintf("%.4f", alignedPrice)
+		case price >= 0.001:
+			formatted = fmt.Sprintf("%.6f", alignedPrice)
+		default:
+			formatted = fmt.Sprintf("%.8f", alignedPrice)
+		}
+
+		logger.Warnf("⚠️ %s 价格格式化为空，使用后备方案: %.8f -> %s", symbol, alignedPrice, formatted)
+	}
 
 	logger.Debugf("💰 %s 价格处理: 原始=%.8f -> 对齐=%.8f -> 格式化=%s",
 		symbol, price, alignedPrice, formatted)

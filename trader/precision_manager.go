@@ -24,17 +24,6 @@ type PrecisionManager struct {
 	cacheFile     string // 本地缓存文件路径
 }
 
-// SymbolPrecisionInfo 交易对精度信息
-type SymbolPrecisionInfo struct {
-	Symbol     string
-	StepSize   float64
-	TickSize   float64
-	MinQty     float64
-	MaxQty     float64
-	Precision  int
-	LastUpdate time.Time
-}
-
 // NewPrecisionManager 创建精度管理器
 func NewPrecisionManager(client *futures.Client) PrecisionManagerInterface {
 	return &PrecisionManager{
@@ -56,21 +45,41 @@ func (pm *PrecisionManager) getMarketPrice(symbol string) (float64, error) {
 	return GetPriceWithFallback(pm.client, symbol)
 }
 
-// GetPrecisionInfo 获取交易对精度信息（简化版本，基于原始nofx实现）
+// GetPrecisionInfo 获取交易对精度信息（带缓存支持）
 func (pm *PrecisionManager) GetPrecisionInfo(symbol string) (*SymbolPrecisionInfo, error) {
-	// 直接尝试获取精度信息
-	info, err := pm.fetchPrecisionInfo(symbol)
+	// 首先检查缓存
+	pm.cacheMutex.RLock()
+	if cachedInfo, exists := pm.symbolCache[symbol]; exists {
+		if time.Since(cachedInfo.LastUpdate) < pm.cacheDuration {
+			pm.cacheMutex.RUnlock()
+			logger.Debugf("📦 使用缓存的精度信息: %s", symbol)
+			return cachedInfo, nil
+		}
+	}
+	pm.cacheMutex.RUnlock()
+
+	// 缓存未命中或已过期，获取新的精度信息
+	var info *SymbolPrecisionInfo
+	var err error
+	info, err = pm.fetchPrecisionInfo(symbol)
 	if err != nil {
 		logger.Debugf("⚠️ 无法通过正常方式获取 %s 精度信息，尝试强制主网模式", symbol)
 
 		// 如果正常方式失败，尝试强制主网模式
-		info, forcedErr := pm.GetPrecisionInfoForced(symbol)
+		info2, forcedErr := pm.GetPrecisionInfoForced(symbol)
 		if forcedErr != nil {
 			logger.Debugf("⚠️ 强制主网模式也失败，使用默认值: %v", forcedErr)
-			return pm.createDefaultPrecisionInfo(symbol), nil
+			info = pm.createDefaultPrecisionInfo(symbol)
+		} else {
+			info = info2
 		}
+	}
 
-		return info, nil
+	// 更新缓存
+	if info != nil {
+		pm.cacheMutex.Lock()
+		pm.symbolCache[symbol] = info
+		pm.cacheMutex.Unlock()
 	}
 
 	return info, nil
@@ -431,7 +440,29 @@ func (pm *PrecisionManager) FormatPriceWithValidation(symbol string, price float
 		pricePrecision = 8 // 价格精度上限
 	}
 
+	// 确保精度为非负数，防止formatWithPrecision返回空字符串
+	if pricePrecision < 0 {
+		pricePrecision = 2 // 使用安全的默认值
+	}
+
 	formatted := pm.formatWithPrecision(alignedPrice, pricePrecision)
+
+	// 如果格式化结果为空，提供安全的后备方案
+	if formatted == "" {
+		// 使用基于价格范围的安全默认格式化
+		switch {
+		case price >= 1000:
+			formatted = fmt.Sprintf("%.2f", alignedPrice)
+		case price >= 1:
+			formatted = fmt.Sprintf("%.4f", alignedPrice)
+		case price >= 0.001:
+			formatted = fmt.Sprintf("%.6f", alignedPrice)
+		default:
+			formatted = fmt.Sprintf("%.8f", alignedPrice)
+		}
+
+		logger.Warnf("⚠️ %s 价格格式化为空，使用后备方案: %.8f -> %s", symbol, alignedPrice, formatted)
+	}
 
 	logger.Debugf("💰 %s 价格处理: 原始=%.8f -> 对齐=%.8f -> 格式化=%s",
 		symbol, price, alignedPrice, formatted)

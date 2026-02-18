@@ -81,15 +81,15 @@ func calculatePrecisionForced(stepSize string) int {
 // GetSymbolPrecisionForcedFromManager 通过PrecisionManager强制获取符号精度
 func GetSymbolPrecisionForcedFromManager(manager PrecisionManagerInterface, symbol string) (int, error) {
 	// 类型断言获取具体实现
-	if pm, ok := manager.(*PrecisionManager); ok {
-		info, err := pm.GetPrecisionInfoForced(symbol)
+	if pm, ok := manager.(*FileBasedPrecisionManager); ok {
+		info, err := pm.GetPrecisionInfo(symbol)
 		if err != nil {
 			return 0, err
 		}
 		return info.Precision, nil
 	}
 
-	// 如果是FileBasedPrecisionManager，使用普通方法
+	// 如果是其他实现，使用普通方法
 	info, err := manager.GetPrecisionInfo(symbol)
 	if err != nil {
 		return 0, err
@@ -100,15 +100,15 @@ func GetSymbolPrecisionForcedFromManager(manager PrecisionManagerInterface, symb
 // GetPricePrecisionForcedFromManager 通过PrecisionManager强制获取价格精度
 func GetPricePrecisionForcedFromManager(manager PrecisionManagerInterface, symbol string) (int, error) {
 	// 类型断言获取具体实现
-	if pm, ok := manager.(*PrecisionManager); ok {
-		info, err := pm.GetPrecisionInfoForced(symbol)
+	if pm, ok := manager.(*FileBasedPrecisionManager); ok {
+		info, err := pm.GetPrecisionInfo(symbol)
 		if err != nil {
 			return 0, err
 		}
 		return info.Precision, nil
 	}
 
-	// 如果是FileBasedPrecisionManager，使用普通方法
+	// 如果是其他实现，使用普通方法
 	info, err := manager.GetPrecisionInfo(symbol)
 	if err != nil {
 		return 0, err
@@ -117,17 +117,17 @@ func GetPricePrecisionForcedFromManager(manager PrecisionManagerInterface, symbo
 }
 
 // Deprecated: 旧的函数，保留是为了向后兼容
-// 请使用PrecisionManager中的方法
+// 请使用FileBasedPrecisionManager中的方法
 func GetSymbolPrecisionForced(client *futures.Client, symbol string) (int, error) {
-	// 创建临时的PrecisionManager实例
-	manager := NewPrecisionManager(client)
+	// 创建FileBasedPrecisionManager实例
+	manager := NewFileBasedPrecisionManager(client, "trader/jingdu.json")
 	return GetSymbolPrecisionForcedFromManager(manager, symbol)
 }
 
 // Deprecated: 旧的函数，保留是为了向后兼容
-// 请使用PrecisionManager中的方法
+// 请使用FileBasedPrecisionManager中的方法
 func GetPricePrecisionForced(client *futures.Client, symbol string) (int, error) {
-	// 创建临时的PrecisionManager实例
-	manager := NewPrecisionManager(client)
+	// 创建FileBasedPrecisionManager实例
+	manager := NewFileBasedPrecisionManager(client, "trader/jingdu.json")
 	return GetPricePrecisionForcedFromManager(manager, symbol)
 }

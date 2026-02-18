@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"nofx/trader"
-	
+
 	"github.com/adshao/go-binance/v2/futures"
 )
 
@@ -113,9 +113,9 @@ func (spt *SimulatePrecisionTest) testPrecisionManager() {
 
 	// 创建一个期货客户端
 	client := futures.NewClient("", "")
-	
-	// 创建精度管理器
-	precisionMgr := trader.NewPrecisionManager(client)
+
+	// 创建精度管理器（使用FileBased版本）
+	precisionMgr := trader.NewFileBasedPrecisionManager(client, "trader/jingdu.json")
 
 	// 获取精度信息
 	fmt.Printf("🔄 正在获取 %s 精度信息...\n", spt.testSymbol)
@@ -143,7 +143,7 @@ func (spt *SimulatePrecisionTest) testProxyMode() {
 	useProxy := os.Getenv("USE_BINANCE_PROXY")
 	if useProxy != "true" && useProxy != "1" {
 		fmt.Println("⚠️ 代理模式未启用 (USE_BINANCE_PROXY != true)")
-		
+
 		// 即使未启用代理，我们也可以测试代理相关的功能
 		fmt.Println("💡 演示代理模式的工作原理:")
 		fmt.Println("   1. 通过NewFuturesTraderViaProxy创建交易者")
@@ -162,10 +162,10 @@ func (spt *SimulatePrecisionTest) testProxyMode() {
 	}
 
 	fmt.Printf("🌐 代理URL: %s\n", proxyURL)
-	
+
 	// 创建通过代理的期货交易者
 	proxyTrader := trader.NewFuturesTraderViaProxy("", "", "test_user", proxyURL, "https://fapi.binance.com")
-	
+
 	// 通过代理获取精度
 	precisionInfo, err := proxyTrader.GetSymbolPrecision(spt.testSymbol)
 	if err != nil {
@@ -174,7 +174,7 @@ func (spt *SimulatePrecisionTest) testProxyMode() {
 	}
 
 	fmt.Printf("✅ 代理模式获取精度成功: %d\n", precisionInfo)
-	
+
 	// 由于无法直接访问precisionManager，跳过此测试
 	fmt.Println("⚠️ 无法直接访问代理交易者的PrecisionManager (字段未导出)")
 	fmt.Println("💡 在实际应用中，会通过交易者的方法间接使用PrecisionManager")

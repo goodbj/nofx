@@ -41,6 +41,13 @@ func DebugMarketPrice(client *futures.Client, symbol string) (float64, error) {
 	}
 
 	priceData := prices[0]
+
+	// 验证返回的符号是否匹配
+	if priceData.Symbol != symbol {
+		logger.Errorf("❌ 符号不匹配: 请求 %s, 返回 %s", symbol, priceData.Symbol)
+		return 0, fmt.Errorf("symbol mismatch: requested %s, got %s", symbol, priceData.Symbol)
+	}
+
 	logger.Debugf("   价格数据详情:")
 	logger.Debugf("     Symbol: %s", priceData.Symbol)
 	logger.Debugf("     Price字段类型: %T", priceData.Price)
@@ -121,7 +128,12 @@ func GetPriceWithFallback(client *futures.Client, symbol string) (float64, error
 
 	// 在所有价格中查找目标符号
 	for _, priceInfo := range allPrices {
-		if priceInfo.Symbol == symbol && priceInfo.Price != "" {
+		// 验证符号匹配
+		if priceInfo.Symbol != symbol {
+			continue
+		}
+
+		if priceInfo.Price != "" {
 			if price, err := strconv.ParseFloat(priceInfo.Price, 64); err == nil {
 				logger.Infof("✅ 通过降级方案获取到 %s 价格: %.8f", symbol, price)
 				return price, nil
