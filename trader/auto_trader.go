@@ -3322,8 +3322,11 @@ func (at *AutoTrader) enforceMinHoldTime(symbol string, side string) error {
 	}
 
 	minHoldTimeMinutes := at.config.StrategyConfig.RiskControl.MinHoldTimeMinutes
+
+	// 当 minHoldTimeMinutes 为 0 时，表示无时间限制，不需要强制执行
+	// 当 minHoldTimeMinutes 小于 0 时（理论上不应该发生），也不执行限制
 	if minHoldTimeMinutes <= 0 {
-		return nil // If not set, don't enforce
+		return nil // No time restriction (0 means unlimited)
 	}
 
 	positionKey := fmt.Sprintf("%s_%s", symbol, side)
