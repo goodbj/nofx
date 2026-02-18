@@ -1488,6 +1488,14 @@ func (t *FuturesTrader) SetStopLoss(symbol string, positionSide string, quantity
 		return fmt.Errorf("failed to format quantity: %w", err)
 	}
 
+	// Validate formatted strings are not empty
+	if priceStr == "" {
+		return fmt.Errorf("formatted price is empty for symbol %s, stopPrice: %f", symbol, stopPrice)
+	}
+	if qtyStr == "" {
+		return fmt.Errorf("formatted quantity is empty for symbol %s, quantity: %f", symbol, quantity)
+	}
+
 	// First, try the traditional stop market order (this should work for most cases)
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
@@ -1500,8 +1508,8 @@ func (t *FuturesTrader) SetStopLoss(symbol string, positionSide string, quantity
 		Type("STOP_MARKET"). // Use string constant for stop market order
 		StopPrice(priceStr). // Use StopPrice for traditional API
 		Quantity(qtyStr).    // Use quantity for traditional API
-		WorkingType(futures.WorkingTypeContractPrice).
-		ReduceOnly(true) // Add reduceOnly parameter
+		WorkingType(futures.WorkingTypeContractPrice)
+		// Remove ReduceOnly parameter to avoid -1106 error
 
 	_, err = order.Do(ctx)
 
@@ -1520,7 +1528,7 @@ func (t *FuturesTrader) SetStopLoss(symbol string, positionSide string, quantity
 			TriggerPrice(priceStr). // Use TriggerPrice for algo API
 			WorkingType(futures.WorkingTypeContractPrice).
 			ClosePosition(true). // Close entire position for stop loss
-			ReduceOnly(true).    // Add reduceOnly parameter
+			// Remove ReduceOnly parameter to avoid -1106 error
 			ClientAlgoId(algoID).
 			Do(ctx)
 

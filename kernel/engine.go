@@ -1804,6 +1804,10 @@ func extractDecisions(response string) ([]Decision, error) {
 		jsonContent := strings.TrimSpace(m[1])
 		jsonContent = compactArrayOpen(jsonContent)
 		jsonContent = fixMissingQuotes(jsonContent)
+
+		// 预处理：自动修复常见JSON问题
+		jsonContent = preprocessJSONContent(jsonContent)
+
 		if err := validateJSONFormat(jsonContent); err != nil {
 			return nil, fmt.Errorf("JSON format validation failed: %w\nJSON content: %s\nFull response:\n%s", err, jsonContent, response)
 		}
@@ -1834,6 +1838,9 @@ func extractDecisions(response string) ([]Decision, error) {
 
 	jsonContent = compactArrayOpen(jsonContent)
 	jsonContent = fixMissingQuotes(jsonContent)
+
+	// 预处理：自动修复常见JSON问题
+	jsonContent = preprocessJSONContent(jsonContent)
 
 	if err := validateJSONFormat(jsonContent); err != nil {
 		return nil, fmt.Errorf("JSON format validation failed: %w\nJSON content: %s\nFull response:\n%s", err, jsonContent, response)
@@ -1883,6 +1890,37 @@ func fixMissingQuotes(jsonStr string) string {
 	return jsonStr
 }
 
+// preprocessJSONContent 预处理JSON内容，自动修复常见问题
+func preprocessJSONContent(jsonStr string) string {
+	// 1. 移除范围符号
+	jsonStr = removeRangeSymbols(jsonStr)
+
+	// 2. 修复缺失的引号
+	jsonStr = fixMissingQuotes(jsonStr)
+
+	// 3. 压缩数组开头
+	jsonStr = compactArrayOpen(jsonStr)
+
+	// 4. 移除不可见字符
+	jsonStr = removeInvisibleRunes(jsonStr)
+
+	logger.Debugf("🔧 JSON预处理完成，修复后长度: %d -> %d", len(jsonStr), len(jsonStr))
+	return jsonStr
+}
+
+// removeRangeSymbols 移除JSON中的范围符号
+func removeRangeSymbols(jsonStr string) string {
+	rangePattern := regexp.MustCompile(`[~]`)
+	// 移除独立的~符号
+	fixed := rangePattern.ReplaceAllString(jsonStr, "")
+
+	// 移除~周围的空格
+	fixed = strings.ReplaceAll(fixed, " ~", "")
+	fixed = strings.ReplaceAll(fixed, "~ ", "")
+
+	return fixed
+}
+
 func validateJSONFormat(jsonStr string) error {
 	trimmed := strings.TrimSpace(jsonStr)
 
@@ -1893,7 +1931,14 @@ func validateJSONFormat(jsonStr string) error {
 		return fmt.Errorf("JSON must start with [{ (whitespace allowed), actual: %s", trimmed[:min(20, len(trimmed))])
 	}
 
+	// 检查并自动修复范围符号
 	if strings.Contains(jsonStr, "~") {
+		fixedJSON := removeRangeSymbols(jsonStr)
+
+		// 如果修复后内容不同，返回修复后的建议
+		if fixedJSON != jsonStr {
+			return fmt.Errorf("JSON contains range symbol ~ which has been automatically removed. Suggested fix: %s", fixedJSON)
+		}
 		return fmt.Errorf("JSON cannot contain range symbol ~, all numbers must be precise single values")
 	}
 
