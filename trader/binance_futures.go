@@ -452,9 +452,12 @@ func (t *FuturesTrader) GetBalance() (map[string]interface{}, error) {
 
 // GetPositions gets all positions (with cache)
 func (t *FuturesTrader) GetPositions() ([]map[string]interface{}, error) {
+	// 强制刷新缓存用于调试
+	forceRefresh := true
+
 	// First check if cache is valid
 	t.positionsCacheMutex.RLock()
-	if t.cachedPositions != nil && time.Since(t.positionsCacheTime) < t.cacheDuration {
+	if !forceRefresh && t.cachedPositions != nil && time.Since(t.positionsCacheTime) < t.cacheDuration {
 		cacheAge := time.Since(t.positionsCacheTime)
 		t.positionsCacheMutex.RUnlock()
 		logger.Infof("✓ Using cached position information (cache age: %.1f seconds ago)", cacheAge.Seconds())
@@ -494,11 +497,16 @@ func (t *FuturesTrader) GetPositions() ([]map[string]interface{}, error) {
 	}
 
 	var result []map[string]interface{}
-	for _, pos := range positions {
+	logger.Debugf("🔍 Binance持仓响应解析开始，原始持仓数: %d", len(positions))
+	for i, pos := range positions {
 		posAmt, _ := strconv.ParseFloat(pos.PositionAmt, 64)
+
 		if posAmt == 0 {
 			continue // Skip positions with zero amount
 		}
+
+		logger.Debugf("  原始持仓[%d]: Symbol=%s, PositionAmt=%s, EntryPrice=%s, Side=%s",
+			i, pos.Symbol, pos.PositionAmt, pos.EntryPrice, pos.PositionSide)
 
 		posMap := make(map[string]interface{})
 		posMap["symbol"] = pos.Symbol
@@ -508,6 +516,7 @@ func (t *FuturesTrader) GetPositions() ([]map[string]interface{}, error) {
 		posMap["unRealizedProfit"], _ = strconv.ParseFloat(pos.UnRealizedProfit, 64)
 		posMap["leverage"], _ = strconv.ParseFloat(pos.Leverage, 64)
 		posMap["liquidationPrice"], _ = strconv.ParseFloat(pos.LiquidationPrice, 64)
+		posMap["positionSide"] = pos.PositionSide // 保留原始的positionSide信息
 		// Note: Binance SDK doesn't expose updateTime field, will fallback to local tracking
 
 		// Determine direction
@@ -517,8 +526,11 @@ func (t *FuturesTrader) GetPositions() ([]map[string]interface{}, error) {
 			posMap["side"] = "short"
 		}
 
+		logger.Debugf("  ✅ 处理后持仓[%d]: symbol=%s, positionAmt=%.6f, side=%s, positionSide=%s",
+			i, posMap["symbol"], posMap["positionAmt"], posMap["side"], posMap["positionSide"])
 		result = append(result, posMap)
 	}
+	logger.Debugf("🔍 Binance持仓解析完成，有效持仓数: %d", len(result))
 
 	// Update cache
 	t.positionsCacheMutex.Lock()

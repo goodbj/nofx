@@ -109,6 +109,12 @@ func (pb *PromptBuilder) buildSystemPromptZH() string {
   - **wait**: 等待观望，无交易机会时使用
   - **partial_close**: 部分平仓（平掉一定比例的仓位）
   - **update_stop_loss**: 更新止损价格（移动止损位）
+    - **必需参数**:
+      - new_stop_loss（新止损价格）
+      - **position_direction**（仓位方向：必须指定 "long" 或 "short"）
+    - **示例**: 
+      {"symbol": "BTCUSDT", "action": "update_stop_loss", "position_direction": "short", "new_stop_loss": 67700, "confidence": 90, "reasoning": "BTC空头仓位盈利，将止损上移至67700保护利润"}
+    - **重要提醒**: 必须明确指定仓位方向，系统会验证方向是否与现有持仓匹配
   - **update_take_profit**: 更新止盈价格（调整止盈目标）
 - **action**: 动作类型（必需）- 高级操作
   - **trailing_stop**: 追踪止损（价格随利润移动，回撤触发平仓）
@@ -413,6 +419,12 @@ func (pb *PromptBuilder) buildSystemPromptEN() string {
   - **wait**: Wait and watch, use when no trading opportunity
   - **partial_close**: Partially close position (close a percentage)
   - **update_stop_loss**: Update stop-loss price (move stop level)
+    - **Required Parameters**:
+      - new_stop_loss (new stop loss price)
+      - **position_direction** (position direction: must specify "long" or "short")
+    - **Example**: 
+      {"symbol": "BTCUSDT", "action": "update_stop_loss", "position_direction": "short", "new_stop_loss": 67700, "confidence": 90, "reasoning": "BTC short position is profitable, moving stop loss to 67700 to protect profits"}
+    - **Important**: Must explicitly specify position direction, system will verify direction matches existing position
   - **update_take_profit**: Update take-profit price (adjust TP target)
 - **action**: Action type (required) - Advanced Operations
   - **trailing_stop**: Trailing stop-loss (moves with price, triggers on pullback)
@@ -691,6 +703,13 @@ func ValidateDecisionFormat(decisions []Decision) error {
 			if d.NewStopLoss <= 0 {
 				return fmt.Errorf("决策#%d: new_stop_loss价格必须大于0", i+1)
 			}
+			// 仓位方向验证
+			if d.PositionDirection == "" {
+				return fmt.Errorf("决策#%d: UPDATE_STOP_LOSS动作需要提供position_direction (\"long\" 或 \"short\")", i+1)
+			}
+			if d.PositionDirection != "long" && d.PositionDirection != "short" {
+				return fmt.Errorf("决策#%d: position_direction必须是\"long\"或\"short\"，当前值: %s", i+1, d.PositionDirection)
+			}
 		}
 
 		// 更新止盈的必需参数检查
@@ -702,6 +721,13 @@ func ValidateDecisionFormat(decisions []Decision) error {
 			// 价格合理性验证
 			if d.NewTakeProfit <= 0 {
 				return fmt.Errorf("决策#%d: new_take_profit价格必须大于0", i+1)
+			}
+			// 仓位方向验证
+			if d.PositionDirection == "" {
+				return fmt.Errorf("决策#%d: UPDATE_TAKE_PROFIT动作需要提供position_direction (\"long\" 或 \"short\")", i+1)
+			}
+			if d.PositionDirection != "long" && d.PositionDirection != "short" {
+				return fmt.Errorf("决策#%d: position_direction必须是\"long\"或\"short\"，当前值: %s", i+1, d.PositionDirection)
 			}
 		}
 

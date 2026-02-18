@@ -3530,14 +3530,31 @@ func (at *AutoTrader) executeUpdateStopLossWithRecord(decision *kernel.Decision,
 
 	// Find the position for this symbol
 	var foundPos map[string]interface{}
-	for _, pos := range positions {
-		if pos["symbol"] == decision.Symbol {
+	logger.Debugf("🔍 查找持仓: 目标币种=%s, 总持仓数=%d", decision.Symbol, len(positions))
+	for i, pos := range positions {
+		symbol, _ := pos["symbol"].(string)
+		side, _ := pos["side"].(string)
+		positionAmt, _ := pos["positionAmt"].(float64)
+		positionSide, _ := pos["positionSide"].(string)
+		logger.Debugf("  持仓[%d]: symbol=%s, side=%s, positionSide=%s, positionAmt=%.6f",
+			i, symbol, side, positionSide, positionAmt)
+
+		if symbol == decision.Symbol {
 			foundPos = pos
+			logger.Debugf("  ✅ 找到匹配持仓: symbol=%s, side=%s, positionSide=%s, positionAmt=%.6f",
+				symbol, side, positionSide, positionAmt)
 			break
 		}
 	}
 
 	if foundPos == nil {
+		logger.Errorf("❌ 未找到币种 %s 的持仓，当前持仓列表:", decision.Symbol)
+		for i, pos := range positions {
+			symbol, _ := pos["symbol"].(string)
+			side, _ := pos["side"].(string)
+			positionAmt, _ := pos["positionAmt"].(float64)
+			logger.Errorf("  [%d] %s: side=%s, positionAmt=%.6f", i, symbol, side, positionAmt)
+		}
 		return fmt.Errorf("no position found for symbol %s", decision.Symbol)
 	}
 
@@ -3561,18 +3578,30 @@ func (at *AutoTrader) executeUpdateStopLossWithRecord(decision *kernel.Decision,
 		qtyFloat = math.Abs(qtyFloat)
 	}
 
-	// Get position side
-	positionSide, ok := foundPos["positionSide"].(string)
-	if !ok {
-		// Some exchanges use 'side' instead of 'positionSide'
-		positionSide, _ = foundPos["side"].(string)
+	// Verify that AI specified direction matches actual position direction
+	actualSide := "LONG"
+	if qtyFloatOrig, ok := foundPos["positionAmt"].(float64); ok && qtyFloatOrig < 0 {
+		actualSide = "SHORT"
+	} else if qtyFloatOrigNum, ok := foundPos["positionAmt"].(*json.Number); ok {
+		if qtyFloatOrig, err := qtyFloatOrigNum.Float64(); err == nil && qtyFloatOrig < 0 {
+			actualSide = "SHORT"
+		}
 	}
 
-	// Determine side for stop loss
-	side := "LONG"
-	if positionSide == "SHORT" || (positionSide == "" && strings.Contains(strings.ToUpper(foundPos["symbol"].(string)), "USDT") && foundPos["side"].(string) == "SHORT") {
-		side = "SHORT"
+	aiSide := strings.ToUpper(decision.PositionDirection)
+	if aiSide != actualSide {
+		return fmt.Errorf("仓位方向不匹配: AI指定%s，但实际持仓为%s", aiSide, actualSide)
 	}
+
+	logger.Debugf("🔍 仓位方向验证通过: AI指定=%s, 实际=%s", aiSide, actualSide)
+
+	// Get position side from AI decision
+	side := strings.ToUpper(decision.PositionDirection)
+	if side != "LONG" && side != "SHORT" {
+		return fmt.Errorf("invalid position direction: %s (must be 'long' or 'short')", decision.PositionDirection)
+	}
+
+	logger.Debugf("🔍 使用AI指定的仓位方向: side=%s", side)
 
 	// Get current market price for reference
 	marketData, err := market.Get(decision.Symbol)
