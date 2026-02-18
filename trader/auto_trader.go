@@ -1970,12 +1970,9 @@ func (at *AutoTrader) executeCloseLongWithRecord(decision *kernel.Decision, acti
 		return err
 	}
 
-	// After closing position, ensure all related pending orders are cancelled
-	if err := at.trader.CancelAllOrders(decision.Symbol); err != nil {
-		logger.Infof("  ⚠️ Failed to cancel pending orders after closing long position: %v", err)
-	} else {
-		logger.Infof("  ✓ Cancelled all pending orders after closing long position for %s", decision.Symbol)
-	}
+	// The trader already cancels all pending orders after successful close
+	// No need to cancel again here
+	logger.Infof("  ✅ Long position closed successfully for %s", decision.Symbol)
 
 	// Record order ID
 	if orderID, ok := order["orderId"].(int64); ok {
@@ -2067,12 +2064,9 @@ func (at *AutoTrader) executeCloseShortWithRecord(decision *kernel.Decision, act
 		return err
 	}
 
-	// After closing position, ensure all related pending orders are cancelled
-	if err := at.trader.CancelAllOrders(decision.Symbol); err != nil {
-		logger.Infof("  ⚠️ Failed to cancel pending orders after closing short position: %v", err)
-	} else {
-		logger.Infof("  ✓ Cancelled all pending orders after closing short position for %s", decision.Symbol)
-	}
+	// The trader already cancels all pending orders after successful close
+	// No need to cancel again here
+	logger.Infof("  ✅ Short position closed successfully for %s", decision.Symbol)
 
 	// Record order ID
 	if orderID, ok := order["orderId"].(int64); ok {

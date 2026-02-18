@@ -873,6 +873,7 @@ func (t *FuturesTrader) CloseLong(symbol string, quantity float64) (map[string]i
 	logger.Infof("✓ Closed long position successfully: %s quantity: %s", symbol, quantityStr)
 
 	// After closing position, cancel all pending orders for this symbol (stop-loss and take-profit orders)
+	// We cancel pending orders here because they are no longer relevant after position is closed
 	if err := t.CancelAllOrders(symbol); err != nil {
 		logger.Infof("  ⚠ Failed to cancel pending orders: %v", err)
 	}
@@ -955,6 +956,7 @@ func (t *FuturesTrader) CloseShort(symbol string, quantity float64) (map[string]
 	logger.Infof("✓ Closed short position successfully: %s quantity: %s", symbol, quantityStr)
 
 	// After closing position, cancel all pending orders for this symbol (stop-loss and take-profit orders)
+	// We cancel pending orders here because they are no longer relevant after position is closed
 	if err := t.CancelAllOrders(symbol); err != nil {
 		logger.Infof("  ⚠ Failed to cancel pending orders: %v", err)
 	}
@@ -1357,11 +1359,6 @@ func (t *FuturesTrader) PartialClose(symbol string, side string, percentage floa
 
 // UpdateStopLoss 更新止损单
 func (t *FuturesTrader) UpdateStopLoss(symbol string, positionSide string, newStopPrice float64) error {
-	// 首先取消当前的止损单
-	if err := t.CancelStopLossOrders(symbol); err != nil {
-		log.Printf("  ⚠ 取消旧止损单失败（可能没有旧单）: %v", err)
-	}
-
 	// 获取当前持仓数量
 	positions, err := t.GetPositions()
 	if err != nil {
@@ -1396,8 +1393,21 @@ func (t *FuturesTrader) UpdateStopLoss(symbol string, positionSide string, newSt
 		return fmt.Errorf("未找到 %s 的 %s 仓位", symbol, positionSide)
 	}
 
-	// 设置新的止损单
-	return t.SetStopLoss(symbol, positionSide, currentQty, newStopPrice)
+	// 首先尝试设置新的止损单，而不先取消旧的止损单
+	err = t.SetStopLoss(symbol, positionSide, currentQty, newStopPrice)
+	if err != nil {
+		// 如果新止损设置失败，返回错误，不取消旧的止损单
+		// 这样可以保持原有的止损保护
+		return fmt.Errorf("设置新止损失败，保持原有止损保护: %w", err)
+	}
+
+	// 如果新止损设置成功，再取消旧的止损单
+	if err := t.CancelStopLossOrders(symbol); err != nil {
+		log.Printf("  ⚠ 取消旧止损单失败（新止损已成功设置）: %v", err)
+		// 不返回错误，因为新的止损已经成功设置
+	}
+
+	return nil
 }
 
 // UpdateTakeProfit 更新止盈单
