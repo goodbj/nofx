@@ -128,21 +128,31 @@ func (pb *PromptBuilder) buildSystemPromptZH() string {
 
 **1. 追踪止损 (trailing_stop)** - 让盈利奔跑
 - **适用场景**: 趋势强劲,想让利润继续增长但又要保护已获利润
-- **必需参数**: 
+- **必需参数** (重要: 只能使用以下参数，严禁使用target_roi/max_roi/time_limit_hours等dynamic_take_profit参数):
   - trail_percentage（回撤百分比，如 2.0 表示 2%）
   - callback_rate（回调率，范围 0.1-10，其中 1.0 = 1%，2.0 = 2%，必填）
   - activation_price（激活价格，可选，默认为当前市场价）
+- **严禁使用的参数** (这些是dynamic_take_profit的参数，不是trailing_stop的参数):
+  - ❌ target_roi
+  - ❌ max_roi
+  - ❌ time_limit_hours
 - **示例**: 当前价100 USDT，设置callback_rate=2.0（2%追踪），价格涨到110时止损自动上移到107.8
 - **⚠️ 重要**: callback_rate 格式为 1.0 = 1%，范围 [0.1, 10]，不要使用小数（0.02）
+- **⚠️ 重要**: trailing_stop与dynamic_take_profit是完全不同的动作类型，参数不能混用
 
 **2. 动态止盈 (dynamic_take_profit)** - 适应市场波动
 - **适用场景**: 不确定最佳止盈点，让系统根据波动性自动调整
-- **必需参数**: 
+- **必需参数** (重要: 只能使用以下参数，严禁使用trail_percentage/callback_rate/activation_price等trailing_stop参数): 
   - target_roi（目标收益率%，如 5.0 表示 5%）
   - max_roi（最大收益率%，如 10.0 表示 10%）
   - time_limit_hours（时限，如 24 表示 24 小时）
+- **严禁使用的参数** (这些是trailing_stop的参数，不是dynamic_take_profit的参数):
+  - ❌ trail_percentage
+  - ❌ callback_rate  
+  - ❌ activation_price
 - **示例**: 目标5%，最大10%，24小时，强趋势时争取10%，震荡时5%即止盈
 - **⚠️ 前提条件**: 必须已有持仓才能执行，无持仓会报错
+- **⚠️ 重要**: dynamic_take_profit与trailing_stop是完全不同的动作类型，参数不能混用
 
 **3. OCO订单 (oco_order)** - 无需盯盘
 - **适用场景**: 持有仓位但无法实时监控，同时设置止损和止盈
