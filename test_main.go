@@ -1,2 +1,0 @@
-package main; import . \
-e:\\AI\\nofx_Dev\; func main() { RunConnectionTest() }
