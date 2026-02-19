@@ -451,7 +451,7 @@ func fetchMarketDataWithStrategy(ctx *Context, engine *StrategyEngine) error {
 		positionSymbols[pos.Symbol] = true
 	}
 
-	const minOIThresholdMillions = 15.0 // 15M USD minimum open interest value
+	const minOIThresholdMillions = 15.0 // 恢复nofx原生代码默认OI阈值（15M USD），保持严格的流动性过滤
 
 	for _, coin := range ctx.CandidateCoins {
 		if _, exists := ctx.MarketDataMap[coin.Symbol]; exists {
@@ -464,17 +464,33 @@ func fetchMarketDataWithStrategy(ctx *Context, engine *StrategyEngine) error {
 			continue
 		}
 
+		// Check if this coin is from static list (should be more permissive for user-specified coins)
+		isStaticCoin := isCoinInStaticList(coin.Symbol, config)
+		logger.Debugf("📊 Processing coin %s - Static list check: %t", coin.Symbol, isStaticCoin)
+
+		// For static coins, bypass OI filter completely as they are user-specified
+		shouldApplyOIFilter := !isStaticCoin
+
 		// Liquidity filter (skip for xyz dex assets - they don't have OI data from Binance)
 		isExistingPosition := positionSymbols[coin.Symbol]
 		isXyzAsset := market.IsXyzDexAsset(coin.Symbol)
-		if !isExistingPosition && !isXyzAsset && data.OpenInterest != nil && data.CurrentPrice > 0 {
+		
+		if shouldApplyOIFilter && !isExistingPosition && !isXyzAsset && data.OpenInterest != nil && data.CurrentPrice > 0 {
 			oiValue := data.OpenInterest.Latest * data.CurrentPrice
 			oiValueInMillions := oiValue / 1_000_000
 			if oiValueInMillions < minOIThresholdMillions {
-				logger.Infof("⚠️  %s OI value too low (%.2fM USD < %.1fM), skipping coin",
-					coin.Symbol, oiValueInMillions, minOIThresholdMillions)
+				logger.Infof("⚠️  %s OI value too low (%.2fM USD < %.1fM), skipping coin (static=%t)",
+					coin.Symbol, oiValueInMillions, minOIThresholdMillions, isStaticCoin)
 				continue
+			} else {
+				logger.Debugf("✅ %s OI value acceptable: %.2fM >= %.1fM (static=%t)", 
+					coin.Symbol, oiValueInMillions, minOIThresholdMillions, isStaticCoin)
 			}
+		} else if isStaticCoin {
+			logger.Debugf("📊 Skipping OI check for static coin %s (user-specified)", coin.Symbol)
+		} else {
+			logger.Debugf("📊 Skipping OI check for %s (existingPos=%t, xyzAsset=%t, oiNil=%t, zeroPrice=%t)", 
+				coin.Symbol, isExistingPosition, isXyzAsset, data.OpenInterest == nil, data.CurrentPrice <= 0)
 		}
 
 		ctx.MarketDataMap[coin.Symbol] = data
@@ -2141,4 +2157,27 @@ func detectLanguage(text string) Language {
 		}
 	}
 	return LangEnglish
+}
+
+// isCoinInStaticList checks if a coin symbol is in the static coin list of the strategy config
+func isCoinInStaticList(symbol string, config *store.StrategyConfig) bool {
+	if config == nil || config.CoinSource.StaticCoins == nil {
+		logger.Debugf("📊 isCoinInStaticList: Config or StaticCoins is nil for symbol %s", symbol)
+		return false
+	}
+	
+	logger.Debugf("📊 isCoinInStaticList: Checking %s against static list: %v", symbol, config.CoinSource.StaticCoins)
+	for _, staticCoin := range config.CoinSource.StaticCoins {
+		if staticCoin == symbol {
+			logger.Debugf("✅ isCoinInStaticList: Found %s in static list", symbol)
+			return true
+		}
+	}
+	logger.Debugf("❌ isCoinInStaticList: %s not found in static list", symbol)
+	return false
+}
+
+// IsCoinInStaticListPublic exposes the static list check functionality publicly
+func IsCoinInStaticListPublic(symbol string, config *store.StrategyConfig) bool {
+	return isCoinInStaticList(symbol, config)
 }

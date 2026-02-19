@@ -1522,14 +1522,60 @@ func (at *AutoTrader) enhanceMarketData(ctx *kernel.Context) error {
 		symbolsToQuery[coin.Symbol] = true
 	}
 
-	// Fetch market data for all required symbols
+	// Get timeframe counts for new method
+	timeframeCounts := strategyConfig.Indicators.Klines.TimeframeCounts
+	if timeframeCounts == nil {
+		timeframeCounts = make(map[string]int)
+	}
+	
+	// For backward compatibility, if timeframeCounts is empty, populate with klineCount for all timeframes
+	if len(timeframeCounts) == 0 {
+		for _, tf := range timeframes {
+			timeframeCounts[tf] = klineCount
+		}
+	}
+
+	// Fetch market data for all required symbols using NEW METHOD
+	// Apply same filtering logic as fetchMarketDataWithStrategy for consistency
+	const minOIThresholdMillions = 15.0 // Consistent threshold with fetchMarketDataWithStrategy
+	
 	for symbol := range symbolsToQuery {
-		data, err := market.GetWithTimeframes(symbol, timeframes, primaryTimeframe, klineCount)
+		data, err := market.GetWithTimeframesAndCounts(symbol, timeframes, primaryTimeframe, timeframeCounts)
 		if err != nil {
 			logger.Warnf("[%s] Failed to get market data for %s: %v", at.name, symbol, err)
 			// Continue with other symbols even if one fails
 			continue
 		}
+		
+		// Apply same filtering logic as fetchMarketDataWithStrategy for consistency
+		// Check if this coin is from static list (should be more permissive for user-specified coins)
+		strategyConfig := at.strategyEngine.GetConfig()
+		isStaticCoin := kernel.IsCoinInStaticListPublic(symbol, strategyConfig)
+		logger.Debugf("[%s] Processing coin %s - Static list check: %t", at.name, symbol, isStaticCoin)
+		
+		// For static coins, bypass OI filter completely as they are user-specified
+		shouldApplyOIFilter := !isStaticCoin
+		isXyzAsset := market.IsXyzDexAsset(symbol)
+		
+		if shouldApplyOIFilter && !isXyzAsset && data.OpenInterest != nil && data.CurrentPrice > 0 {
+			oiValue := data.OpenInterest.Latest * data.CurrentPrice
+			oiValueInMillions := oiValue / 1_000_000
+			
+			if oiValueInMillions < minOIThresholdMillions {
+				logger.Infof("[%s] %s OI value too low (%.2fM USD < %.1fM), skipping coin (static=%t)",
+					at.name, symbol, oiValueInMillions, minOIThresholdMillions, isStaticCoin)
+				continue
+			} else {
+				logger.Debugf("[%s] %s OI value acceptable: %.2fM >= %.1fM (static=%t)", 
+					at.name, symbol, oiValueInMillions, minOIThresholdMillions, isStaticCoin)
+			}
+		} else if isStaticCoin {
+			logger.Debugf("[%s] Skipping OI check for static coin %s (user-specified)", at.name, symbol)
+		} else {
+			logger.Debugf("[%s] Skipping OI check for %s (xyzAsset=%t, oiNil=%t, zeroPrice=%t)", 
+				at.name, symbol, isXyzAsset, data.OpenInterest == nil, data.CurrentPrice <= 0)
+		}
+		
 		ctx.MarketDataMap[symbol] = data
 	}
 

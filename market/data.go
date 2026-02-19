@@ -67,8 +67,9 @@ func getKlinesFromCoinAnk(symbol, interval string, limit int) ([]Kline, error) {
 		return nil, fmt.Errorf("unsupported interval: %s", interval)
 	}
 
-	// Call CoinAnk free/open API (no authentication required)
-	ctx := context.Background()
+	// Call CoinAnk free/open API (no authentication required) with timeout
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
 	ts := time.Now().UnixMilli()
 	// Use "To" side to search backward from current time (get historical klines)
 	coinankKlines, err := coinank_api.Kline(ctx, symbol, coinank_enum.Binance, ts, coinank_enum.To, limit, coinankInterval)
@@ -104,8 +105,9 @@ func getKlinesFromHyperliquid(symbol, interval string, limit int) ([]Kline, erro
 	// Create Hyperliquid client
 	client := hyperliquid.NewClient()
 
-	// Fetch candles
-	ctx := context.Background()
+	// Fetch candles with timeout
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
 	candles, err := client.GetCandles(ctx, baseCoin, hlInterval, limit)
 	if err != nil {
 		return nil, fmt.Errorf("Hyperliquid API error: %w", err)
