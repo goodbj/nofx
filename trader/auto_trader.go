@@ -715,6 +715,41 @@ func (at *AutoTrader) Stop() {
 }
 
 // runCycle runs one trading cycle (using AI full decision-making)
+// validateDecisionCoins validates that all decision symbols are in the allowed candidate list
+func (at *AutoTrader) validateDecisionCoins(decisions []kernel.Decision) error {
+	// Get allowed coins from strategy engine
+	allowedCoins, err := at.strategyEngine.GetCandidateCoins()
+	if err != nil {
+		return fmt.Errorf("failed to get candidate coins: %w", err)
+	}
+
+	// Create map for fast lookup
+	allowedMap := make(map[string]bool)
+	for _, coin := range allowedCoins {
+		allowedMap[coin.Symbol] = true
+	}
+
+	// Validate each decision
+	for i, decision := range decisions {
+		if !allowedMap[decision.Symbol] {
+			return fmt.Errorf("decision #%d: coin %s is not in allowed list (available: %v)",
+				i+1, decision.Symbol, getSymbolList(allowedCoins))
+		}
+	}
+
+	logger.Infof("✓ All %d decision coins validated against allowed list", len(decisions))
+	return nil
+}
+
+// getSymbolList converts coin list to symbol string slice for logging
+func getSymbolList(coins []kernel.CandidateCoin) []string {
+	symbols := make([]string, len(coins))
+	for i, coin := range coins {
+		symbols[i] = coin.Symbol
+	}
+	return symbols
+}
+
 func (at *AutoTrader) runCycle() error {
 	at.callCount++
 
@@ -885,6 +920,16 @@ func (at *AutoTrader) runCycle() error {
 
 	// 8. Sort decisions: ensure close positions first, then open positions (prevent position stacking overflow)
 	sortedDecisions := sortDecisionsByPriority(aiDecision.Decisions)
+
+	// 8.5 Validate AI decisions against allowed coin list BEFORE execution
+	if err := at.validateDecisionCoins(sortedDecisions); err != nil {
+		logger.Errorf("❌ Decision coin validation failed: %v", err)
+		record.Success = false
+		record.ErrorMessage = fmt.Sprintf("Decision coin validation failed: %v", err)
+		at.saveDecision(record)
+		return nil
+	}
+	logger.Infof("✓ All %d AI decisions passed coin validation", len(sortedDecisions))
 
 	logger.Info("🔄 Execution order (optimized): Close positions first → Open positions later")
 	for i, d := range sortedDecisions {
