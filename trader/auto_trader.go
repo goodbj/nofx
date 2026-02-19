@@ -730,14 +730,53 @@ func (at *AutoTrader) validateDecisionCoins(decisions []kernel.Decision) error {
 	}
 
 	// Validate each decision
+	invalidCoins := []string{}
+	validCoins := []string{}
+
 	for i, decision := range decisions {
 		if !allowedMap[decision.Symbol] {
-			return fmt.Errorf("decision #%d: coin %s is not in allowed list (available: %v)",
-				i+1, decision.Symbol, getSymbolList(allowedCoins))
+			invalidCoins = append(invalidCoins, decision.Symbol)
+			logger.Warnf("⚠️ Decision #%d: coin %s is not in allowed list", i+1, decision.Symbol)
+		} else {
+			validCoins = append(validCoins, decision.Symbol)
+			logger.Debugf("✅ Decision #%d: coin %s is valid", i+1, decision.Symbol)
 		}
 	}
 
-	logger.Infof("✓ All %d decision coins validated against allowed list", len(decisions))
+	// If all decisions are invalid, return error with detailed info
+	if len(invalidCoins) == len(decisions) && len(decisions) > 0 {
+		// Log strategy configuration for debugging
+		config := at.strategyEngine.GetConfig()
+		logger.Errorf("❌ Strategy configuration issue detected for trader: %s", at.name)
+		logger.Errorf("   Strategy ID: %s", at.config.ID)
+		logger.Errorf("   SourceType: %s", config.CoinSource.SourceType)
+		logger.Errorf("   UseAI500: %t", config.CoinSource.UseAI500)
+		logger.Errorf("   UseOITop: %t", config.CoinSource.UseOITop)
+		if config.CoinSource.SourceType == "static" {
+			logger.Errorf("   StaticCoins: %v", config.CoinSource.StaticCoins)
+		}
+
+		// Log the actual allowed coins for comparison
+		allowedSymbols := make([]string, len(allowedCoins))
+		for i, coin := range allowedCoins {
+			allowedSymbols[i] = coin.Symbol
+		}
+		logger.Errorf("   Actually allowed coins: %v", allowedSymbols)
+
+		return fmt.Errorf("all %d decisions use invalid coins: %v (allowed: %v)",
+			len(decisions), invalidCoins, getSymbolList(allowedCoins))
+	}
+
+	// If some decisions are valid, allow them to proceed but warn about invalid ones
+	if len(invalidCoins) > 0 {
+		logger.Warnf("⚠️ %d/%d decisions have invalid coins: %v",
+			len(invalidCoins), len(decisions), invalidCoins)
+		logger.Infof("✓ %d decisions validated successfully: %v",
+			len(validCoins), validCoins)
+	} else {
+		logger.Infof("✓ All %d decision coins validated against allowed list", len(decisions))
+	}
+
 	return nil
 }
 
@@ -1527,7 +1566,7 @@ func (at *AutoTrader) enhanceMarketData(ctx *kernel.Context) error {
 	if timeframeCounts == nil {
 		timeframeCounts = make(map[string]int)
 	}
-	
+
 	// For backward compatibility, if timeframeCounts is empty, populate with klineCount for all timeframes
 	if len(timeframeCounts) == 0 {
 		for _, tf := range timeframes {
@@ -1538,7 +1577,7 @@ func (at *AutoTrader) enhanceMarketData(ctx *kernel.Context) error {
 	// Fetch market data for all required symbols using NEW METHOD
 	// Apply same filtering logic as fetchMarketDataWithStrategy for consistency
 	const minOIThresholdMillions = 15.0 // Consistent threshold with fetchMarketDataWithStrategy
-	
+
 	for symbol := range symbolsToQuery {
 		data, err := market.GetWithTimeframesAndCounts(symbol, timeframes, primaryTimeframe, timeframeCounts)
 		if err != nil {
@@ -1546,36 +1585,36 @@ func (at *AutoTrader) enhanceMarketData(ctx *kernel.Context) error {
 			// Continue with other symbols even if one fails
 			continue
 		}
-		
+
 		// Apply same filtering logic as fetchMarketDataWithStrategy for consistency
 		// Check if this coin is from static list (should be more permissive for user-specified coins)
 		strategyConfig := at.strategyEngine.GetConfig()
 		isStaticCoin := kernel.IsCoinInStaticListPublic(symbol, strategyConfig)
 		logger.Debugf("[%s] Processing coin %s - Static list check: %t", at.name, symbol, isStaticCoin)
-		
+
 		// For static coins, bypass OI filter completely as they are user-specified
 		shouldApplyOIFilter := !isStaticCoin
 		isXyzAsset := market.IsXyzDexAsset(symbol)
-		
+
 		if shouldApplyOIFilter && !isXyzAsset && data.OpenInterest != nil && data.CurrentPrice > 0 {
 			oiValue := data.OpenInterest.Latest * data.CurrentPrice
 			oiValueInMillions := oiValue / 1_000_000
-			
+
 			if oiValueInMillions < minOIThresholdMillions {
 				logger.Infof("[%s] %s OI value too low (%.2fM USD < %.1fM), skipping coin (static=%t)",
 					at.name, symbol, oiValueInMillions, minOIThresholdMillions, isStaticCoin)
 				continue
 			} else {
-				logger.Debugf("[%s] %s OI value acceptable: %.2fM >= %.1fM (static=%t)", 
+				logger.Debugf("[%s] %s OI value acceptable: %.2fM >= %.1fM (static=%t)",
 					at.name, symbol, oiValueInMillions, minOIThresholdMillions, isStaticCoin)
 			}
 		} else if isStaticCoin {
 			logger.Debugf("[%s] Skipping OI check for static coin %s (user-specified)", at.name, symbol)
 		} else {
-			logger.Debugf("[%s] Skipping OI check for %s (xyzAsset=%t, oiNil=%t, zeroPrice=%t)", 
+			logger.Debugf("[%s] Skipping OI check for %s (xyzAsset=%t, oiNil=%t, zeroPrice=%t)",
 				at.name, symbol, isXyzAsset, data.OpenInterest == nil, data.CurrentPrice <= 0)
 		}
-		
+
 		ctx.MarketDataMap[symbol] = data
 	}
 

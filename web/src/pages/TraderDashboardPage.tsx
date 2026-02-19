@@ -1501,11 +1501,11 @@ ${promptPreview.user_prompt}`
                       }
                     }
 
-                    // 刷新相关数据
+                    // 刷新相关数据 - 使用正确的SWR key确保决策列表及时更新
                     await Promise.all([
                       mutate(`positions-${selectedTraderId}`),
                       mutate(`account-${selectedTraderId}`),
-                      mutate(`decisions-${selectedTraderId}`),
+                      mutate(`decisions/latest-${selectedTraderId}-${decisionsLimit}`), // 使用正确的决策数据key
                       mutate(`position-history-${selectedTraderId}`),
                     ])
 
@@ -1777,9 +1777,9 @@ ${promptPreview.user_prompt}`
               style={{ maxHeight: 'calc(240vh - 280px)' }}
             >
               {decisions && decisions.length > 0 ? (
-                decisions.map((decision, i) => (
+                decisions.map((decision) => (
                   <DecisionCard
-                    key={i}
+                    key={`${decision.trader_id}-${decision.cycle_number}-${decision.timestamp}`}
                     decision={decision}
                     language={language}
                     onSymbolClick={handleSymbolClick}

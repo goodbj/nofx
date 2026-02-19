@@ -1498,6 +1498,34 @@ func (t *FuturesTrader) SetStopLoss(symbol string, positionSide string, quantity
 		posSide = futures.PositionSideTypeShort
 	}
 
+	// 🔍 获取当前市场价格用于验证
+	currentPrice, err := t.GetMarketPrice(symbol)
+	if err != nil {
+		logger.Warnf("⚠️ 无法获取 %s 当前价格用于止损验证: %v", symbol, err)
+	} else {
+		// 🔍 验证止损价格合理性
+		priceDiff := math.Abs(stopPrice - currentPrice)
+		priceDiffPercent := (priceDiff / currentPrice) * 100
+
+		logger.Infof("📊 止损价格验证: %s 当前价格=%.4f, 止损价格=%.4f, 价差=%.4f (%.2f%%)",
+			symbol, currentPrice, stopPrice, priceDiff, priceDiffPercent)
+
+		// 做多时止损应该低于当前价格，做空时止损应该高于当前价格
+		if positionSide == "LONG" && stopPrice >= currentPrice {
+			logger.Errorf("❌ 做多止损价格设置错误: 止损价(%.4f) >= 当前价(%.4f)", stopPrice, currentPrice)
+			return fmt.Errorf("long position stop loss price must be below current price: stop=%.4f, current=%.4f", stopPrice, currentPrice)
+		}
+		if positionSide == "SHORT" && stopPrice <= currentPrice {
+			logger.Errorf("❌ 做空止损价格设置错误: 止损价(%.4f) <= 当前价(%.4f)", stopPrice, currentPrice)
+			return fmt.Errorf("short position stop loss price must be above current price: stop=%.4f, current=%.4f", stopPrice, currentPrice)
+		}
+
+		// 检查价差是否过小（小于0.1%可能触发立即执行）
+		if priceDiffPercent < 0.1 {
+			logger.Warnf("⚠️ 止损价格与当前价格过于接近 (%.2f%% < 0.1%%)，可能导致订单立即触发", priceDiffPercent)
+		}
+	}
+
 	// Format price to correct precision
 	priceStr, err := t.FormatPrice(symbol, stopPrice)
 	if err != nil {
@@ -1577,7 +1605,19 @@ func (t *FuturesTrader) SetStopLoss(symbol string, positionSide string, quantity
 			Do(ctx)
 
 		if algoErr != nil {
-			return fmt.Errorf("failed to set stop-loss with both traditional (%v) and algo (%v) orders", err, algoErr)
+			// 🔍 详细错误信息输出
+			logger.Errorf("❌ 止损设置完全失败:")
+			logger.Errorf("   交易对: %s", symbol)
+			logger.Errorf("   持仓方向: %s", positionSide)
+			logger.Errorf("   止损价格: %.4f", stopPrice)
+			if currentPrice > 0 {
+				logger.Errorf("   当前价格: %.4f", currentPrice)
+				logger.Errorf("   价格差异: %.4f (%.2f%%)", math.Abs(stopPrice-currentPrice), (math.Abs(stopPrice-currentPrice)/currentPrice)*100)
+			}
+			logger.Errorf("   传统订单错误: %v", err)
+			logger.Errorf("   算法订单错误: %v", algoErr)
+
+			return fmt.Errorf("failed to set stop-loss with both traditional (%v) and algo (%v) orders - check price settings", err, algoErr)
 		}
 
 		logger.Infof("  Stop-loss price set (Algo Order): %s", priceStr)

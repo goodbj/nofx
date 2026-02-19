@@ -678,7 +678,18 @@ func (tm *TraderManager) addTraderFromStore(traderCfg *store.Trader, aiModelCfg 
 		if err != nil {
 			return fmt.Errorf("failed to parse strategy config for trader %s: %w", traderCfg.Name, err)
 		}
-		logger.Infof("✓ Trader %s loaded strategy config: %s", traderCfg.Name, strategy.Name)
+		logger.Infof("✓ Trader %s loaded strategy config: %s (ID: %s)", traderCfg.Name, strategy.Name, strategy.ID)
+
+		// 🔍 验证策略配置 - 检查是否加载了正确的策略
+		logger.Infof("🔍 Strategy validation for trader %s:", traderCfg.Name)
+		logger.Infof("   Strategy Name: %s", strategy.Name)
+		logger.Infof("   Strategy ID: %s", strategy.ID)
+		logger.Infof("   Source Type: %s", strategyConfig.CoinSource.SourceType)
+		if strategyConfig.CoinSource.SourceType == "static" {
+			logger.Infof("   Static Coins: %v", strategyConfig.CoinSource.StaticCoins)
+		}
+		logger.Infof("   Use AI500: %t", strategyConfig.CoinSource.UseAI500)
+		logger.Infof("   Use OI Top: %t", strategyConfig.CoinSource.UseOITop)
 	} else {
 		return fmt.Errorf("trader %s has no strategy configured", traderCfg.Name)
 	}
