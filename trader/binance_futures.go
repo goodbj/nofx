@@ -2357,25 +2357,6 @@ type CustomTransport struct {
 
 // RoundTrip 实现RoundTripper接口
 func (ct *CustomTransport) RoundTrip(req *http.Request) (*http.Response, error) {
-	logger.Debugf("🔄 CustomTransport.RoundTrip called - TargetEndpoint: %s", ct.TargetEndpoint)
-	// 记录完整的请求URL（提交给交易所前一刻的完整网址）
-	fullURL := req.URL.String()
-	if req.URL.Scheme == "" || req.URL.Host == "" {
-		// 如果URL是相对路径，补充基础URL信息
-		fullURL = req.URL.Path
-		if req.URL.RawQuery != "" {
-			fullURL += "?" + req.URL.RawQuery
-		}
-		logger.Debugf("🌐 API请求 - Method: %s, Path: %s, BaseURL: %s", req.Method, fullURL, ct.TargetEndpoint)
-	} else {
-		logger.Debugf("🌐 API请求 - Method: %s, Full URL: %s", req.Method, req.URL.String())
-	}
-
-	// 记录关键请求头信息
-	if req.Header.Get("X-Target-URL") != "" {
-		logger.Debugf("🔗 转发目标: %s", req.Header.Get("X-Target-URL"))
-	}
-
 	// 如果我们正在使用代理，将真实的目标端点添加到请求头中
 	// 这样代理就知道应该将请求转发到哪里
 	if ct.TargetEndpoint != "" {
@@ -2384,16 +2365,13 @@ func (ct *CustomTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 			logger.Warnf("⚠️ X-Target-URL header already exists with different value: %s, replacing with: %s", originalTarget, ct.TargetEndpoint)
 		}
 		req.Header.Set("X-Target-URL", ct.TargetEndpoint)
-		logger.Debugf("🔄 代理转发 - 目标URL: %s", ct.TargetEndpoint)
 	}
 
-	logger.Debugf("📤 代理请求: %s %s", req.Method, req.URL.String())
 	resp, err := ct.Transport.RoundTrip(req)
 	if err != nil {
 		logger.Errorf("❌ Request failed: %v", err)
 		return resp, err
 	}
-	logger.Debugf("✅ 请求成功, 状态码: %d", resp.StatusCode)
 	return resp, err
 }
 
