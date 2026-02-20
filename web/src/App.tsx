@@ -306,7 +306,7 @@ function App() {
       : null,
     () => api.getLatestDecisions(selectedTraderId, decisionsLimit),
     {
-      refreshInterval: 10000, // 10秒刷新（提高决策更新频率，及时显示执行动作）
+      refreshInterval: 30000, // 30秒刷新（降低请求频率，减少服务器压力）
       revalidateOnFocus: false,
       dedupingInterval: 5000, // 5秒去重，允许更频繁的更新
     }
