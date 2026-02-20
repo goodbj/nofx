@@ -1857,20 +1857,56 @@ func (at *AutoTrader) executeOpenLongWithRecord(decision *kernel.Decision, actio
 	posKey := decision.Symbol + "_long"
 	at.positionFirstSeenTime[posKey] = time.Now().UnixMilli()
 
-	// Set stop loss and take profit
+	// 🔐 安全的止损止盈设置：要么全部成功，要么回滚仓位
+	var stopLossSet, takeProfitSet bool
+	var stopLossError, takeProfitError error
+
+	// 尝试设置止损
 	if decision.StopLoss > 0 {
 		if err := at.trader.SetStopLoss(decision.Symbol, "LONG", quantity, decision.StopLoss); err != nil {
 			logger.Errorf("  ❌ Failed to set stop loss for %s: %v", decision.Symbol, err)
-			return fmt.Errorf("failed to set stop loss: %w", err)
+			stopLossError = err
+		} else {
+			logger.Infof("  ✓ Stop loss set for %s: %.4f", decision.Symbol, decision.StopLoss)
+			stopLossSet = true
 		}
-		logger.Infof("  ✓ Stop loss set for %s: %.4f", decision.Symbol, decision.StopLoss)
 	}
+
+	// 尝试设置止盈
 	if decision.TakeProfit > 0 {
 		if err := at.trader.SetTakeProfit(decision.Symbol, "LONG", quantity, decision.TakeProfit); err != nil {
 			logger.Errorf("  ❌ Failed to set take profit for %s: %v", decision.Symbol, err)
-			return fmt.Errorf("failed to set take profit: %w", err)
+			takeProfitError = err
+		} else {
+			logger.Infof("  ✓ Take profit set for %s: %.4f", decision.Symbol, decision.TakeProfit)
+			takeProfitSet = true
 		}
-		logger.Infof("  ✓ Take profit set for %s: %.4f", decision.Symbol, decision.TakeProfit)
+	}
+
+	// 🔒 风险控制检查：如果任何一个保护订单设置失败，立即平仓
+	if (decision.StopLoss > 0 && !stopLossSet) || (decision.TakeProfit > 0 && !takeProfitSet) {
+		logger.Errorf("⚠️ 保护订单设置失败，立即执行风险控制平仓")
+
+		// 立即平仓以避免无保护风险
+		_, closeErr := at.trader.CloseLong(decision.Symbol, quantity)
+		if closeErr != nil {
+			logger.Errorf("❌ 紧急平仓失败: %v", closeErr)
+			// 即使平仓失败，也要返回原始错误
+			if stopLossError != nil {
+				return fmt.Errorf("stop loss设置失败: %w (紧急平仓也失败: %v)", stopLossError, closeErr)
+			}
+			if takeProfitError != nil {
+				return fmt.Errorf("take profit设置失败: %w (紧急平仓也失败: %v)", takeProfitError, closeErr)
+			}
+		} else {
+			logger.Infof("✅ 紧急平仓成功，避免了无保护风险仓位")
+			if stopLossError != nil {
+				return fmt.Errorf("stop loss设置失败: %w (已执行紧急平仓)", stopLossError)
+			}
+			if takeProfitError != nil {
+				return fmt.Errorf("take profit设置失败: %w (已执行紧急平仓)", takeProfitError)
+			}
+		}
 	}
 
 	return nil
@@ -2003,20 +2039,56 @@ func (at *AutoTrader) executeOpenShortWithRecord(decision *kernel.Decision, acti
 	posKey := decision.Symbol + "_short"
 	at.positionFirstSeenTime[posKey] = time.Now().UnixMilli()
 
-	// Set stop loss and take profit
+	// 🔐 安全的止损止盈设置：要么全部成功，要么回滚仓位
+	var stopLossSet, takeProfitSet bool
+	var stopLossError, takeProfitError error
+
+	// 尝试设置止损
 	if decision.StopLoss > 0 {
 		if err := at.trader.SetStopLoss(decision.Symbol, "SHORT", quantity, decision.StopLoss); err != nil {
 			logger.Errorf("  ❌ Failed to set stop loss for %s: %v", decision.Symbol, err)
-			return fmt.Errorf("failed to set stop loss: %w", err)
+			stopLossError = err
+		} else {
+			logger.Infof("  ✓ Stop loss set for %s: %.4f", decision.Symbol, decision.StopLoss)
+			stopLossSet = true
 		}
-		logger.Infof("  ✓ Stop loss set for %s: %.4f", decision.Symbol, decision.StopLoss)
 	}
+
+	// 尝试设置止盈
 	if decision.TakeProfit > 0 {
 		if err := at.trader.SetTakeProfit(decision.Symbol, "SHORT", quantity, decision.TakeProfit); err != nil {
 			logger.Errorf("  ❌ Failed to set take profit for %s: %v", decision.Symbol, err)
-			return fmt.Errorf("failed to set take profit: %w", err)
+			takeProfitError = err
+		} else {
+			logger.Infof("  ✓ Take profit set for %s: %.4f", decision.Symbol, decision.TakeProfit)
+			takeProfitSet = true
 		}
-		logger.Infof("  ✓ Take profit set for %s: %.4f", decision.Symbol, decision.TakeProfit)
+	}
+
+	// 🔒 风险控制检查：如果任何一个保护订单设置失败，立即平仓
+	if (decision.StopLoss > 0 && !stopLossSet) || (decision.TakeProfit > 0 && !takeProfitSet) {
+		logger.Errorf("⚠️ 保护订单设置失败，立即执行风险控制平仓")
+
+		// 立即平仓以避免无保护风险
+		_, closeErr := at.trader.CloseShort(decision.Symbol, quantity)
+		if closeErr != nil {
+			logger.Errorf("❌ 紧急平仓失败: %v", closeErr)
+			// 即使平仓失败，也要返回原始错误
+			if stopLossError != nil {
+				return fmt.Errorf("stop loss设置失败: %w (紧急平仓也失败: %v)", stopLossError, closeErr)
+			}
+			if takeProfitError != nil {
+				return fmt.Errorf("take profit设置失败: %w (紧急平仓也失败: %v)", takeProfitError, closeErr)
+			}
+		} else {
+			logger.Infof("✅ 紧急平仓成功，避免了无保护风险仓位")
+			if stopLossError != nil {
+				return fmt.Errorf("stop loss设置失败: %w (已执行紧急平仓)", stopLossError)
+			}
+			if takeProfitError != nil {
+				return fmt.Errorf("take profit设置失败: %w (已执行紧急平仓)", takeProfitError)
+			}
+		}
 	}
 
 	return nil
