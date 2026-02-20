@@ -170,6 +170,10 @@ func (pm *PrecisionManager) parseExchangeInfo(symbol string, exchangeInfo *futur
 				LastUpdate: time.Now(),
 			}
 
+			// 直接使用pricePrecision字段（优先级最高）
+			info.Precision = s.PricePrecision
+			logger.Debugf("📊 使用pricePrecision字段: %d", info.Precision)
+
 			// 解析过滤器
 			for _, filter := range s.Filters {
 				filterType, _ := filter["filterType"].(string)
@@ -177,7 +181,7 @@ func (pm *PrecisionManager) parseExchangeInfo(symbol string, exchangeInfo *futur
 				case "LOT_SIZE":
 					if stepSizeStr, ok := filter["stepSize"].(string); ok {
 						info.StepSize, _ = strconv.ParseFloat(stepSizeStr, 64)
-						info.Precision = calculatePrecisionFromStepSize(stepSizeStr)
+						// 不再从stepSize计算Precision，使用pricePrecision字段
 					}
 					if minQtyStr, ok := filter["minQty"].(string); ok {
 						info.MinQty, _ = strconv.ParseFloat(minQtyStr, 64)
@@ -197,7 +201,7 @@ func (pm *PrecisionManager) parseExchangeInfo(symbol string, exchangeInfo *futur
 			pm.symbolCache[symbol] = info
 			pm.cacheMutex.Unlock()
 
-			logger.Infof("✅ 获取到 %s 精度信息: stepSize=%f, precision=%d",
+			logger.Infof("✅ 获取到 %s 精度信息: stepSize=%f, precision=%d (来自pricePrecision字段)",
 				symbol, info.StepSize, info.Precision)
 			return info, true
 		}
@@ -387,18 +391,27 @@ func (pm *PrecisionManager) alignToStepSize(quantity, stepSize float64) float64 
 
 // formatWithPrecision 按精度格式化
 func (pm *PrecisionManager) formatWithPrecision(quantity float64, precision int) string {
+	logger.Debugf("🔍 [FORMAT_DEBUG] 开始格式化: quantity=%.8f, precision=%d", quantity, precision)
+
+	// 价格格式化时确保最小精度
 	if precision < 0 {
 		precision = 3 // 默认精度
+		logger.Debugf("⚠️ [FORMAT_DEBUG] 精度为负数，使用默认值: %d", precision)
+	} else if precision == 0 {
+		precision = 2 // 价格精度不能为0，至少保留2位小数
+		logger.Debugf("⚠️ [FORMAT_DEBUG] 精度为0，调整为最小值: %d", precision)
 	}
 
 	format := fmt.Sprintf("%%.%df", precision)
 	formatted := fmt.Sprintf(format, quantity)
+	logger.Debugf("📊 [FORMAT_DEBUG] 初步格式化结果: %s", formatted)
 
 	// 移除尾随零
 	formatted = strings.TrimRight(formatted, "0")
 	if strings.HasSuffix(formatted, ".") {
 		formatted = formatted[:len(formatted)-1]
 	}
+	logger.Debugf("✅ [FORMAT_DEBUG] 最终格式化结果: %s", formatted)
 
 	return formatted
 }
@@ -426,16 +439,31 @@ func (pm *PrecisionManager) validateFormattedQuantity(formatted string, info *Sy
 
 // FormatPriceWithValidation 通用的价格格式化方法
 func (pm *PrecisionManager) FormatPriceWithValidation(symbol string, price float64) (string, error) {
+	logger.Infof("🔍 [PRECISION_DEBUG] 开始处理价格格式化: symbol=%s, price=%.8f", symbol, price)
+
 	info, err := pm.GetPrecisionInfo(symbol)
 	if err != nil {
+		logger.Errorf("❌ [PRECISION_DEBUG] 获取精度信息失败: %v", err)
 		return "", fmt.Errorf("无法获取 %s 精度信息: %w", symbol, err)
 	}
 
+	logger.Infof("📊 [PRECISION_DEBUG] 获取到精度信息: TickSize=%.8f, Precision=%d", info.TickSize, info.Precision)
+
 	// Price对齐到tickSize
 	alignedPrice := pm.alignToTickSize(price, info.TickSize)
+	logger.Infof("📊 [PRECISION_DEBUG] TickSize对齐后: %.8f -> %.8f", price, alignedPrice)
 
 	// 价格精度通常比数量精度低
 	pricePrecision := info.Precision
+
+	// 🔧 交易所精度限制检查 - Binance对某些交易对有最大精度限制
+	maxExchangePrecision := 6 // Binance大多数交易对的最大价格精度
+	if pricePrecision > maxExchangePrecision {
+		logger.Warnf("⚠️ %s 价格精度(%d)超出交易所建议限制(%d)，调整为%d",
+			symbol, pricePrecision, maxExchangePrecision, maxExchangePrecision)
+		pricePrecision = maxExchangePrecision
+	}
+
 	if pricePrecision > 8 {
 		pricePrecision = 8 // 价格精度上限
 	}
@@ -445,7 +473,10 @@ func (pm *PrecisionManager) FormatPriceWithValidation(symbol string, price float
 		pricePrecision = 2 // 使用安全的默认值
 	}
 
+	logger.Infof("📊 [PRECISION_DEBUG] 使用精度设置: %d", pricePrecision)
+
 	formatted := pm.formatWithPrecision(alignedPrice, pricePrecision)
+	logger.Infof("📊 [PRECISION_DEBUG] 格式化结果: %.8f -> %s", alignedPrice, formatted)
 
 	// 如果格式化结果为空，提供安全的后备方案
 	if formatted == "" {

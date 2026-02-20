@@ -768,7 +768,7 @@ func (t *BitgetTrader) GetMarketPrice(symbol string) (float64, error) {
 
 	price, err := strconv.ParseFloat(tickers[0].LastPr, 64)
 	if err != nil {
-		return 0, err
+		return 0, fmt.Errorf("failed to parse price: %w (交易所无此币种)", err)
 	}
 
 	return price, nil

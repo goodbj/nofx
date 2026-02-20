@@ -202,7 +202,7 @@ func NewFuturesTrader(apiKey, secretKey, userId, customEndpoint string) *Futures
 	syncBinanceServerTime(client)
 
 	// Create precision manager with file-based cache
-	precisionManager := NewFileBasedPrecisionManager(client, filepath.Join("trader", "jingdu.json"))
+	precisionManager := NewFileBasedPrecisionManager(client, filepath.Join("data", "jingdu.json"))
 
 	trader := &FuturesTrader{
 		client:           client,
@@ -269,7 +269,7 @@ func NewFuturesTraderViaProxy(apiKey, secretKey, userId, proxyURL, targetEndpoin
 	syncBinanceServerTime(client)
 
 	// Create precision manager with file-based cache
-	precisionManager := NewFileBasedPrecisionManager(client, filepath.Join("trader", "jingdu.json"))
+	precisionManager := NewFileBasedPrecisionManager(client, filepath.Join("data", "jingdu.json"))
 
 	trader := &FuturesTrader{
 		client:           client,
@@ -1398,7 +1398,77 @@ func (t *FuturesTrader) PartialClose(symbol string, side string, percentage floa
 	return result, nil
 }
 
-// UpdateStopLoss 更新止损单
+// GetTakeProfitOrders 获取指定符号的所有止盈订单
+func (t *FuturesTrader) GetTakeProfitOrders(symbol string) ([]map[string]interface{}, error) {
+	orders, err := t.GetOpenOrders(symbol)
+	if err != nil {
+		return nil, err
+	}
+
+	var takeProfitOrders []map[string]interface{}
+	for _, order := range orders {
+		orderType := order.Type
+		// 🔍 精确识别止盈订单，排除止损订单
+		upperType := strings.ToUpper(orderType)
+		// 只识别止盈类订单，不包括止损订单
+		if strings.Contains(upperType, "TAKE") && !strings.Contains(upperType, "STOP") {
+			// 将OpenOrder转换为map[string]interface{}
+			orderMap := map[string]interface{}{
+				"orderId":      order.OrderID,
+				"symbol":       order.Symbol,
+				"side":         order.Side,
+				"positionSide": order.PositionSide,
+				"type":         order.Type,
+				"price":        order.Price,
+				"stopPrice":    order.StopPrice,
+				"quantity":     order.Quantity,
+				"status":       order.Status,
+			}
+			takeProfitOrders = append(takeProfitOrders, orderMap)
+			logger.Debugf("🔍 识别到止盈订单: ID=%s, Type=%s", order.OrderID, order.Type)
+		}
+	}
+
+	logger.Infof("📊 找到 %d 个止盈订单用于更新", len(takeProfitOrders))
+	return takeProfitOrders, nil
+}
+
+// GetStopLossOrders 获取指定符号的所有止损订单
+func (t *FuturesTrader) GetStopLossOrders(symbol string) ([]map[string]interface{}, error) {
+	orders, err := t.GetOpenOrders(symbol)
+	if err != nil {
+		return nil, err
+	}
+
+	var stopLossOrders []map[string]interface{}
+	for _, order := range orders {
+		orderType := order.Type
+		// 🔍 精确识别止损订单，排除止盈订单
+		upperType := strings.ToUpper(orderType)
+		// 只识别止损类订单，不包括止盈订单
+		if strings.Contains(upperType, "STOP") && !strings.Contains(upperType, "TAKE") {
+			// 将OpenOrder转换为map[string]interface{}
+			orderMap := map[string]interface{}{
+				"orderId":      order.OrderID,
+				"symbol":       order.Symbol,
+				"side":         order.Side,
+				"positionSide": order.PositionSide,
+				"type":         order.Type,
+				"price":        order.Price,
+				"stopPrice":    order.StopPrice,
+				"quantity":     order.Quantity,
+				"status":       order.Status,
+			}
+			stopLossOrders = append(stopLossOrders, orderMap)
+			logger.Debugf("🔍 识别到止损订单: ID=%s, Type=%s", order.OrderID, order.Type)
+		}
+	}
+
+	logger.Infof("📊 找到 %d 个止损订单用于更新", len(stopLossOrders))
+	return stopLossOrders, nil
+}
+
+// UpdateStopLoss 更新止损单 - 采用安全的事务性操作
 func (t *FuturesTrader) UpdateStopLoss(symbol string, positionSide string, newStopPrice float64) error {
 	// 获取当前持仓数量
 	positions, err := t.GetPositions()
@@ -1434,30 +1504,65 @@ func (t *FuturesTrader) UpdateStopLoss(symbol string, positionSide string, newSt
 		return fmt.Errorf("未找到 %s 的 %s 仓位", symbol, positionSide)
 	}
 
-	// 首先尝试设置新的止损单，而不先取消旧的止损单
+	// 🔐 安全的止损更新：先设置新止损，确认成功后再取消旧止损
+	logger.Infof("🔒 开始安全更新止损: %s 从当前可能存在的止损更新到 %.4f", symbol, newStopPrice)
+
+	// 首先获取当前所有活动的止损订单ID（用于后续比较）
+	activeStopOrders, err := t.GetStopLossOrders(symbol)
+	if err != nil {
+		logger.Warnf("⚠️ 获取当前止损订单失败，但仍继续更新: %v", err)
+		// 如果无法获取当前止损订单，仍继续执行，因为我们知道要取消的是什么
+	}
+
+	// 尝试设置新的止损单
 	err = t.SetStopLoss(symbol, positionSide, currentQty, newStopPrice)
 	if err != nil {
-		// 如果新止损设置失败，返回错误，不取消旧的止损单
-		// 这样可以保持原有的止损保护
+		// 🔴 如果新止损设置失败，保留原止损，返回错误
+		logger.Errorf("❌ 设置新止损失败，保留原止损保护: %v", err)
 		return fmt.Errorf("设置新止损失败，保持原有止损保护: %w", err)
 	}
+	logger.Infof("✅ 新止损设置成功: %s -> %.4f", symbol, newStopPrice)
 
-	// 如果新止损设置成功，再取消旧的止损单
-	if err := t.CancelStopLossOrders(symbol); err != nil {
-		log.Printf("  ⚠ 取消旧止损单失败（新止损已成功设置）: %v", err)
-		// 不返回错误，因为新的止损已经成功设置
+	// 新止损设置成功后，再取消旧的止损订单
+	if len(activeStopOrders) > 0 {
+		// 取消所有旧的止损订单
+		for _, order := range activeStopOrders {
+			orderIDStr, ok := order["orderId"].(string)
+			if !ok {
+				continue
+			}
+			orderID, convErr := strconv.ParseInt(orderIDStr, 10, 64)
+			if convErr != nil {
+				continue
+			}
+			// 使用Binance API直接取消订单
+			ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+			defer cancel()
+			_, err := t.client.NewCancelOrderService().
+				Symbol(symbol).
+				OrderID(orderID).
+				Do(ctx)
+			if err != nil {
+				logger.Warnf("⚠️ 取消旧止损订单 %d 失败: %v", orderID, err)
+			} else {
+				logger.Infof("🗑️ 旧止损订单 %d 已取消", orderID)
+			}
+		}
+	} else {
+		// 如果没有找到特定的止损订单，只取消止损类订单，保留止盈订单
+		logger.Infof("🔍 未找到特定止损订单，使用专用的止损取消函数")
+		if err := t.CancelStopLossOrders(symbol); err != nil {
+			logger.Warnf("⚠️ 取消止损订单时出错（新止损已设置成功）: %v", err)
+			// 不返回错误，因为新止损已经成功设置
+		}
 	}
 
+	logger.Infof("✅ 止损更新完成: %s -> %.4f", symbol, newStopPrice)
 	return nil
 }
 
-// UpdateTakeProfit 更新止盈单
+// UpdateTakeProfit 更新止盈单 - 采用安全的事务性操作
 func (t *FuturesTrader) UpdateTakeProfit(symbol string, positionSide string, newTakeProfitPrice float64) error {
-	// 首先取消当前的止盈单
-	if err := t.CancelTakeProfitOrders(symbol); err != nil {
-		log.Printf("  ⚠ 取消旧止盈单失败（可能没有旧单）: %v", err)
-	}
-
 	// 获取当前持仓数量
 	positions, err := t.GetPositions()
 	if err != nil {
@@ -1492,8 +1597,61 @@ func (t *FuturesTrader) UpdateTakeProfit(symbol string, positionSide string, new
 		return fmt.Errorf("未找到 %s 的 %s 仓位", symbol, positionSide)
 	}
 
-	// 设置新的止盈单
-	return t.SetTakeProfit(symbol, positionSide, currentQty, newTakeProfitPrice)
+	// 🔐 安全的止盈更新：先设置新止盈，确认成功后再取消旧止盈
+	logger.Infof("🔒 开始安全更新止盈: %s 从当前可能存在的止盈更新到 %.4f", symbol, newTakeProfitPrice)
+
+	// 首先获取当前所有活动的止盈订单ID（用于后续比较）
+	activeTakeProfitOrders, err := t.GetTakeProfitOrders(symbol)
+	if err != nil {
+		logger.Warnf("⚠️ 获取当前止盈订单失败，但仍继续更新: %v", err)
+		// 如果无法获取当前止盈订单，仍继续执行，因为我们知道要取消的是什么
+	}
+
+	// 尝试设置新的止盈单
+	err = t.SetTakeProfit(symbol, positionSide, currentQty, newTakeProfitPrice)
+	if err != nil {
+		// 🔴 如果新止盈设置失败，保留原止盈，返回错误
+		logger.Errorf("❌ 设置新止盈失败，保留原止盈保护: %v", err)
+		return fmt.Errorf("设置新止盈失败，保持原有止盈保护: %w", err)
+	}
+	logger.Infof("✅ 新止盈设置成功: %s -> %.4f", symbol, newTakeProfitPrice)
+
+	// 新止盈设置成功后，再取消旧的止盈订单
+	if len(activeTakeProfitOrders) > 0 {
+		// 取消所有旧的止盈订单
+		for _, order := range activeTakeProfitOrders {
+			orderIDStr, ok := order["orderId"].(string)
+			if !ok {
+				continue
+			}
+			orderID, convErr := strconv.ParseInt(orderIDStr, 10, 64)
+			if convErr != nil {
+				continue
+			}
+			// 使用Binance API直接取消订单
+			ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+			defer cancel()
+			_, err := t.client.NewCancelOrderService().
+				Symbol(symbol).
+				OrderID(orderID).
+				Do(ctx)
+			if err != nil {
+				logger.Warnf("⚠️ 取消旧止盈订单 %d 失败: %v", orderID, err)
+			} else {
+				logger.Infof("🗑️ 旧止盈订单 %d 已取消", orderID)
+			}
+		}
+	} else {
+		// 如果没有找到特定的止盈订单，只取消止盈类订单，保留止损订单
+		logger.Infof("🔍 未找到特定止盈订单，使用专用的止盈取消函数")
+		if err := t.CancelTakeProfitOrders(symbol); err != nil {
+			logger.Warnf("⚠️ 取消止盈订单时出错（新止盈已设置成功）: %v", err)
+			// 不返回错误，因为新止盈已经成功设置
+		}
+	}
+
+	logger.Infof("✅ 止盈更新完成: %s -> %.4f", symbol, newTakeProfitPrice)
+	return nil
 }
 
 // GetMarketPrice 获取市场价格
@@ -1516,7 +1674,7 @@ func (t *FuturesTrader) GetMarketPrice(symbol string) (float64, error) {
 
 	price, err := strconv.ParseFloat(prices[0].Price, 64)
 	if err != nil {
-		return 0, fmt.Errorf("failed to parse price '%s' for symbol %s: %w", prices[0].Price, symbol, err)
+		return 0, fmt.Errorf("failed to parse price '%s' for symbol %s: %w (交易所无此币种)", prices[0].Price, symbol, err)
 	}
 
 	return price, nil
@@ -1697,10 +1855,18 @@ func (t *FuturesTrader) SetTakeProfit(symbol string, positionSide string, quanti
 	}
 
 	// Format price to correct precision
+	// 临时清除PIPPINUSDT缓存以获取正确的精度信息
+	if symbol == "PIPPINUSDT" {
+		logger.Infof("🔄 清除PIPPINUSDT精度缓存以获取正确信息")
+		t.precisionManager.ClearCache()
+	}
+	logger.Infof("🔍 [DEBUG] 开始格式化止盈价格: symbol=%s, raw_price=%.8f", symbol, takeProfitPrice)
 	priceStr, err := t.FormatPrice(symbol, takeProfitPrice)
 	if err != nil {
+		logger.Errorf("❌ [DEBUG] 价格格式化失败: %v", err)
 		return fmt.Errorf("failed to format price: %w", err)
 	}
+	logger.Infof("✅ [DEBUG] 价格格式化完成: %.8f -> %s", takeProfitPrice, priceStr)
 
 	// First, try the traditional take-profit market order
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)

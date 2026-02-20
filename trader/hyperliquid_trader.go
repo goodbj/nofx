@@ -1271,7 +1271,7 @@ func (t *HyperliquidTrader) GetMarketPrice(symbol string) (float64, error) {
 
 		priceFloat, err := strconv.ParseFloat(priceStr, 64)
 		if err != nil {
-			return 0, fmt.Errorf("failed to parse price '%s' for %s: %w", priceStr, coin, err)
+			return 0, fmt.Errorf("failed to parse price '%s' for %s: %w (交易所无此币种)", priceStr, coin, err)
 		}
 		return priceFloat, nil
 	}
@@ -1335,7 +1335,7 @@ func (t *HyperliquidTrader) getXyzMarketPrice(coin string) (float64, error) {
 
 		priceFloat, err := strconv.ParseFloat(priceStr, 64)
 		if err != nil {
-			return 0, fmt.Errorf("failed to parse price '%s' for %s: %w", priceStr, lookupKey, err)
+			return 0, fmt.Errorf("failed to parse price '%s' for %s: %w (交易所无此币种)", priceStr, lookupKey, err)
 		}
 		return priceFloat, nil
 	}

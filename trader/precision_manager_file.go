@@ -117,9 +117,9 @@ func (pm *FileBasedPrecisionManager) GetPrecisionInfo(symbol string) (*SymbolPre
 		pm.symbolCache[symbol] = info
 		pm.cacheMutex.Unlock()
 
-		// 检查是否需要更新文件（如果上次更新超过24小时）
-		if time.Since(pm.lastFileUpdate) > 24*time.Hour {
-			logger.Debugf("🔄 检测到文件超过24小时未更新，触发后台文件更新检查")
+		// 检查是否需要更新文件（如果上次更新超过6小时）
+		if time.Since(pm.lastFileUpdate) > 6*time.Hour {
+			logger.Debugf("🔄 检测到文件超过6小时未更新，触发后台文件更新检查")
 			go pm.checkAndRefreshFileIfNeeded()
 		}
 
@@ -165,7 +165,7 @@ func (pm *FileBasedPrecisionManager) getFromFile(symbol string) (*SymbolPrecisio
 				case "LOT_SIZE":
 					if filter.StepSize != "" {
 						info.StepSize, _ = strconv.ParseFloat(filter.StepSize, 64)
-						info.Precision = calculateFilePrecisionFromStepSize(filter.StepSize)
+						// 不再从stepSize计算精度，直接使用pricePrecision字段
 					}
 					if filter.MinQty != "" {
 						info.MinQty, _ = strconv.ParseFloat(filter.MinQty, 64)
@@ -179,6 +179,10 @@ func (pm *FileBasedPrecisionManager) getFromFile(symbol string) (*SymbolPrecisio
 					}
 				}
 			}
+
+			// 🔧 直接使用pricePrecision字段（优先级最高）
+			info.Precision = s.PricePrecision
+			logger.Debugf("📊 使用pricePrecision字段: %d", info.Precision)
 
 			logger.Infof("✅ 从文件获取到 %s 精度信息: stepSize=%f, precision=%d",
 				symbol, info.StepSize, info.Precision)
@@ -288,6 +292,10 @@ func (pm *FileBasedPrecisionManager) parseExchangeInfo(symbol string, exchangeIn
 				LastUpdate: time.Now(),
 			}
 
+			// 直接使用pricePrecision字段（优先级最高）
+			info.Precision = s.PricePrecision
+			logger.Debugf("📊 [文件] 使用pricePrecision字段: %d", info.Precision)
+
 			// 解析过滤器
 			for _, filter := range s.Filters {
 				filterType, _ := filter["filterType"].(string)
@@ -295,7 +303,7 @@ func (pm *FileBasedPrecisionManager) parseExchangeInfo(symbol string, exchangeIn
 				case "LOT_SIZE":
 					if stepSizeStr, ok := filter["stepSize"].(string); ok {
 						info.StepSize, _ = strconv.ParseFloat(stepSizeStr, 64)
-						info.Precision = calculatePrecisionFromStepSize(stepSizeStr)
+						// 不再从stepSize计算Precision，使用pricePrecision字段
 					}
 					if minQtyStr, ok := filter["minQty"].(string); ok {
 						info.MinQty, _ = strconv.ParseFloat(minQtyStr, 64)
@@ -315,7 +323,7 @@ func (pm *FileBasedPrecisionManager) parseExchangeInfo(symbol string, exchangeIn
 			pm.symbolCache[symbol] = info
 			pm.cacheMutex.Unlock()
 
-			logger.Infof("✅ 获取到 %s 精度信息: stepSize=%f, precision=%d",
+			logger.Infof("✅ [文件] 获取到 %s 精度信息: stepSize=%f, precision=%d (来自pricePrecision字段)",
 				symbol, info.StepSize, info.Precision)
 			return info, true
 		}
@@ -504,8 +512,11 @@ func (pm *FileBasedPrecisionManager) alignToStepSize(quantity, stepSize float64)
 
 // formatWithPrecision 按精度格式化
 func (pm *FileBasedPrecisionManager) formatWithPrecision(quantity float64, precision int) string {
+	// 价格格式化时确保最小精度
 	if precision < 0 {
 		precision = 3 // 默认精度
+	} else if precision == 0 {
+		precision = 2 // 价格精度不能为0，至少保留2位小数
 	}
 
 	format := fmt.Sprintf("%%.%df", precision)
@@ -553,6 +564,15 @@ func (pm *FileBasedPrecisionManager) FormatPriceWithValidation(symbol string, pr
 
 	// 价格精度通常比数量精度低
 	pricePrecision := info.Precision
+
+	// 🔧 交易所精度限制检查 - Binance对某些交易对有最大精度限制
+	maxExchangePrecision := 6 // Binance大多数交易对的最大价格精度
+	if pricePrecision > maxExchangePrecision {
+		logger.Warnf("⚠️ %s 价格精度(%d)超出交易所建议限制(%d)，调整为%d",
+			symbol, pricePrecision, maxExchangePrecision, maxExchangePrecision)
+		pricePrecision = maxExchangePrecision
+	}
+
 	if pricePrecision > 8 {
 		pricePrecision = 8 // 价格精度上限
 	}

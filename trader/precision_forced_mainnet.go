@@ -120,7 +120,7 @@ func GetPricePrecisionForcedFromManager(manager PrecisionManagerInterface, symbo
 // 请使用FileBasedPrecisionManager中的方法
 func GetSymbolPrecisionForced(client *futures.Client, symbol string) (int, error) {
 	// 创建FileBasedPrecisionManager实例
-	manager := NewFileBasedPrecisionManager(client, "trader/jingdu.json")
+	manager := NewFileBasedPrecisionManager(client, "data/jingdu.json")
 	return GetSymbolPrecisionForcedFromManager(manager, symbol)
 }
 
@@ -128,6 +128,6 @@ func GetSymbolPrecisionForced(client *futures.Client, symbol string) (int, error
 // 请使用FileBasedPrecisionManager中的方法
 func GetPricePrecisionForced(client *futures.Client, symbol string) (int, error) {
 	// 创建FileBasedPrecisionManager实例
-	manager := NewFileBasedPrecisionManager(client, "trader/jingdu.json")
+	manager := NewFileBasedPrecisionManager(client, "data/jingdu.json")
 	return GetPricePrecisionForcedFromManager(manager, symbol)
 }
