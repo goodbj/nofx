@@ -451,8 +451,6 @@ func fetchMarketDataWithStrategy(ctx *Context, engine *StrategyEngine) error {
 		positionSymbols[pos.Symbol] = true
 	}
 
-	const minOIThresholdMillions = 15.0 // 恢复nofx原生代码默认OI阈值（15M USD），保持严格的流动性过滤
-
 	for _, coin := range ctx.CandidateCoins {
 		if _, exists := ctx.MarketDataMap[coin.Symbol]; exists {
 			continue
@@ -464,33 +462,25 @@ func fetchMarketDataWithStrategy(ctx *Context, engine *StrategyEngine) error {
 			continue
 		}
 
-		// Check if this coin is from static list (should be more permissive for user-specified coins)
+		// Check coin source type for appropriate filtering strategy
 		isStaticCoin := isCoinInStaticList(coin.Symbol, config)
-		logger.Debugf("📊 Processing coin %s - Static list check: %t", coin.Symbol, isStaticCoin)
+		isOITopCoin := isCoinFromOITopSource(coin)
+		logger.Debugf("📊 Processing coin %s - Static: %t, OI Top: %t", coin.Symbol, isStaticCoin, isOITopCoin)
 
-		// For static coins, bypass OI filter completely as they are user-specified
-		shouldApplyOIFilter := !isStaticCoin
-
-		// Liquidity filter (skip for xyz dex assets - they don't have OI data from Binance)
+		// 【临时移除OI过滤以测试数据源获取问题】
+		// 原OI过滤逻辑：对不同来源的币种应用不同阈值（静态列表豁免，OI Top 5M，其他15M）
+		// 现在全部移除OI过滤以验证是否是OI过滤导致从数据源无法获取技术指标
 		isExistingPosition := positionSymbols[coin.Symbol]
 		isXyzAsset := market.IsXyzDexAsset(coin.Symbol)
-		
-		if shouldApplyOIFilter && !isExistingPosition && !isXyzAsset && data.OpenInterest != nil && data.CurrentPrice > 0 {
+
+		logger.Debugf("📊 Bypassing OI check for %s (existingPos=%t, xyzAsset=%t, oiNil=%t, zeroPrice=%t, static=%t, oi_top=%t)",
+			coin.Symbol, isExistingPosition, isXyzAsset, data.OpenInterest == nil, data.CurrentPrice <= 0, isStaticCoin, isOITopCoin)
+
+		// 直接处理数据，不再进行OI过滤
+		if data.OpenInterest != nil && data.CurrentPrice > 0 {
 			oiValue := data.OpenInterest.Latest * data.CurrentPrice
 			oiValueInMillions := oiValue / 1_000_000
-			if oiValueInMillions < minOIThresholdMillions {
-				logger.Infof("⚠️  %s OI value too low (%.2fM USD < %.1fM), skipping coin (static=%t)",
-					coin.Symbol, oiValueInMillions, minOIThresholdMillions, isStaticCoin)
-				continue
-			} else {
-				logger.Debugf("✅ %s OI value acceptable: %.2fM >= %.1fM (static=%t)", 
-					coin.Symbol, oiValueInMillions, minOIThresholdMillions, isStaticCoin)
-			}
-		} else if isStaticCoin {
-			logger.Debugf("📊 Skipping OI check for static coin %s (user-specified)", coin.Symbol)
-		} else {
-			logger.Debugf("📊 Skipping OI check for %s (existingPos=%t, xyzAsset=%t, oiNil=%t, zeroPrice=%t)", 
-				coin.Symbol, isExistingPosition, isXyzAsset, data.OpenInterest == nil, data.CurrentPrice <= 0)
+			logger.Debugf("📊 %s OI value: %.2fM (bypassed filter)", coin.Symbol, oiValueInMillions)
 		}
 
 		ctx.MarketDataMap[coin.Symbol] = data
@@ -1237,47 +1227,6 @@ func (e *StrategyEngine) BuildUserPrompt(ctx *Context) string {
 				resultStr, order.RealizedPnL, order.PnLPct,
 				order.EntryTime, order.ExitTime, order.HoldDuration))
 		}
-		sb.WriteString("\n")
-	}
-
-	// Risk control status (helps AI understand current constraints)
-	riskControl := e.config.RiskControl
-	if riskControl.MaxDailyTrades > 0 || riskControl.MaxHourlyTrades > 0 || riskControl.MaxTradesPerSymbolPerHour > 0 {
-		// Get trade frequency tracker from auto trader (if available through context)
-		// Note: This requires the context to have access to the auto trader instance
-		// For now, we'll show the configured limits without current usage
-		sb.WriteString("## 🛡️ 风险控制配置\n")
-		if riskControl.MaxDailyTrades > 0 {
-			sb.WriteString(fmt.Sprintf("- 每日最大交易次数: %d 笔\n", riskControl.MaxDailyTrades))
-		}
-		if riskControl.MaxHourlyTrades > 0 {
-			sb.WriteString(fmt.Sprintf("- 每小时最大交易次数: %d 笔\n", riskControl.MaxHourlyTrades))
-		}
-		if riskControl.MaxTradesPerSymbolPerHour > 0 {
-			sb.WriteString(fmt.Sprintf("- 每小时每品种最大交易: %d 笔\n", riskControl.MaxTradesPerSymbolPerHour))
-		}
-		if riskControl.MinHoldTimeMinutes > 0 {
-			sb.WriteString(fmt.Sprintf("- 最小持仓时间: %d分钟\n", riskControl.MinHoldTimeMinutes))
-		}
-		if riskControl.MaxLossPerTradePercent > 0 {
-			sb.WriteString(fmt.Sprintf("- 单笔最大亏损: %.2f%%\n", riskControl.MaxLossPerTradePercent))
-		}
-		if riskControl.DailyLossLimitPercent > 0 {
-			sb.WriteString(fmt.Sprintf("- 每日亏损限制: %.2f%%\n", riskControl.DailyLossLimitPercent))
-		}
-		sb.WriteString("\n")
-	}
-
-	// Strategy configuration status
-	if e.config != nil {
-		sb.WriteString("## 📊 当前策略配置\n")
-		sb.WriteString(fmt.Sprintf("- 币种来源: %s\n", e.config.CoinSource.SourceType))
-		indicators := e.config.Indicators
-		indicatorStatus := fmt.Sprintf("EMA=%t, MACD=%t, RSI=%t, Volume=%t",
-			indicators.EnableEMA, indicators.EnableMACD, indicators.EnableRSI, indicators.EnableVolume)
-		sb.WriteString(fmt.Sprintf("- 启用指标: %s\n", indicatorStatus))
-		sb.WriteString(fmt.Sprintf("- 交易风格: %s\n", indicators.Klines.TradingStylePreset))
-		sb.WriteString(fmt.Sprintf("- 时间框架: %v\n", indicators.Klines.SelectedTimeframes))
 		sb.WriteString("\n")
 	}
 
@@ -2165,7 +2114,7 @@ func isCoinInStaticList(symbol string, config *store.StrategyConfig) bool {
 		logger.Debugf("📊 isCoinInStaticList: Config or StaticCoins is nil for symbol %s", symbol)
 		return false
 	}
-	
+
 	logger.Debugf("📊 isCoinInStaticList: Checking %s against static list: %v", symbol, config.CoinSource.StaticCoins)
 	for _, staticCoin := range config.CoinSource.StaticCoins {
 		if staticCoin == symbol {
@@ -2174,6 +2123,16 @@ func isCoinInStaticList(symbol string, config *store.StrategyConfig) bool {
 		}
 	}
 	logger.Debugf("❌ isCoinInStaticList: %s not found in static list", symbol)
+	return false
+}
+
+// isCoinFromOITopSource checks if a coin comes from OI Top ranking source
+func isCoinFromOITopSource(coin CandidateCoin) bool {
+	for _, source := range coin.Sources {
+		if source == "oi_top" {
+			return true
+		}
+	}
 	return false
 }
 
