@@ -474,7 +474,7 @@ export function StrategyStudioPage() {
   const fetchSystemConfig = useCallback(async () => {
     try {
       console.log('Fetching system configuration...')
-      const response = await fetch(`${API_BASE}/api/system-config`)
+      const response = await fetch(`${API_BASE}/api/config`)
       if (response.ok) {
         const data = await response.json()
         console.log('Received system configuration:', data)

@@ -85,6 +85,7 @@ export interface DecisionAction {
   target_roi?: number             // 目标收益率 (dynamic_take_profit)
   max_roi?: number                // 最大收益率 (dynamic_take_profit)
   additional_position_size_usd?: number  // 追加仓位金额 (add_position)
+  pnl?: number              // 盈亏金额 (close_long, close_short)
 }
 
 export interface AccountSnapshot {

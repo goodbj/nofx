@@ -1,5 +1,13 @@
 import { useState, useEffect } from 'react'
 import useSWR from 'swr'
+
+// Confidence color helper function
+function getConfidenceColor(confidence: number | undefined): string {
+  if (!confidence) return '#848E9C';
+  if (confidence >= 80) return '#0ECB81';
+  if (confidence >= 60) return '#F0B90B';
+  return '#F6465D';
+}
 import { api } from '../lib/api'
 import { notify } from '../lib/notify'
 import { useLanguage } from '../contexts/LanguageContext'
@@ -186,53 +194,94 @@ function MessageCard({ msg }: { msg: DebateMessage }) {
             </div>
           )}
 
-          {/* Decision Section */}
+          {/* Decision Section - 统一的新展示方式 */}
           {msg.decision && (
-            <div className="bg-black/20 rounded-lg p-3">
-              <div className="text-xs text-green-400 font-medium mb-2">📊 交易决策 / Decision</div>
-              <div className="grid grid-cols-2 gap-2 text-xs">
-                {msg.decision.symbol && (
-                  <div className="flex justify-between">
-                    <span className="text-gray-500">币种</span>
-                    <span className="text-white font-medium">{msg.decision.symbol}</span>
-                  </div>
-                )}
-                <div className="flex justify-between">
-                  <span className="text-gray-500">方向</span>
-                  <span className={a.color}>{a.label}</span>
+            <div 
+              className="rounded-lg p-4 transition-all duration-200"
+              style={{
+                background: 'linear-gradient(135deg, #1E2329 0%, #181C21 100%)',
+                border: `1px solid ${a.color}33`,
+                boxShadow: `0 4px 12px rgba(0, 0, 0, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.03)`
+              }}
+            >
+              {/* Header */}
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-3">
+                  <span className="text-xl">{a.icon}</span>
+                  <span className="font-mono font-bold text-lg" style={{ color: '#EAECEF' }}>
+                    {msg.decision.symbol || 'N/A'}
+                  </span>
+                  <span
+                    className="px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider"
+                    style={{ background: a.bg, color: a.color, border: `1px solid ${a.color}55` }}
+                  >
+                    {a.label}
+                  </span>
                 </div>
-                <div className="flex justify-between">
-                  <span className="text-gray-500">信心</span>
-                  <span className="text-yellow-400">{msg.decision.confidence}%</span>
+                <div className="flex items-center gap-2">
+                  <div
+                    className="px-2 py-1 rounded text-xs font-semibold"
+                    style={{
+                      background: `${getConfidenceColor(msg.decision.confidence)}22`,
+                      color: getConfidenceColor(msg.decision.confidence)
+                    }}
+                  >
+                    {msg.decision.confidence}%
+                  </div>
                 </div>
-                {(msg.decision.leverage ?? 0) > 0 && (
-                  <div className="flex justify-between">
-                    <span className="text-gray-500">杠杆</span>
-                    <span className="text-white">{msg.decision.leverage}x</span>
-                  </div>
-                )}
-                {(msg.decision.position_pct ?? 0) > 0 && (
-                  <div className="flex justify-between">
-                    <span className="text-gray-500">仓位</span>
-                    <span className="text-white">{((msg.decision.position_pct ?? 0) * 100).toFixed(0)}%</span>
-                  </div>
-                )}
-                {(msg.decision.stop_loss ?? 0) > 0 && (
-                  <div className="flex justify-between">
-                    <span className="text-gray-500">止损</span>
-                    <span className="text-red-400">{((msg.decision.stop_loss ?? 0) * 100).toFixed(1)}%</span>
-                  </div>
-                )}
-                {(msg.decision.take_profit ?? 0) > 0 && (
-                  <div className="flex justify-between">
-                    <span className="text-gray-500">止盈</span>
-                    <span className="text-green-400">{((msg.decision.take_profit ?? 0) * 100).toFixed(1)}%</span>
-                  </div>
-                )}
               </div>
+
+              {/* Trading Details Grid - 统一的4列布局 */}
+              <div className="grid grid-cols-4 gap-3 mt-3 pt-3" style={{ borderTop: '1px solid #2B3139' }}>
+                {/* Price/Value */}
+                <div className="text-center">
+                  <div className="text-xs mb-1" style={{ color: '#848E9C' }}>
+                    价格
+                  </div>
+                  <div className="font-mono font-semibold" style={{ color: '#EAECEF' }}>
+                    {msg.decision.position_size_usd ? `$${msg.decision.position_size_usd.toFixed(0)}` : '-'}
+                  </div>
+                </div>
+
+                {/* Leverage/Position */}
+                <div className="text-center">
+                  <div className="text-xs mb-1" style={{ color: '#848E9C' }}>
+                    {(msg.decision.leverage ?? 0) > 0 ? '杠杆' : '仓位'}
+                  </div>
+                  <div className="font-mono font-semibold" style={{ color: (msg.decision.leverage ?? 0) > 0 ? '#F0B90B' : '#EAECEF' }}>
+                    {(msg.decision.leverage ?? 0) > 0 
+                      ? `${msg.decision.leverage}x` 
+                      : `${((msg.decision.position_pct ?? 0) * 100).toFixed(0)}%`}
+                  </div>
+                </div>
+
+                {/* Stop Loss */}
+                <div className="text-center">
+                  <div className="text-xs mb-1" style={{ color: '#F6465D' }}>
+                    止损
+                  </div>
+                  <div className="font-mono font-semibold" style={{ color: '#F6465D' }}>
+                    {msg.decision.stop_loss ? `${(msg.decision.stop_loss * 100).toFixed(1)}%` : '-'}
+                  </div>
+                </div>
+
+                {/* Take Profit */}
+                <div className="text-center">
+                  <div className="text-xs mb-1" style={{ color: '#0ECB81' }}>
+                    止盈
+                  </div>
+                  <div className="font-mono font-semibold" style={{ color: '#0ECB81' }}>
+                    {msg.decision.take_profit ? `${(msg.decision.take_profit * 100).toFixed(1)}%` : '-'}
+                  </div>
+                </div>
+              </div>
+
+              {/* Reasoning */}
               {msg.decision.reasoning && (
-                <div className="mt-2 pt-2 border-t border-white/10 text-xs text-gray-400">
-                  {msg.decision.reasoning}
+                <div className="mt-3 pt-3" style={{ borderTop: '1px solid #2B3139' }}>
+                  <div className="text-xs line-clamp-2" style={{ color: '#848E9C' }}>
+                    💡 {msg.decision.reasoning}
+                  </div>
                 </div>
               )}
             </div>
