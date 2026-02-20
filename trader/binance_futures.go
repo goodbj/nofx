@@ -499,7 +499,12 @@ func (t *FuturesTrader) GetPositions() ([]map[string]interface{}, error) {
 	var result []map[string]interface{}
 	logger.Debugf("🔍 Binance持仓响应解析开始，原始持仓数: %d", len(positions))
 	for i, pos := range positions {
-		posAmt, _ := strconv.ParseFloat(pos.PositionAmt, 64)
+		// 安全解析持仓数量
+		posAmt, err := strconv.ParseFloat(pos.PositionAmt, 64)
+		if err != nil {
+			logger.Warnf("⚠️ 无法解析持仓数量 %s: %v，跳过该持仓", pos.PositionAmt, err)
+			continue
+		}
 
 		if posAmt == 0 {
 			continue // Skip positions with zero amount
@@ -510,12 +515,48 @@ func (t *FuturesTrader) GetPositions() ([]map[string]interface{}, error) {
 
 		posMap := make(map[string]interface{})
 		posMap["symbol"] = pos.Symbol
-		posMap["positionAmt"], _ = strconv.ParseFloat(pos.PositionAmt, 64)
-		posMap["entryPrice"], _ = strconv.ParseFloat(pos.EntryPrice, 64)
-		posMap["markPrice"], _ = strconv.ParseFloat(pos.MarkPrice, 64)
-		posMap["unRealizedProfit"], _ = strconv.ParseFloat(pos.UnRealizedProfit, 64)
-		posMap["leverage"], _ = strconv.ParseFloat(pos.Leverage, 64)
-		posMap["liquidationPrice"], _ = strconv.ParseFloat(pos.LiquidationPrice, 64)
+		// 安全解析各项数值
+		positionAmt, err := strconv.ParseFloat(pos.PositionAmt, 64)
+		if err != nil {
+			logger.Warnf("⚠️ 无法解析持仓数量 %s: %v，跳过该持仓", pos.PositionAmt, err)
+			continue
+		}
+		posMap["positionAmt"] = positionAmt
+
+		entryPrice, err := strconv.ParseFloat(pos.EntryPrice, 64)
+		if err != nil {
+			logger.Warnf("⚠️ 无法解析入场价格 %s: %v，使用0", pos.EntryPrice, err)
+			entryPrice = 0
+		}
+		posMap["entryPrice"] = entryPrice
+
+		markPrice, err := strconv.ParseFloat(pos.MarkPrice, 64)
+		if err != nil {
+			logger.Warnf("⚠️ 无法解析标记价格 %s: %v，使用0", pos.MarkPrice, err)
+			markPrice = 0
+		}
+		posMap["markPrice"] = markPrice
+
+		unRealizedProfit, err := strconv.ParseFloat(pos.UnRealizedProfit, 64)
+		if err != nil {
+			logger.Warnf("⚠️ 无法解析未实现盈亏 %s: %v，使用0", pos.UnRealizedProfit, err)
+			unRealizedProfit = 0
+		}
+		posMap["unRealizedProfit"] = unRealizedProfit
+
+		leverage, err := strconv.ParseFloat(pos.Leverage, 64)
+		if err != nil {
+			logger.Warnf("⚠️ 无法解析杠杆 %s: %v，使用1", pos.Leverage, err)
+			leverage = 1
+		}
+		posMap["leverage"] = leverage
+
+		liquidationPrice, err := strconv.ParseFloat(pos.LiquidationPrice, 64)
+		if err != nil {
+			logger.Warnf("⚠️ 无法解析爆仓价格 %s: %v，使用0", pos.LiquidationPrice, err)
+			liquidationPrice = 0
+		}
+		posMap["liquidationPrice"] = liquidationPrice
 		posMap["positionSide"] = pos.PositionSide // 保留原始的positionSide信息
 		// Note: Binance SDK doesn't expose updateTime field, will fallback to local tracking
 
@@ -1468,9 +1509,14 @@ func (t *FuturesTrader) GetMarketPrice(symbol string) (float64, error) {
 		return 0, fmt.Errorf("price not found")
 	}
 
+	// 检查价格字符串是否为空
+	if prices[0].Price == "" {
+		return 0, fmt.Errorf("received empty price string for symbol %s", symbol)
+	}
+
 	price, err := strconv.ParseFloat(prices[0].Price, 64)
 	if err != nil {
-		return 0, err
+		return 0, fmt.Errorf("failed to parse price '%s' for symbol %s: %w", prices[0].Price, symbol, err)
 	}
 
 	return price, nil
@@ -2073,8 +2119,28 @@ func (t *FuturesTrader) GetOrderStatus(symbol string, orderID string) (map[strin
 	}
 
 	// Parse execution price
-	avgPrice, _ := strconv.ParseFloat(order.AvgPrice, 64)
-	executedQty, _ := strconv.ParseFloat(order.ExecutedQuantity, 64)
+	avgPrice := 0.0
+	if order.AvgPrice != "" {
+		var err error
+		avgPrice, err = strconv.ParseFloat(order.AvgPrice, 64)
+		if err != nil {
+			logger.Warnf("⚠️ 无法解析平均成交价 %s: %v，使用0", order.AvgPrice, err)
+			avgPrice = 0
+		}
+	} else {
+		logger.Debugf("📝 订单平均成交价为空，设置为0")
+	}
+	executedQty := 0.0
+	if order.ExecutedQuantity != "" {
+		var err error
+		executedQty, err = strconv.ParseFloat(order.ExecutedQuantity, 64)
+		if err != nil {
+			logger.Warnf("⚠️ 无法解析已成交量 %s: %v，使用0", order.ExecutedQuantity, err)
+			executedQty = 0
+		}
+	} else {
+		logger.Debugf("📝 订单已成交量为空，设置为0")
+	}
 
 	result := map[string]interface{}{
 		"orderId":     order.OrderID,
@@ -2361,16 +2427,40 @@ func (t *FuturesTrader) GetOpenOrders(symbol string) ([]OpenOrder, error) {
 	var result []OpenOrder
 	for _, order := range orders {
 		// Parse quantity
-		quantity, _ := strconv.ParseFloat(order.OrigQuantity, 64)
+		quantity := 0.0
+		if order.OrigQuantity != "" {
+			var err error
+			quantity, err = strconv.ParseFloat(order.OrigQuantity, 64)
+			if err != nil {
+				logger.Warnf("⚠️ 无法解析原始数量 %s: %v，使用0", order.OrigQuantity, err)
+				quantity = 0
+			}
+		} else {
+			logger.Debugf("📝 订单原始数量为空，设置为0")
+		}
 		// Parse price (may be empty for market orders)
 		price := 0.0
 		if order.Price != "" {
-			price, _ = strconv.ParseFloat(order.Price, 64)
+			var err error
+			price, err = strconv.ParseFloat(order.Price, 64)
+			if err != nil {
+				logger.Warnf("⚠️ 无法解析订单价格 %s: %v，使用0", order.Price, err)
+				price = 0
+			}
+		} else {
+			logger.Debugf("📝 订单价格为空，设置为0")
 		}
 		// Parse stop price (may be empty)
 		stopPrice := 0.0
 		if order.StopPrice != "" {
-			stopPrice, _ = strconv.ParseFloat(order.StopPrice, 64)
+			var err error
+			stopPrice, err = strconv.ParseFloat(order.StopPrice, 64)
+			if err != nil {
+				logger.Warnf("⚠️ 无法解析止损价格 %s: %v，使用0", order.StopPrice, err)
+				stopPrice = 0
+			}
+		} else {
+			logger.Debugf("📝 订单止损价格为空，设置为0")
 		}
 
 		result = append(result, OpenOrder{
