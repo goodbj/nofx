@@ -7,6 +7,16 @@ interface DecisionCardProps {
   language: Language
   onSymbolClick?: (symbol: string) => void
   onDelete?: (decisionId: number, traderId: string) => void
+  exchangeType?: string;
+  exchangeCustomUrl?: string;
+  exchanges?: Array<{
+    id: string;
+    exchange_type: string;
+    customApiUrl?: string;
+    name: string;
+    enabled: boolean;
+    testnet?: boolean;  // 添加testnet标识
+  }>;
 }
 
 // Action type configuration
@@ -51,11 +61,142 @@ function getConfidenceColor(confidence: number | undefined): string {
   return '#F6465D'
 }
 
+// Helper function to open exchange link for a symbol
+function openExchangeLink(symbol: string, exchangeType?: string, customUrl?: string, language?: string) {
+  let exchangeUrl = '';
+  
+  // Determine language code for URL (default to 'en' if not specified or unsupported)
+  const langCode = language === 'zh' ? 'zh-CN' : 'en';
+  
+  // If a custom URL is provided, use it as the base URL
+  if (customUrl) {
+    // Check if the custom URL is a testnet URL by looking for testnet indicators
+    const isTestnet = customUrl.toLowerCase().includes('test') || 
+                      customUrl.toLowerCase().includes('sandbox') || 
+                      customUrl.toLowerCase().includes('demo') ||
+                      customUrl.toLowerCase().includes('futures-test') ||
+                      customUrl.toLowerCase().includes('testnet');
+    
+    if (customUrl.includes('{symbol}')) {
+      // Replace placeholder in custom URL if present
+      exchangeUrl = customUrl.replace('{symbol}', symbol);
+    } else if (customUrl.includes('{futures_symbol}')) {
+      // Handle futures-specific symbol format (e.g., BTCUSDT for Binance Futures)
+      exchangeUrl = customUrl.replace('{futures_symbol}', symbol);
+    } else {
+      // For known testnet URLs, use appropriate format
+      if (isTestnet) {
+        // For testnet environments, we need to handle different URL structures
+        if (customUrl.includes('binance')) {
+          // If it's clearly a binance testnet URL
+          if (customUrl.includes('testnet.binancefuture.com')) {
+            // Append language parameter to binance testnet URL
+            exchangeUrl = customUrl.endsWith('/') ? `${customUrl}${symbol}` : `${customUrl}/${symbol}`;
+            // Add language parameter if not already present
+            exchangeUrl = exchangeUrl.includes('?') ? `${exchangeUrl}&lang=${langCode}` : `${exchangeUrl}?lang=${langCode}`;
+          } else {
+            // If it's a custom testnet URL that looks like binance, append to the standard testnet URL
+            exchangeUrl = `https://testnet.binancefuture.com/${langCode}/futures/${symbol}`;
+          }
+        } else {
+          // For other exchange testnets, append symbol to custom URL
+          exchangeUrl = customUrl.endsWith('/') ? `${customUrl}${symbol}` : `${customUrl}/${symbol}`;
+        }
+      } else {
+        // For non-testnet, append symbol to custom URL
+        exchangeUrl = customUrl.endsWith('/') ? `${customUrl}${symbol}` : `${customUrl}/${symbol}`;
+      }
+    }
+  } else {
+    // Determine exchange URL based on exchange type
+    // Check if we can infer testnet from other contextual clues
+    const isLikelyTestnet = false; // We can't determine this without explicit config
+    
+    switch (exchangeType?.toLowerCase()) {
+      case 'binance':
+        // Use appropriate URL based on whether it's likely testnet
+        exchangeUrl = isLikelyTestnet 
+          ? `https://testnet.binancefuture.com/${langCode}/futures/${symbol}` 
+          : `https://www.binance.com/${langCode}/futures/${symbol}`;
+        break;
+      case 'bybit':
+        // Bybit uses language in URL path or query parameter
+        exchangeUrl = isLikelyTestnet 
+          ? `https://testnet.bybit.com/trade/futures/${symbol.replace('USDT', '')}-USDT?l=${langCode}`
+          : `https://www.bybit.com/${langCode}/trade/futures/${symbol.replace('USDT', '')}-USDT`;
+        break;
+      case 'okx':
+        // OKX uses language in subdomain or path
+        exchangeUrl = isLikelyTestnet 
+          ? `https://www.okx.com/${langCode}/trade-futures-demo/${symbol.toLowerCase()}`
+          : `https://www.okx.com/${langCode}/trade-futures/${symbol.toLowerCase()}`;
+        break;
+      case 'bitget':
+        // Bitget uses language in query parameter
+        exchangeUrl = isLikelyTestnet 
+          ? `https://www.bitget.com/futures/${symbol.replace('USDT', '')}_USDT?lng=${langCode}`
+          : `https://www.bitget.com/futures/${symbol.replace('USDT', '')}_USDT?lng=${langCode}`;
+        break;
+      case 'hyperliquid':
+        // Hyperliquid doesn't typically use language codes in URL, but we can add it as a parameter
+        exchangeUrl = isLikelyTestnet 
+          ? `https://app.hyperliquid.xyz/demo#/${symbol.replace('USDT', '')}?lang=${langCode}`
+          : `https://app.hyperliquid.xyz/trade#${symbol.replace('USDT', '')}?lang=${langCode}`;
+        break;
+      case 'aster':
+        exchangeUrl = isLikelyTestnet 
+          ? `https://test.aster-trade.com/${langCode}/market/${symbol}`
+          : `https://aster-trade.com/${langCode}/market/${symbol}`;
+        break;
+      case 'lighter':
+        exchangeUrl = isLikelyTestnet 
+          ? `https://test.lighter.trade/${langCode}/markets/${symbol}`
+          : `https://lighter.trade/${langCode}/markets/${symbol}`;
+        break;
+      default:
+        // Default to Binance futures mainnet as it's the most common exchange in the codebase
+        exchangeUrl = `https://www.binance.com/${langCode}/futures/${symbol}`;
+    }
+  }
+  
+  window.open(exchangeUrl, '_blank', 'noopener,noreferrer');
+}
+
+// Helper function to get exchange info from exchanges list by traderId
+function getExchangeInfoByTraderId(
+  traderId: string,
+  exchanges: Array<{
+    id: string;
+    exchange_type: string;
+    customApiUrl?: string;
+    name: string;
+    enabled: boolean;
+  }> | undefined
+): { exchangeType?: string; customUrl?: string } {
+  if (!exchanges) {
+    return {};
+  }
+
+  // Find the exchange associated with the trader
+  // In the system, traderId might match exchange.id or there might be a mapping
+  const exchange = exchanges.find(ex => ex.id === traderId);
+  
+  if (exchange) {
+    return {
+      exchangeType: exchange.exchange_type,
+      customUrl: exchange.customApiUrl
+    };
+  }
+
+  // If direct match not found, return empty object
+  return {};
+}
+
 // 移除：渲染数值变化信息（阶段1）
 // 此函数已被弃用，所有数值变化信息现在都在Trading Details Grid中统一显示
 
 // Single Action Card Component
-function ActionCard({ action, language, onSymbolClick, positions }: { action: DecisionAction; language: Language; onSymbolClick?: (symbol: string) => void; positions?: any[] }) {
+function ActionCard({ action, language, onSymbolClick, positions, exchangeType, exchangeCustomUrl, exchanges, traderId }: { action: DecisionAction; language: Language; onSymbolClick?: (symbol: string) => void; positions?: any[]; exchangeType?: string; exchangeCustomUrl?: string; exchanges?: Array<{ id: string; exchange_type: string; customApiUrl?: string; name: string; enabled: boolean; }>; traderId?: string }) {
   const config = ACTION_CONFIG[action.action] || ACTION_CONFIG.wait
   const isLong = action.action.includes('long')
   const isOpen = action.action.includes('open')
@@ -78,7 +219,26 @@ function ActionCard({ action, language, onSymbolClick, positions }: { action: De
       {/* Header Row */}
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-3">
-          <span className="text-xl">{config.icon}</span>
+          <span 
+            className="text-xl cursor-pointer transition-all duration-200 hover:scale-110" 
+            onClick={() => {
+              // If exchange info is passed directly, use it
+              if (exchangeType || exchangeCustomUrl) {
+                openExchangeLink(action.symbol, exchangeType, exchangeCustomUrl, language);
+              } else if (exchanges && traderId) {
+                // Otherwise, get exchange info based on traderId
+                const exchangeInfo = getExchangeInfoByTraderId(traderId, exchanges);
+                openExchangeLink(action.symbol, exchangeInfo.exchangeType, exchangeInfo.customUrl, language);
+              } else {
+                // Fallback to default behavior
+                openExchangeLink(action.symbol, exchangeType, exchangeCustomUrl, language);
+              }
+            }}
+            title={`Click to open ${action.symbol} on exchange`}
+            style={{ transformOrigin: 'center' }}
+          >
+            {config.icon}
+          </span>
           <span
             className="font-mono font-bold text-lg cursor-pointer transition-all duration-200 hover:scale-110"
             style={{ color: '#EAECEF' }}
@@ -331,7 +491,7 @@ function ActionCard({ action, language, onSymbolClick, positions }: { action: De
   )
 }
 
-export function DecisionCard({ decision, language, onSymbolClick, onDelete }: DecisionCardProps) {
+export function DecisionCard({ decision, language, onSymbolClick, onDelete, exchangeType, exchangeCustomUrl, exchanges }: DecisionCardProps) {
   const [showSystemPrompt, setShowSystemPrompt] = useState(false)
   const [showInputPrompt, setShowInputPrompt] = useState(false)
   const [showCoT, setShowCoT] = useState(false)
@@ -424,7 +584,17 @@ export function DecisionCard({ decision, language, onSymbolClick, onDelete }: De
       {decision.decisions && decision.decisions.length > 0 && (
         <div className="space-y-3 mb-4">
           {decision.decisions.map((action, index) => (
-            <ActionCard key={`${action.symbol}-${index}`} action={action} language={language} onSymbolClick={onSymbolClick} positions={decision.positions} />
+            <ActionCard 
+              key={`${action.symbol}-${index}`} 
+              action={action} 
+              language={language} 
+              onSymbolClick={onSymbolClick} 
+              positions={decision.positions} 
+              exchangeType={exchangeType} 
+              exchangeCustomUrl={exchangeCustomUrl}
+              exchanges={exchanges}
+              traderId={decision.trader_id}
+            />
           ))}
         </div>
       )}
