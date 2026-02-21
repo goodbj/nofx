@@ -20,21 +20,21 @@ interface DecisionCardProps {
 }
 
 // Action type configuration
-const ACTION_CONFIG: Record<string, { color: string; bg: string; icon: string; label: string }> = {
-  open_long: { color: '#0ECB81', bg: 'rgba(14, 203, 129, 0.15)', icon: '📈', label: 'Open Long' },
-  open_short: { color: '#F6465D', bg: 'rgba(246, 70, 93, 0.15)', icon: '📉', label: 'Open Short' },
-  close_long: { color: '#F0B90B', bg: 'rgba(240, 185, 11, 0.15)', icon: '💰', label: 'Close Long' },
-  close_short: { color: '#F0B90B', bg: 'rgba(240, 185, 11, 0.15)', icon: '💰', label: 'Close Short' },
-  hold: { color: '#848E9C', bg: 'rgba(132, 142, 156, 0.15)', icon: '⏸️', label: 'Hold' },
-  wait: { color: '#848E9C', bg: 'rgba(132, 142, 156, 0.15)', icon: '⏳', label: 'Wait' },
-  partial_close: { color: '#9C27B0', bg: 'rgba(156, 39, 176, 0.15)', icon: '📉', label: 'Partial Close' },
-  update_stop_loss: { color: '#FF9800', bg: 'rgba(255, 152, 0, 0.15)', icon: '🛡️', label: 'Update Stop Loss' },
-  update_take_profit: { color: '#4CAF50', bg: 'rgba(76, 175, 80, 0.15)', icon: '🎯', label: 'Update Take Profit' },
-  trailing_stop: { color: '#2196F3', bg: 'rgba(33, 150, 243, 0.15)', icon: '👣', label: 'Trailing Stop' },
-  dynamic_take_profit: { color: '#00BCD4', bg: 'rgba(0, 188, 212, 0.15)', icon: '🚀', label: 'Dynamic Take Profit' },
-  add_position: { color: '#795548', bg: 'rgba(121, 85, 72, 0.15)', icon: '➕', label: 'Add Position' },
-  full_close: { color: '#607D8B', bg: 'rgba(96, 125, 139, 0.15)', icon: '🔚', label: 'Full Close' },
-}
+const ACTION_CONFIG = (language: Language): Record<string, { color: string; bg: string; icon: string; label: string }> => ({
+  open_long: { color: '#0ECB81', bg: 'rgba(14, 203, 129, 0.15)', icon: '📈', label: t('openLong', language) },
+  open_short: { color: '#F6465D', bg: 'rgba(246, 70, 93, 0.15)', icon: '📉', label: t('openShort', language) },
+  close_long: { color: '#F0B90B', bg: 'rgba(240, 185, 11, 0.15)', icon: '💰', label: t('closeLong', language) },
+  close_short: { color: '#F0B90B', bg: 'rgba(240, 185, 11, 0.15)', icon: '💰', label: t('closeShort', language) },
+  hold: { color: '#848E9C', bg: 'rgba(132, 142, 156, 0.15)', icon: '⏸️', label: t('hold', language) },
+  wait: { color: '#848E9C', bg: 'rgba(132, 142, 156, 0.15)', icon: '⏳', label: t('wait', language) },
+  partial_close: { color: '#9C27B0', bg: 'rgba(156, 39, 176, 0.15)', icon: '📉', label: t('partialClose', language) },
+  update_stop_loss: { color: '#FF9800', bg: 'rgba(255, 152, 0, 0.15)', icon: '🛡️', label: t('updateStopLoss', language) },
+  update_take_profit: { color: '#4CAF50', bg: 'rgba(76, 175, 80, 0.15)', icon: '🎯', label: t('updateTakeProfit', language) },
+  trailing_stop: { color: '#2196F3', bg: 'rgba(33, 150, 243, 0.15)', icon: '👣', label: t('trailingStop', language) },
+  dynamic_take_profit: { color: '#00BCD4', bg: 'rgba(0, 188, 212, 0.15)', icon: '🚀', label: t('dynamicTakeProfit', language) },
+  add_position: { color: '#795548', bg: 'rgba(121, 85, 72, 0.15)', icon: '➕', label: t('addPosition', language) },
+  full_close: { color: '#607D8B', bg: 'rgba(96, 125, 139, 0.15)', icon: '🔚', label: t('fullClose', language) },
+});
 
 // Format price with proper decimals
 function formatPrice(price: number | undefined): string {
@@ -197,7 +197,8 @@ function getExchangeInfoByTraderId(
 
 // Single Action Card Component
 function ActionCard({ action, language, onSymbolClick, positions, exchangeType, exchangeCustomUrl, exchanges, traderId }: { action: DecisionAction; language: Language; onSymbolClick?: (symbol: string) => void; positions?: any[]; exchangeType?: string; exchangeCustomUrl?: string; exchanges?: Array<{ id: string; exchange_type: string; customApiUrl?: string; name: string; enabled: boolean; }>; traderId?: string }) {
-  const config = ACTION_CONFIG[action.action] || ACTION_CONFIG.wait
+  const actionConfigs = ACTION_CONFIG(language);
+  const config = actionConfigs[action.action] || actionConfigs.wait
   const isLong = action.action.includes('long')
   const isOpen = action.action.includes('open')
   const isClose = action.action.includes('close')
@@ -293,14 +294,14 @@ function ActionCard({ action, language, onSymbolClick, positions, exchangeType, 
             {isClose ? (
               <>
                 <div className="text-xs mb-1" style={{ color: '#0ECB81' }}>
-                  盈亏金额
+                  {t('profitAmount', language)}
                 </div>
                 <div className="font-mono font-semibold" style={{ color: action.pnl && action.pnl >= 0 ? '#0ECB81' : '#F6465D' }}>
                   {action.pnl !== undefined ? `${action.pnl >= 0 ? '+' : ''}${action.pnl.toFixed(2)} USDT` : '-'}
                 </div>
                 {action.pnl && action.quantity && (
                   <div className="text-xs mt-0.5" style={{ color: '#848E9C' }}>
-                    {action.pnl >= 0 ? '盈利' : '亏损'}
+                    {action.pnl >= 0 ? t('profit', language) : t('loss', language)}
                   </div>
                 )}
               </>
@@ -316,7 +317,7 @@ function ActionCard({ action, language, onSymbolClick, positions, exchangeType, 
             ) : isTrailingStop ? (
               <>
                 <div className="text-xs mb-1" style={{ color: '#2196F3' }}>
-                  Trail %
+                  {t('trailPercent', language)}
                 </div>
                 <div className="font-mono font-semibold" style={{ color: '#2196F3' }}>
                   {action.trail_percentage !== undefined ? `${action.trail_percentage}%` : '-'}
@@ -325,7 +326,7 @@ function ActionCard({ action, language, onSymbolClick, positions, exchangeType, 
             ) : isHold || isWait ? (
               <>
                 <div className="text-xs mb-1" style={{ color: '#848E9C' }}>
-                  {isHold ? '置信度' : '等待原因'}
+                  {isHold ? t('confidence', language) : t('waitingReason', language)}
                 </div>
                 <div className="font-mono font-semibold" style={{ color: getConfidenceColor(action.confidence) }}>
                   {isHold ? `${action.confidence || 0}%` : '-'}
@@ -334,7 +335,7 @@ function ActionCard({ action, language, onSymbolClick, positions, exchangeType, 
             ) : isUpdateStopLoss ? (
               <>
                 <div className="text-xs mb-1" style={{ color: '#FF9800' }}>
-                  新止损价
+                  {t('newStopLoss', language)}
                 </div>
                 <div className="font-mono font-semibold" style={{ color: '#FF9800' }}>
                   {action.new_stop_loss !== undefined ? formatPrice(action.new_stop_loss) : '-'}
@@ -362,7 +363,7 @@ function ActionCard({ action, language, onSymbolClick, positions, exchangeType, 
             {isClose ? (
               <>
                 <div className="text-xs mb-1" style={{ color: '#0ECB81' }}>
-                  盈亏比例
+                  {t('profitLossRatio', language)}
                 </div>
                 <div className="font-mono font-semibold" style={{ color: action.pnl && action.pnl >= 0 ? '#0ECB81' : '#F6465D' }}>
                   {action.pnl !== undefined && action.price && action.quantity ? 
@@ -370,14 +371,14 @@ function ActionCard({ action, language, onSymbolClick, positions, exchangeType, 
                 </div>
                 {action.pnl && action.price && action.quantity && (
                   <div className="text-xs mt-0.5" style={{ color: '#848E9C' }}>
-                    {Math.abs((action.pnl / (action.price * action.quantity)) * 100).toFixed(2)}%收益率
+                    {Math.abs((action.pnl / (action.price * action.quantity)) * 100).toFixed(2)}%{t('yieldRatio', language)}
                   </div>
                 )}
               </>
             ) : isTrailingStop ? (
               <>
                 <div className="text-xs mb-1" style={{ color: '#2196F3' }}>
-                  Callback Rate
+                  {t('callbackRate', language)}
                 </div>
                 <div className="font-mono font-semibold" style={{ color: '#2196F3' }}>
                   {action.callback_rate !== undefined ? `${action.callback_rate}%` : '-'}
@@ -386,10 +387,10 @@ function ActionCard({ action, language, onSymbolClick, positions, exchangeType, 
             ) : isHold || isWait ? (
               <>
                 <div className="text-xs mb-1" style={{ color: '#848E9C' }}>
-                  {isHold ? '持有时间' : '等待时间'}
+                  {isHold ? t('holdingTime', language) : t('waitingTime', language)}
                 </div>
                 <div className="font-mono font-semibold" style={{ color: '#848E9C' }}>
-                  {action.timestamp ? `${Math.floor((new Date().getTime() - new Date(action.timestamp).getTime()) / 60000)}分钟` : '-'}
+                  {action.timestamp ? `${Math.floor((new Date().getTime() - new Date(action.timestamp).getTime()) / 60000)} ${t('minutes', language)}` : '-'}
                 </div>
               </>
             ) : (
@@ -412,7 +413,7 @@ function ActionCard({ action, language, onSymbolClick, positions, exchangeType, 
           {/* Leverage or Quantity or Confidence */}
           <div className="text-center">
             <div className="text-xs mb-1" style={{ color: '#848E9C' }}>
-              {isOpen ? t('leverage', language) : isHold || isWait ? '置信度' : isUpdateStopLoss ? '调整幅度' : t('quantity', language)}
+              {isOpen ? t('leverage', language) : isHold || isWait ? t('confidence', language) : isUpdateStopLoss ? t('adjustment', language) : t('quantity', language)}
             </div>
             <div className="font-mono font-semibold" style={{ color: isOpen ? '#F0B90B' : isHold || isWait ? getConfidenceColor(action.confidence) : isUpdateStopLoss ? '#FF9800' : '#EAECEF' }}>
               {isOpen ? `${action.leverage}x` : isHold || isWait ? `${action.confidence || 0}%` : isUpdateStopLoss ? 
