@@ -740,6 +740,12 @@ func (t *FuturesTrader) SetLeverage(symbol string, leverage int) error {
 
 // OpenLong opens a long position
 func (t *FuturesTrader) OpenLong(symbol string, quantity float64, leverage int) (map[string]interface{}, error) {
+	// 检查是否正在进行订单清理，如果是则拒绝下单
+	orderManager := GetOrderManager()
+	if !orderManager.CanSubmitOrder() {
+		return nil, fmt.Errorf("cannot submit order during cleanup")
+	}
+
 	// First cancel all pending orders for this symbol (clean up old stop-loss and take-profit orders)
 	if err := t.CancelAllOrders(symbol); err != nil {
 		logger.Infof("  ⚠ Failed to cancel old pending orders (may not have any): %v", err)
@@ -798,6 +804,12 @@ func (t *FuturesTrader) OpenLong(symbol string, quantity float64, leverage int) 
 
 // OpenShort opens a short position
 func (t *FuturesTrader) OpenShort(symbol string, quantity float64, leverage int) (map[string]interface{}, error) {
+	// 检查是否正在进行订单清理，如果是则拒绝下单
+	orderManager := GetOrderManager()
+	if !orderManager.CanSubmitOrder() {
+		return nil, fmt.Errorf("cannot submit order during cleanup")
+	}
+
 	// First cancel all pending orders for this symbol (clean up old stop-loss and take-profit orders)
 	if err := t.CancelAllOrders(symbol); err != nil {
 		logger.Infof("  ⚠ Failed to cancel old pending orders (may not have any): %v", err)
@@ -856,6 +868,12 @@ func (t *FuturesTrader) OpenShort(symbol string, quantity float64, leverage int)
 
 // CloseLong closes a long position
 func (t *FuturesTrader) CloseLong(symbol string, quantity float64) (map[string]interface{}, error) {
+	// 检查是否正在进行订单清理，如果是则拒绝下单
+	orderManager := GetOrderManager()
+	if !orderManager.CanSubmitOrder() {
+		return nil, fmt.Errorf("cannot submit order during cleanup")
+	}
+
 	// If quantity is 0, get current position quantity
 	if quantity == 0 {
 		positions, err := t.GetPositions()
@@ -939,6 +957,12 @@ func (t *FuturesTrader) CloseLong(symbol string, quantity float64) (map[string]i
 
 // CloseShort closes a short position
 func (t *FuturesTrader) CloseShort(symbol string, quantity float64) (map[string]interface{}, error) {
+	// 检查是否正在进行订单清理，如果是则拒绝下单
+	orderManager := GetOrderManager()
+	if !orderManager.CanSubmitOrder() {
+		return nil, fmt.Errorf("cannot submit order during cleanup")
+	}
+
 	// If quantity is 0, get current position quantity
 	if quantity == 0 {
 		positions, err := t.GetPositions()

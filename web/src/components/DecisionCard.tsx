@@ -266,7 +266,7 @@ function ActionCard({ action, language, onSymbolClick, positions }: { action: De
 
       {/* Risk/Reward Ratio for open positions */}
       {isOpen && action.stop_loss && action.take_profit && action.price && (
-        <div className="mt-3 pt-3 flex items-center justify-between" style={{ borderTop: '1px solid #2B3139' }}>-----------------------------------
+        <div className="mt-3 pt-3 flex items-center justify-between" style={{ borderTop: '1px solid #2B3139' }}>
           <span className="text-xs" style={{ color: '#848E9C' }}>
             {t('riskReward', language)}
           </span>

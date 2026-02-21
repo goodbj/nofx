@@ -654,6 +654,27 @@ func (at *AutoTrader) Run() error {
 	// 🔥 初始化下次扫描时间
 	at.nextSystemScanTime = time.Now().Add(at.config.ScanInterval)
 
+	// 启动定期清理孤儿订单的goroutine
+	go func() {
+		cleanupTicker := time.NewTicker(10 * time.Minute) // 每10分钟检查一次
+		defer cleanupTicker.Stop()
+		for {
+			select {
+			case <-cleanupTicker.C:
+				logger.Info("🔄 Starting periodic orphaned orders cleanup...")
+				err := at.CleanupOrphanedOrders()
+				if err != nil {
+					logger.Errorf("❌ Orphaned orders cleanup failed: %v", err)
+				} else {
+					logger.Info("✅ Periodic orphaned orders cleanup completed")
+				}
+			case <-at.stopMonitorCh:
+				logger.Info("⏹ Stop signal received, exiting cleanup routine")
+				return
+			}
+		}
+	}()
+
 	for {
 		at.isRunningMutex.RLock()
 		running := at.isRunning
@@ -716,6 +737,7 @@ func (at *AutoTrader) Stop() {
 
 // runCycle runs one trading cycle (using AI full decision-making)
 // validateDecisionCoins validates that all decision symbols are in the allowed candidate list
+// Only validates for position opening actions (open_long, open_short), not for updates (stop_loss, take_profit, etc.)
 func (at *AutoTrader) validateDecisionCoins(decisions []kernel.Decision) error {
 	// Get allowed coins from strategy engine
 	allowedCoins, err := at.strategyEngine.GetCandidateCoins()
@@ -729,47 +751,66 @@ func (at *AutoTrader) validateDecisionCoins(decisions []kernel.Decision) error {
 		allowedMap[coin.Symbol] = true
 	}
 
-	// Validate each decision
+	// Validate each decision - only for position opening actions
 	invalidCoins := []string{}
 	validCoins := []string{}
 
 	for i, decision := range decisions {
-		if !allowedMap[decision.Symbol] {
-			invalidCoins = append(invalidCoins, decision.Symbol)
-			logger.Warnf("⚠️ Decision #%d: coin %s is not in allowed list", i+1, decision.Symbol)
+		// Only validate for position opening actions
+		if decision.Action == "open_long" || decision.Action == "open_short" {
+			if !allowedMap[decision.Symbol] {
+				invalidCoins = append(invalidCoins, decision.Symbol)
+				logger.Warnf("⚠️ Decision #%d: coin %s is not in allowed list for opening position", i+1, decision.Symbol)
+			} else {
+				validCoins = append(validCoins, decision.Symbol)
+				logger.Debugf("✅ Decision #%d: coin %s is valid for opening position", i+1, decision.Symbol)
+			}
 		} else {
+			// For update actions (stop_loss, take_profit, trailing_stop, etc.), allow any symbol
+			// as long as there is an existing position
+			logger.Debugf("✅ Decision #%d: coin %s is valid for update action (%s)", i+1, decision.Symbol, decision.Action)
 			validCoins = append(validCoins, decision.Symbol)
-			logger.Debugf("✅ Decision #%d: coin %s is valid", i+1, decision.Symbol)
 		}
 	}
 
-	// If all decisions are invalid, return error with detailed info
+	// If all position opening decisions are invalid, return error with detailed info
 	if len(invalidCoins) == len(decisions) && len(decisions) > 0 {
-		// Log strategy configuration for debugging
-		config := at.strategyEngine.GetConfig()
-		logger.Errorf("❌ Strategy configuration issue detected for trader: %s", at.name)
-		logger.Errorf("   Strategy ID: %s", at.config.ID)
-		logger.Errorf("   SourceType: %s", config.CoinSource.SourceType)
-		logger.Errorf("   UseAI500: %t", config.CoinSource.UseAI500)
-		logger.Errorf("   UseOITop: %t", config.CoinSource.UseOITop)
-		if config.CoinSource.SourceType == "static" {
-			logger.Errorf("   StaticCoins: %v", config.CoinSource.StaticCoins)
+		// Only return error if all decisions are position opening actions
+		allOpeningActions := true
+		for _, decision := range decisions {
+			if decision.Action != "open_long" && decision.Action != "open_short" {
+				allOpeningActions = false
+				break
+			}
 		}
 
-		// Log the actual allowed coins for comparison
-		allowedSymbols := make([]string, len(allowedCoins))
-		for i, coin := range allowedCoins {
-			allowedSymbols[i] = coin.Symbol
-		}
-		logger.Errorf("   Actually allowed coins: %v", allowedSymbols)
+		if allOpeningActions {
+			// Log strategy configuration for debugging
+			config := at.strategyEngine.GetConfig()
+			logger.Errorf("❌ Strategy configuration issue detected for trader: %s", at.name)
+			logger.Errorf("   Strategy ID: %s", at.config.ID)
+			logger.Errorf("   SourceType: %s", config.CoinSource.SourceType)
+			logger.Errorf("   UseAI500: %t", config.CoinSource.UseAI500)
+			logger.Errorf("   UseOITop: %t", config.CoinSource.UseOITop)
+			if config.CoinSource.SourceType == "static" {
+				logger.Errorf("   StaticCoins: %v", config.CoinSource.StaticCoins)
+			}
 
-		return fmt.Errorf("all %d decisions use invalid coins: %v (allowed: %v)",
-			len(decisions), invalidCoins, getSymbolList(allowedCoins))
+			// Log the actual allowed coins for comparison
+			allowedSymbols := make([]string, len(allowedCoins))
+			for i, coin := range allowedCoins {
+				allowedSymbols[i] = coin.Symbol
+			}
+			logger.Errorf("   Actually allowed coins: %v", allowedSymbols)
+
+			return fmt.Errorf("all %d position opening decisions use invalid coins: %v (allowed: %v)",
+				len(decisions), invalidCoins, getSymbolList(allowedCoins))
+		}
 	}
 
-	// If some decisions are valid, allow them to proceed but warn about invalid ones
+	// If some decisions are invalid, warn about them
 	if len(invalidCoins) > 0 {
-		logger.Warnf("⚠️ %d/%d decisions have invalid coins: %v",
+		logger.Warnf("⚠️ %d/%d position opening decisions have invalid coins: %v",
 			len(invalidCoins), len(decisions), invalidCoins)
 		logger.Infof("✓ %d decisions validated successfully: %v",
 			len(validCoins), validCoins)
@@ -4610,4 +4651,93 @@ func (at *AutoTrader) GetExchangeID() string {
 // GetExchangeType returns the exchange type
 func (at *AutoTrader) GetExchangeType() string {
 	return at.exchange
+}
+
+// CleanupOrphanedOrders 清理无持仓时的挂单
+func (at *AutoTrader) CleanupOrphanedOrders() error {
+	orderManager := GetOrderManager()
+
+	// 获取当前持仓
+	positions, err := at.trader.GetPositions()
+	if err != nil {
+		return fmt.Errorf("failed to get positions: %w", err)
+	}
+
+	// 检查是否有持仓
+	hasActivePositions := false
+	for _, pos := range positions {
+		if qty, ok := pos["quantity"].(float64); ok {
+			if qty != 0 {
+				hasActivePositions = true
+				break
+			}
+		} else if qtyNum, ok := pos["quantity"].(*json.Number); ok {
+			if qtyFloat, err := qtyNum.Float64(); err == nil && qtyFloat != 0 {
+				hasActivePositions = true
+				break
+			}
+		}
+	}
+
+	// 如果没有持仓，清理所有挂单
+	if !hasActivePositions {
+		logger.Info("No active positions found, starting orphaned order cleanup")
+		// 使用订单管理器的安全清理功能
+		cleanupFunc := func() ([]map[string]interface{}, error) {
+			return at.trader.GetPositions()
+		}
+
+		getOpenOrdersFunc := func(symbol string) ([]OpenOrder, error) {
+			return at.trader.GetOpenOrders(symbol)
+		}
+
+		cancelOrderFunc := func(orderId string) error {
+			// 尝试使用 CancelAllOrders 方法清理
+			// 因为具体取消单个订单的方法可能不同，这里遍历所有符号进行清理
+			// 获取所有持仓以获取符号列表
+			positions, _ := at.trader.GetPositions()
+			for _, pos := range positions {
+				if symbol, ok := pos["symbol"].(string); ok {
+					return at.trader.CancelAllOrders(symbol)
+				}
+			}
+			// 如果无法获取符号，尝试通用清理
+			return nil
+		}
+
+		// 使用所有符号进行清理
+		positions, _ := at.trader.GetPositions()
+		for _, pos := range positions {
+			if symbol, ok := pos["symbol"].(string); ok {
+				err := orderManager.CleanupOrdersWhenNoPositions(cleanupFunc, getOpenOrdersFunc, cancelOrderFunc, symbol)
+				if err != nil {
+					logger.Errorf("Failed to cleanup orphaned orders for %s: %v", symbol, err)
+				}
+			}
+		}
+
+		// 另一种方式：如果交易商支持通用清理
+		// 遍历可能存在的符号
+		symbols := make(map[string]bool)
+		for _, pos := range positions {
+			if symbol, ok := pos["symbol"].(string); ok {
+				symbols[symbol] = true
+			}
+		}
+
+		// 如果没有任何持仓符号，我们可以尝试清理常见符号
+		if len(symbols) == 0 {
+			commonSymbols := []string{"BTCUSDT", "ETHUSDT", "BNBUSDT", "SOLUSDT", "ADAUSDT", "DOTUSDT", "LINKUSDT", "UNIUSDT", "LTCUSDT", "BCHUSDT"}
+			for _, symbol := range commonSymbols {
+				err := orderManager.CleanupOrdersWhenNoPositions(cleanupFunc, getOpenOrdersFunc, cancelOrderFunc, symbol)
+				if err != nil {
+					logger.Debugf("No orphaned orders to cleanup for %s: %v", symbol, err) // 使用Debug级别，因为这很常见
+				}
+			}
+		}
+	} else {
+		logger.Info("Active positions found, skipping orphaned order cleanup")
+	}
+
+	return nil
 }
