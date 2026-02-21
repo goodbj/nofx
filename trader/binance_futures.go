@@ -75,6 +75,9 @@ type FuturesTrader struct {
 	exchangeID   string
 	exchangeType string
 	store        *store.Store
+
+	// Safe order cleanup manager
+	safeOrderCleanupManager *SafeOrderCleanupManager
 }
 
 // validateFormattedQuantity 验证格式化后的数量是否符合step size要求
@@ -913,10 +916,10 @@ func (t *FuturesTrader) CloseLong(symbol string, quantity float64) (map[string]i
 
 	logger.Infof("✓ Closed long position successfully: %s quantity: %s", symbol, quantityStr)
 
-	// After closing position, cancel all pending orders for this symbol (stop-loss and take-profit orders)
-	// We cancel pending orders here because they are no longer relevant after position is closed
-	if err := t.CancelAllOrders(symbol); err != nil {
-		logger.Infof("  ⚠ Failed to cancel pending orders: %v", err)
+	// After closing position, perform safe order cleanup
+	// This replaces CancelAllOrders with a more precise cleanup that only removes orphaned orders
+	if err := t.performSafePostCloseCleanup(symbol); err != nil {
+		logger.Infof("  ⚠ Failed to perform safe order cleanup: %v", err)
 	}
 
 	// Trigger order sync after successful close
@@ -996,10 +999,10 @@ func (t *FuturesTrader) CloseShort(symbol string, quantity float64) (map[string]
 
 	logger.Infof("✓ Closed short position successfully: %s quantity: %s", symbol, quantityStr)
 
-	// After closing position, cancel all pending orders for this symbol (stop-loss and take-profit orders)
-	// We cancel pending orders here because they are no longer relevant after position is closed
-	if err := t.CancelAllOrders(symbol); err != nil {
-		logger.Infof("  ⚠ Failed to cancel pending orders: %v", err)
+	// After closing position, perform safe order cleanup
+	// This replaces CancelAllOrders with a more precise cleanup that only removes orphaned orders
+	if err := t.performSafePostCloseCleanup(symbol); err != nil {
+		logger.Infof("  ⚠ Failed to perform safe order cleanup: %v", err)
 	}
 
 	// Trigger order sync after successful close
@@ -1669,12 +1672,12 @@ func (t *FuturesTrader) GetMarketPrice(symbol string) (float64, error) {
 
 	// 检查价格字符串是否为空
 	if prices[0].Price == "" {
-		return 0, fmt.Errorf("received empty price string for symbol %s", symbol)
+		return 0, fmt.Errorf("received empty price string for symbol %s -交易所无此币种b-", symbol)
 	}
 
 	price, err := strconv.ParseFloat(prices[0].Price, 64)
 	if err != nil {
-		return 0, fmt.Errorf("failed to parse price '%s' for symbol %s: %w (交易所无此币种)", prices[0].Price, symbol, err)
+		return 0, fmt.Errorf("failed to parse price '%s' for symbol %s: %w -交易所无此币种a-", prices[0].Price, symbol, err)
 	}
 
 	return price, nil
@@ -2677,4 +2680,29 @@ func (t *FuturesTrader) SetTraderInfo(traderID, exchangeID, exchangeType string,
 	t.exchangeID = exchangeID
 	t.exchangeType = exchangeType
 	t.store = store
+}
+
+// performSafePostCloseCleanup 在平仓后执行安全的委托清理
+// 只清理与已平仓持仓无关的孤儿委托，保护有效委托
+func (t *FuturesTrader) performSafePostCloseCleanup(symbol string) error {
+	// 检查是否已初始化安全清理管理器
+	if t.safeOrderCleanupManager == nil {
+		// 如果未初始化，创建一个临时的清理器实例
+		t.safeOrderCleanupManager = NewSafeOrderCleanupManager(t, 0) // 0表示只用于手动调用
+	}
+
+	logger.Infof("🔄 开始对 %s 执行安全的平仓后清理", symbol)
+
+	// 创建临时的孤儿订单清理器来处理特定交易对
+	cleaner := NewOrphanOrderCleaner(t)
+
+	// 检查指定交易对是否还有持仓，如果没有则清理相关孤儿委托
+	err := cleaner.CleanupOrphanedOrdersForSymbolIfNoPosition(symbol)
+	if err != nil {
+		logger.Errorf("❌ %s 安全清理失败: %v", symbol, err)
+		return err
+	}
+
+	logger.Infof("✅ %s 安全清理完成", symbol)
+	return nil
 }
