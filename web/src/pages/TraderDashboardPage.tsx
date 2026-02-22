@@ -170,6 +170,9 @@ export function TraderDashboardPage({
   const [hasMoreDecisions, setHasMoreDecisions] = useState<boolean>(true);
   const [loadingMoreDecisions, setLoadingMoreDecisions] = useState<boolean>(false);
   const decisionsContainerRef = useRef<HTMLDivElement>(null);
+  
+  // 管理每个决策项的展开状态
+  const [expandedStates, setExpandedStates] = useState<Record<string, { showSystemPrompt: boolean, showInputPrompt: boolean, showCoT: boolean, showJSON: boolean }>>({});
 
   // AI Semi-Auto Workflow States
   const [manualAIDecision, setManualAIDecision] = useState<string>('')
@@ -389,11 +392,23 @@ export function TraderDashboardPage({
     return () => container.removeEventListener('scroll', handleScroll);
   }, [selectedTraderId, decisionsPage, hasMoreDecisions, loadingMoreDecisions]);
 
+  // 更新决策项的展开状态
+  const updateDecisionExpansion = (decisionId: string, newState: Partial<{ showSystemPrompt: boolean, showInputPrompt: boolean, showCoT: boolean, showJSON: boolean }>) => {
+    setExpandedStates(prev => ({
+      ...prev,
+      [decisionId]: {
+        ...(prev[decisionId] || { showSystemPrompt: false, showInputPrompt: false, showCoT: false, showJSON: false }),
+        ...newState
+      }
+    }));
+  };
+
   // 当交易员切换时重置分页状态
   useEffect(() => {
     setAllDecisions(decisions || []);
     setDecisionsPage(0);
     setHasMoreDecisions(true);
+    setExpandedStates({}); // 清空展开状态
   }, [selectedTraderId, decisions]);
 
   // Current positions pagination
@@ -1843,15 +1858,20 @@ ${promptPreview.user_prompt}`
               style={{ maxHeight: 'calc(240vh - 280px)' }}
             >
               {allDecisions && allDecisions.length > 0 ? (
-                allDecisions.map((decision) => (
-                  <DecisionCard
-                    key={`${decision.trader_id}-${decision.cycle_number}-${decision.timestamp}`}
-                    decision={decision}
-                    language={language}
-                    onSymbolClick={handleSymbolClick}
-                    onDelete={handleDeleteDecision}
-                  />
-                ))
+                allDecisions.map((decision) => {
+                  const decisionKey = `${decision.trader_id}-${decision.cycle_number}-${decision.timestamp}`;
+                  return (
+                    <DecisionCard
+                      key={`${decision.trader_id}-${decision.cycle_number}-${decision.timestamp}`}
+                      decision={decision}
+                      language={language}
+                      onSymbolClick={handleSymbolClick}
+                      onDelete={handleDeleteDecision}
+                      expandedState={expandedStates[decisionKey]}
+                      onUpdateExpansion={(newState) => updateDecisionExpansion(decisionKey, newState)}
+                    />
+                  );
+                })
               ) : (
                 <div className="py-16 text-center text-nofx-text-muted opacity-60">
                   <div className="text-6xl mb-4 opacity-30 grayscale">🧠</div>

@@ -17,6 +17,13 @@ interface DecisionCardProps {
     enabled: boolean;
     testnet?: boolean;  // 添加testnet标识
   }>;
+  expandedState?: {
+    showSystemPrompt: boolean;
+    showInputPrompt: boolean;
+    showCoT: boolean;
+    showJSON: boolean;
+  };
+  onUpdateExpansion?: (newState: Partial<{ showSystemPrompt: boolean, showInputPrompt: boolean, showCoT: boolean, showJSON: boolean }>) => void;
 }
 
 // Action type configuration
@@ -492,11 +499,12 @@ function ActionCard({ action, language, onSymbolClick, positions, exchangeType, 
   )
 }
 
-export function DecisionCard({ decision, language, onSymbolClick, onDelete, exchangeType, exchangeCustomUrl, exchanges }: DecisionCardProps) {
-  const [showSystemPrompt, setShowSystemPrompt] = useState(false)
-  const [showInputPrompt, setShowInputPrompt] = useState(false)
-  const [showCoT, setShowCoT] = useState(false)
-  const [showJSON, setShowJSON] = useState(false) // 新增：JSON显示状态
+export function DecisionCard({ decision, language, onSymbolClick, onDelete, exchangeType, exchangeCustomUrl, exchanges, expandedState, onUpdateExpansion }: DecisionCardProps) {
+  // 使用传入的状态，如果没有则使用默认值
+  const showSystemPrompt = expandedState?.showSystemPrompt || false;
+  const showInputPrompt = expandedState?.showInputPrompt || false;
+  const showCoT = expandedState?.showCoT || false;
+  const showJSON = expandedState?.showJSON || false;
 
 
   // Copy text to clipboard
@@ -607,7 +615,7 @@ export function DecisionCard({ decision, language, onSymbolClick, onDelete, exch
           <div>
             <div className="flex items-center gap-2 justify-between">
               <button
-                onClick={() => setShowSystemPrompt(!showSystemPrompt)}
+                onClick={() => onUpdateExpansion?.({ showSystemPrompt: !showSystemPrompt })}
                 className="flex items-center gap-2 text-sm transition-colors w-full p-2 rounded hover:bg-white/5"
               >
                 <div className="flex items-center gap-2">
@@ -668,7 +676,7 @@ export function DecisionCard({ decision, language, onSymbolClick, onDelete, exch
           <div>
             <div className="flex items-center gap-2 justify-between">
               <button
-                onClick={() => setShowInputPrompt(!showInputPrompt)}
+                onClick={() => onUpdateExpansion?.({ showInputPrompt: !showInputPrompt })}
                 className="flex items-center gap-2 text-sm transition-colors w-full p-2 rounded hover:bg-white/5"
               >
                 <div className="flex items-center gap-2">
@@ -729,7 +737,7 @@ export function DecisionCard({ decision, language, onSymbolClick, onDelete, exch
           <div className="mt-3">
             <div className="flex items-center gap-2 justify-between">
               <button
-                onClick={() => setShowJSON(!showJSON)}
+                onClick={() => onUpdateExpansion?.({ showJSON: !showJSON })}
                 className="flex items-center gap-2 text-sm transition-colors w-full p-2 rounded hover:bg-white/5"
               >
                 <div className="flex items-center gap-2">
@@ -789,7 +797,7 @@ export function DecisionCard({ decision, language, onSymbolClick, onDelete, exch
         {decision.cot_trace && (
           <div>
             <button
-              onClick={() => setShowCoT(!showCoT)}
+              onClick={() => onUpdateExpansion?.({ showCoT: !showCoT })}
               className="flex items-center gap-2 text-sm transition-colors w-full justify-between p-2 rounded hover:bg-white/5"
             >
               <div className="flex items-center gap-2">
