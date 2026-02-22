@@ -397,16 +397,18 @@ export const api = {
     return result.data!
   },
 
-  // 获取最新决策（支持trader_id和limit参数）
+  // 获取最新决策（支持trader_id、limit和offset参数）
   async getLatestDecisions(
     traderId?: string,
-    limit: number = 5
+    limit: number = 5,
+    offset: number = 0
   ): Promise<DecisionRecord[]> {
     const params = new URLSearchParams()
     if (traderId) {
       params.append('trader_id', traderId)
     }
     params.append('limit', limit.toString())
+    params.append('offset', offset.toString())
 
     const url = `${API_BASE}/decisions/latest?${params}`
     console.log('Fetching latest decisions from URL:', url) // 添加调试日志

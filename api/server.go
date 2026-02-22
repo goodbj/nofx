@@ -3864,7 +3864,7 @@ func (s *Server) handleDecisions(c *gin.Context) {
 	c.JSON(http.StatusOK, records)
 }
 
-// handleLatestDecisions Latest decision logs (newest first, supports limit parameter)
+// handleLatestDecisions Latest decision logs (newest first, supports limit and offset parameters)
 func (s *Server) handleLatestDecisions(c *gin.Context) {
 	_, traderID, err := s.getTraderFromQuery(c)
 	if err != nil {
@@ -3889,19 +3889,66 @@ func (s *Server) handleLatestDecisions(c *gin.Context) {
 		}
 	}
 
-	records, err := trader.GetStore().Decision().GetLatestRecords(trader.GetID(), limit)
+	// Get offset from query parameter, default to 0
+	offset := 0
+	if offsetStr := c.Query("offset"); offsetStr != "" {
+		if parsedOffset, err := strconv.Atoi(offsetStr); err == nil && parsedOffset >= 0 {
+			offset = parsedOffset
+		}
+	}
+
+	// Get paginated records directly from database with proper ordering
+	records, err := s.getPaginatedDecisionRecordsFromDB(trader.GetID(), limit, offset)
 	if err != nil {
 		SafeInternalError(c, "Get decision log", err)
 		return
 	}
 
-	// Reverse array to put newest first (for list display)
-	// GetLatestRecords returns oldest to newest (for charts), here we need newest to oldest
-	for i, j := 0, len(records)-1; i < j; i, j = i+1, j-1 {
-		records[i], records[j] = records[j], records[i]
+	c.JSON(http.StatusOK, records)
+}
+
+// getPaginatedDecisionRecordsFromDB retrieves decision records with pagination
+func (s *Server) getPaginatedDecisionRecordsFromDB(traderID string, limit, offset int) ([]*store.DecisionRecord, error) {
+	// We'll use the existing Decision store but need to implement custom pagination
+	// Since the existing GetLatestRecords doesn't support offset, we'll implement our own query
+	var dbRecords []*store.DecisionRecordDB
+
+	err := s.store.GormDB().Model(&store.DecisionRecordDB{}).
+		Where("trader_id = ?", traderID).
+		Order("timestamp DESC"). // Newest first
+		Offset(offset).
+		Limit(limit).
+		Find(&dbRecords).Error
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to query decision records: %w", err)
 	}
 
-	c.JSON(http.StatusOK, records)
+	records := make([]*store.DecisionRecord, len(dbRecords))
+	for i, db := range dbRecords {
+		// Manually convert DB record to API struct since toRecord is unexported
+		record := &store.DecisionRecord{
+			ID:                  db.ID,
+			TraderID:            db.TraderID,
+			CycleNumber:         db.CycleNumber,
+			Timestamp:           db.Timestamp,
+			SystemPrompt:        db.SystemPrompt,
+			InputPrompt:         db.InputPrompt,
+			CoTTrace:            db.CoTTrace,
+			DecisionJSON:        db.DecisionJSON,
+			RawResponse:         db.RawResponse,
+			Success:             db.Success,
+			ErrorMessage:        db.ErrorMessage,
+			AIRequestDurationMs: db.AIRequestDurationMs,
+		}
+		json.Unmarshal([]byte(db.CandidateCoins), &record.CandidateCoins)
+		json.Unmarshal([]byte(db.ExecutionLog), &record.ExecutionLog)
+		json.Unmarshal([]byte(db.Decisions), &record.Decisions)
+
+		records[i] = record
+	}
+
+	return records, nil
 }
 
 // handleDeleteDecision Delete a specific decision record

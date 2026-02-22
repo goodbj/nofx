@@ -163,6 +163,13 @@ export function TraderDashboardPage({
   const [isSystemScanning, setIsSystemScanning] = useState<boolean>(false)
   const [nextScanCountdown, setNextScanCountdown] = useState<number>(0) // 🔥 新增：下次扫描倒计时（秒）
   const [isDelayedByManual, setIsDelayedByManual] = useState<boolean>(false) // 🔥 新增：是否被手动扫描延迟
+  
+  // 无限滚动相关状态
+  const [allDecisions, setAllDecisions] = useState<DecisionRecord[]>(decisions || []);
+  const [decisionsPage, setDecisionsPage] = useState<number>(0);
+  const [hasMoreDecisions, setHasMoreDecisions] = useState<boolean>(true);
+  const [loadingMoreDecisions, setLoadingMoreDecisions] = useState<boolean>(false);
+  const decisionsContainerRef = useRef<HTMLDivElement>(null);
 
   // AI Semi-Auto Workflow States
   const [manualAIDecision, setManualAIDecision] = useState<string>('')
@@ -330,6 +337,64 @@ export function TraderDashboardPage({
       notify.error(errorMessage)
     }
   }
+
+  // 加载更多决策记录
+  const loadMoreDecisions = async () => {
+    if (loadingMoreDecisions || !hasMoreDecisions || !selectedTraderId) return;
+    
+    setLoadingMoreDecisions(true);
+    
+    try {
+      const nextPage = decisionsPage + 1;
+      const moreDecisions = await api.getLatestDecisions(
+        selectedTraderId,
+        decisionsLimit,
+        nextPage * decisionsLimit
+      );
+      
+      if (moreDecisions && moreDecisions.length > 0) {
+        setAllDecisions(prev => [...prev, ...moreDecisions]);
+        setDecisionsPage(nextPage);
+        // 如果返回的数量小于请求的数量，说明没有更多数据了
+        if (moreDecisions.length < decisionsLimit) {
+          setHasMoreDecisions(false);
+        }
+      } else {
+        setHasMoreDecisions(false);
+      }
+    } catch (error) {
+      console.error('加载更多决策记录失败:', error);
+      notify.error(
+        language === 'zh' ? '加载更多决策记录失败' : 'Failed to load more decisions'
+      );
+    } finally {
+      setLoadingMoreDecisions(false);
+    }
+  };
+
+  // 处理滚动事件以实现无限滚动
+  useEffect(() => {
+    const container = decisionsContainerRef.current;
+    if (!container) return;
+
+    const handleScroll = () => {
+      const { scrollTop, scrollHeight, clientHeight } = container;
+      // 当滚动到底部附近时（距离底部100px内）加载更多
+      if (scrollHeight - scrollTop <= clientHeight + 100) {
+        loadMoreDecisions();
+      }
+    };
+
+    container.addEventListener('scroll', handleScroll);
+    return () => container.removeEventListener('scroll', handleScroll);
+  }, [selectedTraderId, decisionsPage, hasMoreDecisions, loadingMoreDecisions]);
+
+  // 当交易员切换时重置分页状态
+  useEffect(() => {
+    setAllDecisions(decisions || []);
+    setDecisionsPage(0);
+    setHasMoreDecisions(true);
+  }, [selectedTraderId, decisions]);
 
   // Current positions pagination
   const [positionsPageSize, setPositionsPageSize] = useState<number>(20)
@@ -1773,11 +1838,12 @@ ${promptPreview.user_prompt}`
 
             {/* Decisions List - Scrollable */}
             <div
+              ref={decisionsContainerRef}
               className="space-y-4 overflow-y-auto pr-2 custom-scrollbar"
               style={{ maxHeight: 'calc(240vh - 280px)' }}
             >
-              {decisions && decisions.length > 0 ? (
-                decisions.map((decision) => (
+              {allDecisions && allDecisions.length > 0 ? (
+                allDecisions.map((decision) => (
                   <DecisionCard
                     key={`${decision.trader_id}-${decision.cycle_number}-${decision.timestamp}`}
                     decision={decision}
@@ -1795,6 +1861,14 @@ ${promptPreview.user_prompt}`
                   <div className="text-sm">
                     {t('aiDecisionsWillAppear', language)}
                   </div>
+                </div>
+              )}
+              {loadingMoreDecisions && (
+                <div className="text-center py-4">
+                  <div className="inline-block animate-spin rounded-full h-6 w-6 border-t-2 border-b-2 border-nofx-accent"></div>
+                  <p className="mt-2 text-nofx-text-muted text-sm">
+                    {language === 'zh' ? '加载更多周期...' : 'Loading more cycles...'}
+                  </p>
                 </div>
               )}
             </div>
