@@ -715,7 +715,7 @@ func (at *AutoTrader) Stop() {
 }
 
 // runCycle runs one trading cycle (using AI full decision-making)
-// validateDecisionCoins validates that all decision symbols are in the allowed candidate list
+// validateDecisionCoins validates that all decision symbols are in the allowed candidate list or are current positions
 func (at *AutoTrader) validateDecisionCoins(decisions []kernel.Decision) error {
 	// Get allowed coins from strategy engine
 	allowedCoins, err := at.strategyEngine.GetCandidateCoins()
@@ -723,61 +723,28 @@ func (at *AutoTrader) validateDecisionCoins(decisions []kernel.Decision) error {
 		return fmt.Errorf("failed to get candidate coins: %w", err)
 	}
 
-	// Create map for fast lookup
-	allowedMap := make(map[string]bool)
-	for _, coin := range allowedCoins {
-		allowedMap[coin.Symbol] = true
+	// Also get current positions to allow operations on currently held coins
+	positions, err := at.trader.GetPositions()
+	if err != nil {
+		logger.Warnf("⚠️ Failed to get current positions for validation: %v", err)
+		// If we can't get positions, only validate against candidate coins
+		positionMap := make(map[string]bool) // empty map
+		return validateDecisionsAgainstMaps(decisions, createAllowedMap(allowedCoins), positionMap)
 	}
 
-	// Validate each decision
-	invalidCoins := []string{}
-	validCoins := []string{}
+	// Create map for fast lookup of allowed coins
+	allowedMap := createAllowedMap(allowedCoins)
 
-	for i, decision := range decisions {
-		if !allowedMap[decision.Symbol] {
-			invalidCoins = append(invalidCoins, decision.Symbol)
-			logger.Warnf("⚠️ Decision #%d: coin %s is not in allowed list", i+1, decision.Symbol)
-		} else {
-			validCoins = append(validCoins, decision.Symbol)
-			logger.Debugf("✅ Decision #%d: coin %s is valid", i+1, decision.Symbol)
+	// Create map of current position symbols
+	positionMap := make(map[string]bool)
+	for _, pos := range positions {
+		symbol, ok := pos["symbol"].(string)
+		if ok {
+			positionMap[symbol] = true
 		}
 	}
 
-	// If all decisions are invalid, return error with detailed info
-	if len(invalidCoins) == len(decisions) && len(decisions) > 0 {
-		// Log strategy configuration for debugging
-		config := at.strategyEngine.GetConfig()
-		logger.Errorf("❌ Strategy configuration issue detected for trader: %s", at.name)
-		logger.Errorf("   Strategy ID: %s", at.config.ID)
-		logger.Errorf("   SourceType: %s", config.CoinSource.SourceType)
-		logger.Errorf("   UseAI500: %t", config.CoinSource.UseAI500)
-		logger.Errorf("   UseOITop: %t", config.CoinSource.UseOITop)
-		if config.CoinSource.SourceType == "static" {
-			logger.Errorf("   StaticCoins: %v", config.CoinSource.StaticCoins)
-		}
-
-		// Log the actual allowed coins for comparison
-		allowedSymbols := make([]string, len(allowedCoins))
-		for i, coin := range allowedCoins {
-			allowedSymbols[i] = coin.Symbol
-		}
-		logger.Errorf("   Actually allowed coins: %v", allowedSymbols)
-
-		return fmt.Errorf("all %d decisions use invalid coins: %v (allowed: %v)",
-			len(decisions), invalidCoins, getSymbolList(allowedCoins))
-	}
-
-	// If some decisions are valid, allow them to proceed but warn about invalid ones
-	if len(invalidCoins) > 0 {
-		logger.Warnf("⚠️ %d/%d decisions have invalid coins: %v",
-			len(invalidCoins), len(decisions), invalidCoins)
-		logger.Infof("✓ %d decisions validated successfully: %v",
-			len(validCoins), validCoins)
-	} else {
-		logger.Infof("✓ All %d decision coins validated against allowed list", len(decisions))
-	}
-
-	return nil
+	return validateDecisionsAgainstMaps(decisions, allowedMap, positionMap)
 }
 
 // getSymbolList converts coin list to symbol string slice for logging
@@ -4607,7 +4574,67 @@ func (at *AutoTrader) GetExchangeID() string {
 	return at.exchangeID
 }
 
-// GetExchangeType returns the exchange type
-func (at *AutoTrader) GetExchangeType() string {
-	return at.exchange
+// validateDecisionsAgainstMaps validates decisions against allowed coins and current positions
+// validateDecisionsAgainstMaps validates decisions against allowed coins and current positions
+func validateDecisionsAgainstMaps(decisions []kernel.Decision, allowedMap, positionMap map[string]bool) error {
+	// Validate each decision
+	invalidCoins := []string{}
+	validCoins := []string{}
+
+	for i, decision := range decisions {
+		// Determine if this is an opening position action
+		isOpenPosition := (decision.Action == "open_long" || decision.Action == "open_short")
+
+		// A coin is valid if:
+		// 1. It's in allowed list, OR
+		// 2. It's a current position (for hold/close operations), OR
+		// 3. It's NOT an open position action (other operations like adjust TP/SL不受白名单限制)
+		if allowedMap[decision.Symbol] || positionMap[decision.Symbol] || !isOpenPosition {
+			validCoins = append(validCoins, decision.Symbol)
+			logger.Debugf("✅ Decision #%d: coin %s is valid", i+1, decision.Symbol)
+		} else {
+			invalidCoins = append(invalidCoins, decision.Symbol)
+			logger.Warnf("⚠️ Decision #%d: coin %s is not in allowed list or current positions", i+1, decision.Symbol)
+		}
+	}
+
+	// If all decisions are invalid, return error with detailed info
+	if len(invalidCoins) == len(decisions) && len(decisions) > 0 {
+		// Log the actual allowed coins for comparison
+		var allowedSymbols []string
+		for symbol := range allowedMap {
+			allowedSymbols = append(allowedSymbols, symbol)
+		}
+		logger.Errorf("   Actually allowed coins: %v", allowedSymbols)
+
+		var positionSymbols []string
+		for symbol := range positionMap {
+			positionSymbols = append(positionSymbols, symbol)
+		}
+		logger.Errorf("   Current position coins: %v", positionSymbols)
+
+		return fmt.Errorf("all %d decisions use invalid coins: %v (allowed: %v, positions: %v)",
+			len(decisions), invalidCoins, allowedSymbols, positionSymbols)
+	}
+
+	// If some decisions are valid, allow them to proceed but warn about invalid ones
+	if len(invalidCoins) > 0 {
+		logger.Warnf("⚠️ %d/%d decisions have invalid coins: %v",
+			len(invalidCoins), len(decisions), invalidCoins)
+		logger.Infof("✓ %d decisions validated successfully: %v",
+			len(validCoins), validCoins)
+	} else {
+		logger.Infof("✓ All %d decision coins validated against allowed list", len(decisions))
+	}
+
+	return nil
+}
+
+// createAllowedMap creates a map of allowed coins from the candidate list
+func createAllowedMap(allowedCoins []kernel.CandidateCoin) map[string]bool {
+	allowedMap := make(map[string]bool)
+	for _, coin := range allowedCoins {
+		allowedMap[coin.Symbol] = true
+	}
+	return allowedMap
 }

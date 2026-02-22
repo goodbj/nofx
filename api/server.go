@@ -3272,7 +3272,7 @@ func (s *Server) handleSyncPositionHistory(c *gin.Context) {
 		err := builder.ProcessTrade(
 			traderID,
 			trader.GetExchangeID(),
-			trader.GetExchangeType(),
+			trader.GetExchange(),
 			record.Symbol,
 			record.Side,
 			fmt.Sprintf("close_%s", strings.ToLower(record.CloseType)),
