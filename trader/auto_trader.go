@@ -726,10 +726,22 @@ func (at *AutoTrader) validateDecisionCoins(decisions []kernel.Decision) error {
 	// Also get current positions to allow operations on currently held coins
 	positions, err := at.trader.GetPositions()
 	if err != nil {
-		logger.Warnf("⚠️ Failed to get current positions for validation: %v", err)
-		// If we can't get positions, only validate against candidate coins
-		positionMap := make(map[string]bool) // empty map
-		return validateDecisionsAgainstMaps(decisions, createAllowedMap(allowedCoins), positionMap)
+		// 检查是否是API密钥相关错误
+		errStr := err.Error()
+		if strings.Contains(errStr, "code=-2015") || strings.Contains(errStr, "Invalid API-key") || strings.Contains(errStr, "permissions for action") {
+			logger.Errorf("❌ 关键API错误 - 无法获取持仓信息，可能原因：")
+			logger.Errorf("   - API密钥无效或已过期")
+			logger.Errorf("   - API密钥权限不足")
+			logger.Errorf("   - IP地址不在白名单中（如果启用了IP限制）")
+			logger.Errorf("   - 请联系管理员检查API密钥设置")
+			logger.Errorf("   - 错误详情: %v", err)
+			return fmt.Errorf("critical API error - invalid API credentials: %w", err)
+		} else {
+			logger.Warnf("⚠️ Failed to get current positions for validation: %v", err)
+			// If we can't get positions, only validate against candidate coins
+			positionMap := make(map[string]bool) // empty map
+			return validateDecisionsAgainstMaps(decisions, createAllowedMap(allowedCoins), positionMap)
+		}
 	}
 
 	// Create map for fast lookup of allowed coins
@@ -1014,7 +1026,19 @@ func (at *AutoTrader) buildTradingContext() (*kernel.Context, error) {
 	// 1. Get account information
 	balance, err := at.trader.GetBalance()
 	if err != nil {
-		return nil, fmt.Errorf("failed to get account balance: %w", err)
+		// 检查是否是API密钥相关错误
+		errStr := err.Error()
+		if strings.Contains(errStr, "code=-2015") || strings.Contains(errStr, "Invalid API-key") || strings.Contains(errStr, "permissions for action") {
+			logger.Errorf("❌ 关键API错误 - 无法获取账户余额，可能原因：")
+			logger.Errorf("   - API密钥无效或已过期")
+			logger.Errorf("   - API密钥权限不足")
+			logger.Errorf("   - IP地址不在白名单中（如果启用了IP限制）")
+			logger.Errorf("   - 请联系管理员检查API密钥设置")
+			logger.Errorf("   - 错误详情: %v", err)
+			return nil, fmt.Errorf("critical API error - invalid API credentials: %w", err)
+		} else {
+			return nil, fmt.Errorf("failed to get account balance: %w", err)
+		}
 	}
 
 	// Get account fields
@@ -1044,7 +1068,19 @@ func (at *AutoTrader) buildTradingContext() (*kernel.Context, error) {
 	// 2. Get position information
 	positions, err := at.trader.GetPositions()
 	if err != nil {
-		return nil, fmt.Errorf("failed to get positions: %w", err)
+		// 检查是否是API密钥相关错误
+		errStr := err.Error()
+		if strings.Contains(errStr, "code=-2015") || strings.Contains(errStr, "Invalid API-key") || strings.Contains(errStr, "permissions for action") {
+			logger.Errorf("❌ 关键API错误 - 无法获取持仓信息，可能原因：")
+			logger.Errorf("   - API密钥无效或已过期")
+			logger.Errorf("   - API密钥权限不足")
+			logger.Errorf("   - IP地址不在白名单中（如果启用了IP限制）")
+			logger.Errorf("   - 请联系管理员检查API密钥设置")
+			logger.Errorf("   - 错误详情: %v", err)
+			return nil, fmt.Errorf("critical API error - invalid API credentials: %w", err)
+		} else {
+			return nil, fmt.Errorf("failed to get positions: %w", err)
+		}
 	}
 
 	var positionInfos []kernel.PositionInfo

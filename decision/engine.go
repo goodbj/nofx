@@ -462,6 +462,14 @@ func extractDecisions(response string) ([]Decision, error) {
 		return nil, fmt.Errorf("JSON解析失败: %w\nJSON内容: %s", err, jsonContent)
 	}
 
+	// 处理解析后的决策：将空符号替换为"ALL"
+	for i := range decisions {
+		if decisions[i].Symbol == "" {
+			decisions[i].Symbol = "ALL"
+			log.Printf("🔄 解析后决策空符号替换为: ALL")
+		}
+	}
+
 	return decisions, nil
 }
 
@@ -508,6 +516,12 @@ func findMatchingBracket(s string, start int) int {
 
 // validateDecision 验证单个决策的有效性
 func validateDecision(d *Decision, accountEquity float64, btcEthLeverage, altcoinLeverage int) error {
+	// 处理空符号：如果符号为空，替换为"ALL"
+	if d.Symbol == "" {
+		d.Symbol = "ALL"
+		log.Printf("🔄 决策验证前空符号替换为: ALL")
+	}
+
 	// 验证action
 	validActions := map[string]bool{
 		"open_long":          true,

@@ -1887,9 +1887,10 @@ func fixCommonJSONIssues(jsonStr string) string {
 				return keyValSep + value + endChar
 			} else {
 				// 对于非数字/非布尔值，添加引号
-				// 先清理值中的引号和换行符
+				// 先清理值中的引号和换行符，正确转义内部的双引号
 				value = strings.TrimSpace(value)
-				value = strings.ReplaceAll(value, `"`, `'`) // 将内部的双引号替换为单引号
+				// 正确转义内部的双引号（只转义未被转义的引号）
+				value = escapeUnescapedQuotesInString(value)
 				return keyValSep + `"` + value + `"` + endChar
 			}
 		}
@@ -1905,23 +1906,115 @@ func fixCommonJSONIssues(jsonStr string) string {
 
 // fixNestedQuotesInReasoning 修复reasoning字段中嵌套引号的问题
 func fixNestedQuotesInReasoning(jsonStr string) string {
-	// 查找reasoning字段并处理其中的嵌套引号
-	reasoningRegex := regexp.MustCompile(`"reasoning"\s*:\s*"([^"]*(?:"[^"]*)*)"`)
+	// 手动解析reasoning字段，处理其中可能包含未转义引号的值
+	result := ""
+	lastIndex := 0
 
-	return reasoningRegex.ReplaceAllStringFunc(jsonStr, func(match string) string {
-		// 首先提取reasoning字段的值部分
-		parts := reasoningRegex.FindStringSubmatch(match)
-		if len(parts) < 2 {
-			return match
+	// 查找所有 "reasoning": "..." 模式的实例
+	for i := 0; i < len(jsonStr); i++ {
+		// 寻找 "reasoning":
+		if i <= len(jsonStr)-12 { // "reasoning"" 的长度
+			if jsonStr[i:i+11] == `"reasoning":` {
+				// 跳过空白字符
+				j := i + 11
+				for j < len(jsonStr) && (jsonStr[j] == ' ' || jsonStr[j] == '\t' || jsonStr[j] == '\n' || jsonStr[j] == '\r') {
+					j++
+				}
+
+				// 检查是否跟随引号
+				if j < len(jsonStr) && jsonStr[j] == '"' {
+					// 找到了reasoning字段的开始，现在找到它的结束
+					startQuoteIdx := j
+					quoteCount := 1 // 开始引号
+					k := j + 1
+					for k < len(jsonStr) && quoteCount > 0 {
+						if jsonStr[k] == '"' && (k == 0 || jsonStr[k-1] != '\\' || (k >= 2 && jsonStr[k-2] == '\\' && jsonStr[k-1] == '\\')) {
+							// 检查反斜杠的数量，确定引号是否被转义
+							backslashCount := 0
+							l := k - 1
+							for l >= 0 && jsonStr[l] == '\\' {
+								backslashCount++
+								l--
+							}
+							if backslashCount%2 == 0 { // 偶数个反斜杠，引号未被转义
+								quoteCount--
+								if quoteCount == 0 {
+									// 找到匹配的结束引号
+									reasoningValue := jsonStr[startQuoteIdx+1 : k] // 提取引号内的内容
+									processedValue := escapeUnescapedQuotesInString(reasoningValue)
+
+									// 构建替换后的字符串部分
+									partBefore := jsonStr[lastIndex:startQuoteIdx]
+									replacement := fmt.Sprintf(`"reasoning":"%s"`, processedValue)
+
+									result += partBefore + replacement
+									lastIndex = k + 1 // 跳过结束引号
+									i = lastIndex - 1 // -1 因为循环会 i++
+									break
+								}
+							} else {
+								// 引号被转义，继续
+							}
+						} else if jsonStr[k] == '\\' && k+1 < len(jsonStr) {
+							// 跳过转义字符
+							k++
+						}
+						k++
+					}
+					if quoteCount != 0 {
+						// 未找到匹配的结束引号，继续搜索
+					}
+				}
+			}
 		}
+	}
 
-		reasoningValue := parts[1]
-		// 将reasoning值中的引号转义
-		escapedValue := strings.ReplaceAll(reasoningValue, `"`, `\"`)
+	// 添加剩余部分
+	if lastIndex < len(jsonStr) {
+		result += jsonStr[lastIndex:]
+	}
 
-		// 重建reasoning字段
-		return fmt.Sprintf(`"reasoning":"%s"`, escapedValue)
-	})
+	// 如果没有找到reasoning字段，返回原始字符串
+	if result == "" {
+		return jsonStr
+	}
+
+	return result
+}
+
+// escapeUnescapedQuotesInString 处理reasoning字段值中的所有可能导致JSON错误的特殊字符
+func escapeUnescapedQuotesInString(s string) string {
+	var result strings.Builder
+	for i := 0; i < len(s); i++ {
+		// 检查是否是各种类型的引号
+		if s[i] == '"' {
+			// 英文双引号 " -> '
+			result.WriteByte('\'')
+		} else if i+2 < len(s) && s[i] == '\xE2' && s[i+1] == '\x80' && s[i+2] == '\x9C' {
+			// 中文左双引号 " -> '
+			result.WriteByte('\'')
+			i += 2 // 跳过接下来的两个字节
+		} else if i+2 < len(s) && s[i] == '\xE2' && s[i+1] == '\x80' && s[i+2] == '\x9D' {
+			// 中文右双引号 " -> '
+			result.WriteByte('\'')
+			i += 2 // 跳过接下来的两个字节
+		} else if s[i] == '\n' {
+			// 换行符替换为空格，避免JSON格式错误
+			result.WriteByte(' ')
+		} else if s[i] == '\r' {
+			// 回车符替换为空格
+			result.WriteByte(' ')
+		} else if s[i] == '\t' {
+			// 制表符替换为空格
+			result.WriteByte(' ')
+		} else if s[i] == '\\' {
+			// 反斜杠替换为正斜杠，避免转义问题
+			result.WriteByte('/')
+		} else {
+			result.WriteByte(s[i])
+		}
+	}
+	return result.String()
 }
 
 // preprocessJSONContent 预处理JSON内容，自动修复常见问题
