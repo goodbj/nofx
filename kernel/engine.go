@@ -1856,6 +1856,74 @@ func fixMissingQuotes(jsonStr string) string {
 	return jsonStr
 }
 
+// fixCommonJSONIssues 修复常见的JSON格式问题
+func fixCommonJSONIssues(jsonStr string) string {
+	// 修复缺少逗号的问题
+	reMissingComma := regexp.MustCompile(`}\s*{`)
+	jsonStr = reMissingComma.ReplaceAllString(jsonStr, "}, {")
+
+	// 修复多余的逗号问题（在对象结尾）
+	reTrailingComma := regexp.MustCompile(`,\s*([}\]])`)
+	jsonStr = reTrailingComma.ReplaceAllString(jsonStr, "$1")
+
+	// 先处理reasoning字段中的嵌套引号问题，避免它们干扰JSON解析
+	jsonStr = fixNestedQuotesInReasoning(jsonStr)
+
+	// 修复可能的引号问题：确保所有字符串值都有正确的引号
+	// 处理reasoning等字段中可能存在的特殊字符
+	reUnquotedStrings := regexp.MustCompile(`(:\s*)([^"{[}\],\n\r]+)(\s*[,\]\}])`)
+	jsonStr = reUnquotedStrings.ReplaceAllStringFunc(jsonStr, func(match string) string {
+		parts := reUnquotedStrings.FindStringSubmatch(match)
+		if len(parts) == 4 {
+			keyValSep := parts[1] // ": "
+			value := parts[2]     // the value that might need quotes
+			endChar := parts[3]   // ", ] or }
+
+			// 检查值是否已经是数字或布尔值，如果是则不需要引号
+			isNumber := regexp.MustCompile(`^-?\d+(\.\d+)?$`).MatchString(value)
+			isBooleanNull := value == "true" || value == "false" || value == "null"
+
+			if isNumber || isBooleanNull {
+				return keyValSep + value + endChar
+			} else {
+				// 对于非数字/非布尔值，添加引号
+				// 先清理值中的引号和换行符
+				value = strings.TrimSpace(value)
+				value = strings.ReplaceAll(value, `"`, `'`) // 将内部的双引号替换为单引号
+				return keyValSep + `"` + value + `"` + endChar
+			}
+		}
+		return match
+	})
+
+	// 确保所有字段名都有引号
+	reUnquotedKeys := regexp.MustCompile(`([{,]\s*)([a-zA-Z_][a-zA-Z0-9_]*)\s*:([^"'])`)
+	jsonStr = reUnquotedKeys.ReplaceAllString(jsonStr, `$1"$2":$3`)
+
+	return jsonStr
+}
+
+// fixNestedQuotesInReasoning 修复reasoning字段中嵌套引号的问题
+func fixNestedQuotesInReasoning(jsonStr string) string {
+	// 查找reasoning字段并处理其中的嵌套引号
+	reasoningRegex := regexp.MustCompile(`"reasoning"\s*:\s*"([^"]*(?:"[^"]*)*)"`)
+
+	return reasoningRegex.ReplaceAllStringFunc(jsonStr, func(match string) string {
+		// 首先提取reasoning字段的值部分
+		parts := reasoningRegex.FindStringSubmatch(match)
+		if len(parts) < 2 {
+			return match
+		}
+
+		reasoningValue := parts[1]
+		// 将reasoning值中的引号转义
+		escapedValue := strings.ReplaceAll(reasoningValue, `"`, `\"`)
+
+		// 重建reasoning字段
+		return fmt.Sprintf(`"reasoning":"%s"`, escapedValue)
+	})
+}
+
 // preprocessJSONContent 预处理JSON内容，自动修复常见问题
 func preprocessJSONContent(jsonStr string) string {
 	// 1. 移除范围符号
@@ -1864,10 +1932,13 @@ func preprocessJSONContent(jsonStr string) string {
 	// 2. 修复缺失的引号
 	jsonStr = fixMissingQuotes(jsonStr)
 
-	// 3. 压缩数组开头
+	// 3. 修复常见的JSON格式问题
+	jsonStr = fixCommonJSONIssues(jsonStr)
+
+	// 4. 压缩数组开头
 	jsonStr = compactArrayOpen(jsonStr)
 
-	// 4. 移除不可见字符
+	// 5. 移除不可见字符
 	jsonStr = removeInvisibleRunes(jsonStr)
 
 	logger.Debugf("🔧 JSON预处理完成，修复后长度: %d -> %d", len(jsonStr), len(jsonStr))
