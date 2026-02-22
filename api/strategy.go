@@ -890,9 +890,15 @@ func filterAndFormatDecisions(decisions []kernel.Decision) []kernel.Decision {
 		decision := originalDecision // 创建副本以进行修改
 
 		// 基础验证
-		if decision.Symbol == "" || decision.Action == "" {
+		if decision.Action == "" {
 			logger.Warnf("Skipping invalid decision: symbol=%s, action=%s", decision.Symbol, decision.Action)
 			continue
+		}
+
+		// 处理空符号：如果符号为空，替换为"ALL"
+		if decision.Symbol == "" {
+			decision.Symbol = "ALL"
+			logger.Infof("🔄 空符号替换为: ALL")
 		}
 
 		// 规范化符号名称（去除空格、转换大小写等）

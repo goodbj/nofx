@@ -1855,7 +1855,7 @@ ${promptPreview.user_prompt}`
             <div
               ref={decisionsContainerRef}
               className="space-y-4 overflow-y-auto pr-2 custom-scrollbar"
-              style={{ maxHeight: 'calc(240vh - 280px)' }}
+              style={{ maxHeight: 'calc(140vh - 280px)' }}
             >
               {allDecisions && allDecisions.length > 0 ? (
                 allDecisions.map((decision) => {
