@@ -1071,7 +1071,8 @@ func (e *StrategyEngine) BuildSystemPrompt(accountEquity float64, variant string
 		sb.WriteString("# 📋 Decision Process\n\n")
 		sb.WriteString("1. Check positions → Should we take profit/stop-loss\n")
 		sb.WriteString("2. Scan candidate coins + multi-timeframe → Are there strong signals\n")
-		sb.WriteString("3. Write chain of thought first, then output structured JSON\n\n")
+		sb.WriteString("3. Write chain of thought first, then output structured JSON\n")
+		sb.WriteString("**CRITICAL**: For the same symbol within a single decision cycle, output ONE primary action only. If multiple operations are needed, prioritize and select the most critical action (e.g., if both partial_close and update_stop_loss are needed, choose the most urgent one). DO NOT output multiple separate actions for the same symbol.\n\n")
 	}
 
 	// 7. Output format
