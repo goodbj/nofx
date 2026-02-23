@@ -1108,7 +1108,9 @@ func (e *StrategyEngine) BuildSystemPrompt(accountEquity float64, variant string
 	sb.WriteString("- Required when dynamic_take_profit: target_roi, max_roi, time_limit_hours, confidence, reasoning\n")
 	sb.WriteString("- **IMPORTANT**: All numeric values must be calculated numbers, NOT formulas/expressions (e.g., use `27.76` not `3000 * 0.01`)\n")
 	//	sb.WriteString("- **CRITICAL**: In `reasoning` field, DO NOT use quotes (neither double \" nor single ') as they break JSON parsing. Use parentheses () or other punctuation instead.\n\n")
-	sb.WriteString("- **CRITICAL**: In the `reasoning` field, do NOT use quotation marks of any kind (especially double quotes) as they break JSON parsing. Use parentheses () or other punctuation instead.\n\n")
+	//sb.WriteString("- **CRITICAL**: In the `reasoning` field, do NOT use quotation marks of any kind (especially double quotes) as they break JSON parsing. Use parentheses () or other punctuation instead.\n\n")
+	sb.WriteString("- **CRITICAL**: In the `reasoning` field, do NOT use any quotation marks (especially English double quotes \") as they break JSON parsing. Use parentheses () or other punctuation instead.\n")
+	sb.WriteString("- 重要：在`reasoning`字段的值中禁止使用和禁止出现英文的双引号\n\n")
 
 	// 8. Custom Prompt
 	if e.config.CustomPrompt != "" {
@@ -1992,16 +1994,16 @@ func escapeUnescapedQuotesInString(s string) string {
 	for i := 0; i < len(s); i++ {
 		// 检查是否是各种类型的引号
 		if s[i] == '"' {
-			// 英文双引号 " -> '
-			result.WriteByte('\'')
+			// 英文双引号 " -> \"
+			result.WriteString("\\\"")
 		} else if i+2 < len(s) && s[i] == '\xE2' && s[i+1] == '\x80' && s[i+2] == '\x9C' {
-			// 中文左双引号 " -> '
-			result.WriteByte('\'')
-			i += 2 // 跳过接下来的两个字节
+			// 中文左双引号 " -> 全角引号
+			result.WriteString("＂") // 全角引号
+			i += 2                  // 跳过接下来的两个字节
 		} else if i+2 < len(s) && s[i] == '\xE2' && s[i+1] == '\x80' && s[i+2] == '\x9D' {
-			// 中文右双引号 " -> '
-			result.WriteByte('\'')
-			i += 2 // 跳过接下来的两个字节
+			// 中文右双引号 " -> 全角引号
+			result.WriteString("＂") // 全角引号
+			i += 2                  // 跳过接下来的两个字节
 		} else if s[i] == '\n' {
 			// 换行符替换为空格，避免JSON格式错误
 			result.WriteByte(' ')
@@ -2012,8 +2014,14 @@ func escapeUnescapedQuotesInString(s string) string {
 			// 制表符替换为空格
 			result.WriteByte(' ')
 		} else if s[i] == '\\' {
-			// 反斜杠替换为正斜杠，避免转义问题
-			result.WriteByte('/')
+			// 检查是否已经是转义字符的一部分，如果是则保留
+			if i+1 < len(s) && (s[i+1] == '"' || s[i+1] == '\\') {
+				// 已经是转义序列，保留反斜杠
+				result.WriteByte(s[i])
+			} else {
+				// 独立反斜杠，转义它
+				result.WriteString("\\\\")
+			}
 		} else {
 			result.WriteByte(s[i])
 		}
