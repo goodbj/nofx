@@ -1,6 +1,8 @@
 package main
 
 import (
+	"errors"
+	"fmt"
 	"nofx/api"
 	"nofx/auth"
 	"nofx/background"
@@ -15,12 +17,22 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/joho/godotenv"
 )
+
+// normalizeUserIDMain copies the logic from api/backtest.go
+func normalizeUserIDMain(id string) string {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return "default"
+	}
+	return id
+}
 
 func main() {
 	// Load .env environment variables
@@ -107,6 +119,86 @@ func main() {
 	traderManager := manager.NewTraderManager()
 	mcpClient := newSharedMCPClient()
 	backtestManager := backtest.NewManager(mcpClient)
+
+	// Set the AI resolver for backtest manager to handle AI configuration
+	backtestManager.SetAIResolver(func(cfg *backtest.BacktestConfig) error {
+		if cfg == nil {
+			return errors.New("config is nil")
+		}
+		if st == nil {
+			return errors.New("System database not ready, cannot load AI model configuration")
+		}
+
+		cfg.UserID = normalizeUserIDMain(cfg.UserID)
+		modelID := strings.TrimSpace(cfg.AIModelID)
+
+		var (
+			model *store.AIModel
+			err   error
+		)
+
+		if modelID != "" {
+			model, err = st.AIModel().Get(cfg.UserID, modelID)
+			if err != nil {
+				return fmt.Errorf("Failed to load AI model: %w", err)
+			}
+		} else {
+			model, err = st.AIModel().GetDefault(cfg.UserID)
+			if err != nil {
+				return fmt.Errorf("No available AI model found: %w", err)
+			}
+			cfg.AIModelID = model.ID
+		}
+
+		if !model.Enabled {
+			return fmt.Errorf("AI model %s is not enabled yet", model.Name)
+		}
+
+		apiKey := strings.TrimSpace(string(model.APIKey))
+		if apiKey == "" {
+			return fmt.Errorf("AI model %s is missing API Key, please configure it in the system first", model.Name)
+		}
+
+		provider := strings.ToLower(strings.TrimSpace(model.Provider))
+		// Ensure provider is never empty or "inherit" - infer from model name if needed
+		if provider == "" || provider == "inherit" {
+			modelNameLower := strings.ToLower(model.Name)
+			if strings.Contains(modelNameLower, "claude") || strings.Contains(modelNameLower, "anthropic") {
+				provider = "anthropic"
+			} else if strings.Contains(modelNameLower, "gpt") || strings.Contains(modelNameLower, "openai") {
+				provider = "openai"
+			} else if strings.Contains(modelNameLower, "gemini") || strings.Contains(modelNameLower, "google") {
+				provider = "google"
+			} else if strings.Contains(modelNameLower, "deepseek") {
+				provider = "deepseek"
+			} else if model.CustomAPIURL != "" {
+				provider = "custom"
+			} else {
+				provider = "openai" // default fallback
+			}
+			logger.Infof("📊 Inferred AI provider '%s' from model name '%s'", provider, model.Name)
+		}
+		cfg.AICfg.Provider = provider
+		cfg.AICfg.APIKey = apiKey
+		cfg.AICfg.BaseURL = strings.TrimSpace(model.CustomAPIURL)
+		modelName := strings.TrimSpace(model.CustomModelName)
+		if cfg.AICfg.Model == "" {
+			cfg.AICfg.Model = modelName
+		}
+		cfg.AICfg.Model = strings.TrimSpace(cfg.AICfg.Model)
+
+		if cfg.AICfg.Provider == "custom" {
+			if cfg.AICfg.BaseURL == "" {
+				return errors.New("Custom AI model requires API URL configuration")
+			}
+			if cfg.AICfg.Model == "" {
+				return errors.New("Custom AI model requires model name configuration")
+			}
+		}
+
+		return nil
+	})
+
 	if err := backtestManager.RestoreRuns(); err != nil {
 		logger.Warnf("⚠️ Failed to restore backtest history: %v", err)
 	}
