@@ -1552,12 +1552,10 @@ func (t *FuturesTrader) UpdateStopLoss(symbol string, positionSide string, newSt
 			}
 		}
 	} else {
-		// 如果没有找到特定的止损订单，只取消止损类订单，保留止盈订单
-		logger.Infof("🔍 未找到特定止损订单，使用专用的止损取消函数")
-		if err := t.CancelStopLossOrders(symbol); err != nil {
-			logger.Warnf("⚠️ 取消止损订单时出错（新止损已设置成功）: %v", err)
-			// 不返回错误，因为新止损已经成功设置
-		}
+		// 如果没有找到特定的止损订单，说明可能使用了Algo Orders
+		// 这种情况下不应盲目取消所有止损订单，因为刚刚设置的新订单可能还在生效
+		logger.Infof("🔍 未找到特定的传统止损订单，新止损订单可能已通过Algo API设置并生效")
+		// 不再调用 CancelStopLossOrders，因为这会取消刚设置的新订单
 	}
 
 	logger.Infof("✅ 止损更新完成: %s -> %.4f", symbol, newStopPrice)
@@ -1645,12 +1643,10 @@ func (t *FuturesTrader) UpdateTakeProfit(symbol string, positionSide string, new
 			}
 		}
 	} else {
-		// 如果没有找到特定的止盈订单，只取消止盈类订单，保留止损订单
-		logger.Infof("🔍 未找到特定止盈订单，使用专用的止盈取消函数")
-		if err := t.CancelTakeProfitOrders(symbol); err != nil {
-			logger.Warnf("⚠️ 取消止盈订单时出错（新止盈已设置成功）: %v", err)
-			// 不返回错误，因为新止盈已经成功设置
-		}
+		// 如果没有找到特定的止盈订单，说明可能使用了Algo Orders
+		// 这种情况下不应盲目取消所有止盈订单，因为刚刚设置的新订单可能还在生效
+		logger.Infof("🔍 未找到特定的传统止盈订单，新止盈订单可能已通过Algo API设置并生效")
+		// 不再调用 CancelTakeProfitOrders，因为这会取消刚设置的新订单
 	}
 
 	logger.Infof("✅ 止盈更新完成: %s -> %.4f", symbol, newTakeProfitPrice)
