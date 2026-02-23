@@ -3,6 +3,7 @@ package main
 import (
 	"nofx/api"
 	"nofx/auth"
+	"nofx/background"
 	"nofx/backtest"
 	"nofx/config"
 	"nofx/crypto"
@@ -173,6 +174,14 @@ func main() {
 				t.Name, t.ID[:8], status, t.AIModelID, t.ExchangeID)
 		}
 	}
+
+	// Start position sync checker service
+	logger.Info("🔄 启动持仓状态一致性检查服务...")
+	go func() {
+		positionSyncChecker := background.NewPositionSyncChecker(st, traderManager, time.Hour, logger.Log)
+		go positionSyncChecker.Start()
+		logger.Info("✅ 持仓状态检查服务已启动，将每小时自动检查一次")
+	}()
 
 	// Start API server
 	server := api.NewServer(traderManager, st, cryptoService, backtestManager, cfg.APIServerPort)
