@@ -1109,8 +1109,8 @@ func (e *StrategyEngine) BuildSystemPrompt(accountEquity float64, variant string
 	sb.WriteString("- **IMPORTANT**: All numeric values must be calculated numbers, NOT formulas/expressions (e.g., use `27.76` not `3000 * 0.01`)\n")
 	//	sb.WriteString("- **CRITICAL**: In `reasoning` field, DO NOT use quotes (neither double \" nor single ') as they break JSON parsing. Use parentheses () or other punctuation instead.\n\n")
 	//sb.WriteString("- **CRITICAL**: In the `reasoning` field, do NOT use quotation marks of any kind (especially double quotes) as they break JSON parsing. Use parentheses () or other punctuation instead.\n\n")
-	sb.WriteString("- **CRITICAL**: In the `reasoning` field, do NOT use any quotation marks (especially English double quotes \") as they break JSON parsing. Use parentheses () or other punctuation instead.\n")
-	sb.WriteString("- 重要：在`reasoning`字段的值中禁止使用和禁止出现英文的双引号\n\n")
+	//sb.WriteString("- **CRITICAL**: In the `reasoning` field, do NOT use any quotation marks (especially English double quotes \") as they break JSON parsing. Use parentheses () or other punctuation instead.\n")
+	sb.WriteString("- **重要规则**: 在`reasoning`字段中，严格禁止使用ASCII双引号(\").请使用以下替代方案:\n   1. 中文双引号:" + `""` + "\n   2. 单引号:'\n   3. 不使用引号的表达方式\n   请确保reasoning字段完全符合此格式要求.\n\n")
 
 	// 8. Custom Prompt
 	if e.config.CustomPrompt != "" {
@@ -1912,78 +1912,23 @@ func fixCommonJSONIssues(jsonStr string) string {
 
 // fixNestedQuotesInReasoning 修复reasoning字段中嵌套引号的问题
 func fixNestedQuotesInReasoning(jsonStr string) string {
-	// 手动解析reasoning字段，处理其中可能包含未转义引号的值
-	result := ""
-	lastIndex := 0
+	// 使用正则表达式找到所有的reasoning字段及其值
+	re := regexp.MustCompile(`"reasoning"\s*:\s*"((?:[^"\\]|\\.)*)"`)
 
-	// 查找所有 "reasoning": "..." 模式的实例
-	for i := 0; i < len(jsonStr); i++ {
-		// 寻找 "reasoning":
-		if i <= len(jsonStr)-12 { // "reasoning"" 的长度
-			if jsonStr[i:i+11] == `"reasoning":` {
-				// 跳过空白字符
-				j := i + 11
-				for j < len(jsonStr) && (jsonStr[j] == ' ' || jsonStr[j] == '\t' || jsonStr[j] == '\n' || jsonStr[j] == '\r') {
-					j++
-				}
-
-				// 检查是否跟随引号
-				if j < len(jsonStr) && jsonStr[j] == '"' {
-					// 找到了reasoning字段的开始，现在找到它的结束
-					startQuoteIdx := j
-					quoteCount := 1 // 开始引号
-					k := j + 1
-					for k < len(jsonStr) && quoteCount > 0 {
-						if jsonStr[k] == '"' && (k == 0 || jsonStr[k-1] != '\\' || (k >= 2 && jsonStr[k-2] == '\\' && jsonStr[k-1] == '\\')) {
-							// 检查反斜杠的数量，确定引号是否被转义
-							backslashCount := 0
-							l := k - 1
-							for l >= 0 && jsonStr[l] == '\\' {
-								backslashCount++
-								l--
-							}
-							if backslashCount%2 == 0 { // 偶数个反斜杠，引号未被转义
-								quoteCount--
-								if quoteCount == 0 {
-									// 找到匹配的结束引号
-									reasoningValue := jsonStr[startQuoteIdx+1 : k] // 提取引号内的内容
-									processedValue := escapeUnescapedQuotesInString(reasoningValue)
-
-									// 构建替换后的字符串部分
-									partBefore := jsonStr[lastIndex:startQuoteIdx]
-									replacement := fmt.Sprintf(`"reasoning":"%s"`, processedValue)
-
-									result += partBefore + replacement
-									lastIndex = k + 1 // 跳过结束引号
-									i = lastIndex - 1 // -1 因为循环会 i++
-									break
-								}
-							} else {
-								// 引号被转义，继续
-							}
-						} else if jsonStr[k] == '\\' && k+1 < len(jsonStr) {
-							// 跳过转义字符
-							k++
-						}
-						k++
-					}
-					if quoteCount != 0 {
-						// 未找到匹配的结束引号，继续搜索
-					}
-				}
-			}
+	// 替换所有reasoning字段中的值，处理其中的引号
+	result := re.ReplaceAllStringFunc(jsonStr, func(match string) string {
+		// 提取匹配的部分
+		submatches := re.FindStringSubmatch(match)
+		if len(submatches) < 2 {
+			return match // 如果没找到子匹配，返回原字符串
 		}
-	}
 
-	// 添加剩余部分
-	if lastIndex < len(jsonStr) {
-		result += jsonStr[lastIndex:]
-	}
+		originalValue := submatches[1]                                 // 获取reasoning字段的原始值
+		processedValue := escapeUnescapedQuotesInString(originalValue) // 处理引号
 
-	// 如果没有找到reasoning字段，返回原始字符串
-	if result == "" {
-		return jsonStr
-	}
+		// 重建reasoning字段
+		return fmt.Sprintf(`"reasoning":"%s"`, processedValue)
+	})
 
 	return result
 }
@@ -1997,13 +1942,21 @@ func escapeUnescapedQuotesInString(s string) string {
 			// 英文双引号 " -> \"
 			result.WriteString("\\\"")
 		} else if i+2 < len(s) && s[i] == '\xE2' && s[i+1] == '\x80' && s[i+2] == '\x9C' {
-			// 中文左双引号 " -> 全角引号
-			result.WriteString("＂") // 全角引号
-			i += 2                  // 跳过接下来的两个字节
+			// 中文左双引号 " -> 英文双引号并转义
+			result.WriteString("\\\"")
+			i += 2 // 跳过接下来的两个字节
 		} else if i+2 < len(s) && s[i] == '\xE2' && s[i+1] == '\x80' && s[i+2] == '\x9D' {
-			// 中文右双引号 " -> 全角引号
-			result.WriteString("＂") // 全角引号
-			i += 2                  // 跳过接下来的两个字节
+			// 中文右双引号 " -> 英文双引号并转义
+			result.WriteString("\\\"")
+			i += 2 // 跳过接下来的两个字节
+		} else if i+2 < len(s) && s[i] == '\xE2' && s[i+1] == '\x80' && s[i+2] == '\x98' {
+			// 中文左单引号 ' -> 英文单引号并转义
+			result.WriteString("\\'")
+			i += 2 // 跳过接下来的两个字节
+		} else if i+2 < len(s) && s[i] == '\xE2' && s[i+1] == '\x80' && s[i+2] == '\x99' {
+			// 中文右单引号 ' -> 英文单引号并转义
+			result.WriteString("\\'")
+			i += 2 // 跳过接下来的两个字节
 		} else if s[i] == '\n' {
 			// 换行符替换为空格，避免JSON格式错误
 			result.WriteByte(' ')
@@ -2015,7 +1968,7 @@ func escapeUnescapedQuotesInString(s string) string {
 			result.WriteByte(' ')
 		} else if s[i] == '\\' {
 			// 检查是否已经是转义字符的一部分，如果是则保留
-			if i+1 < len(s) && (s[i+1] == '"' || s[i+1] == '\\') {
+			if i+1 < len(s) && (s[i+1] == '"' || s[i+1] == '\'' || s[i+1] == '\\') {
 				// 已经是转义序列，保留反斜杠
 				result.WriteByte(s[i])
 			} else {

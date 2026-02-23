@@ -195,13 +195,16 @@ func (gc *GuardianClient) performBrowserAutomation(prompt string) (string, error
 	userDir := fmt.Sprintf("%s_%s", GuardianBrowserDataDir, uniqueID)
 	gc.logger.Printf("🚨 [GUARDIAN BROWSER DEBUG] User data directory: %s", userDir)
 
+	// 根据DisplayEnabled设置是否启用无头模式
+	headlessMode := !gc.GetDisplayEnabled()
+
 	opts := append(chromedp.DefaultExecAllocatorOptions[:],
-		chromedp.Flag("headless", false),             // 非无头模式以便观察
+		chromedp.Flag("headless", headlessMode),      // 根据DisplayEnabled决定是否启用无头模式
 		chromedp.Flag("disable-web-security", false), // 启用网络安全以支持正常网站功能
 		chromedp.Flag("disable-features", "VizDisplayCompositor"),
 		chromedp.Flag("no-sandbox", true),
 		chromedp.Flag("disable-dev-shm-usage", true),
-		chromedp.Flag("disable-gpu", false),                    // 启用GPU加速
+		chromedp.Flag("disable-gpu", !headlessMode),            // 如果非无头模式，启用GPU加速
 		chromedp.Flag("blink-settings", "imagesEnabled=true"),  // 启用图片加载以支持验证码等功能
 		chromedp.Flag("enable-automation", false),              // 防止被网站检测为自动化
 		chromedp.Flag("exclude-switches", "enable-automation"), // 排除自动化开关
@@ -214,13 +217,13 @@ func (gc *GuardianClient) performBrowserAutomation(prompt string) (string, error
 		chromedp.Flag("max_old_space_size", "4096"),
 		chromedp.Flag("no-first-run", "true"),
 		chromedp.Flag("no-default-browser-check", "true"),
-		chromedp.Flag("disable-backgrounding-occluded-windows", "false"), // 确保窗口可见
-		chromedp.Flag("disable-renderer-backgrounding", "true"),          // 防止后台渲染
-		chromedp.Flag("disable-background-timer-throttling", "true"),     // 防止定时器节流
-		chromedp.Flag("disable-background-networking", "false"),          // 允许后台网络活动
-		chromedp.Flag("window-size", "1000,850"),                         // 设置浏览器窗口尺寸为1000x850
-		chromedp.Flag("user-data-dir", userDir),                          // 每个实例使用独立的用户数据目录
-		chromedp.Flag("profile-directory", "Default"),                    // 使用默认配置文件
+		chromedp.Flag("disable-backgrounding-occluded-windows", !headlessMode), // 如果非无头模式，确保窗口可见
+		chromedp.Flag("disable-renderer-backgrounding", !headlessMode),         // 如果非无头模式，防止后台渲染
+		chromedp.Flag("disable-background-timer-throttling", "true"),           // 防止定时器节流
+		chromedp.Flag("disable-background-networking", "false"),                // 允许后台网络活动
+		chromedp.Flag("window-size", "1000,850"),                               // 设置浏览器窗口尺寸为1000x850
+		chromedp.Flag("user-data-dir", userDir),                                // 每个实例使用独立的用户数据目录
+		chromedp.Flag("profile-directory", "Default"),                          // 使用默认配置文件
 	)
 
 	allocCtx, allocCancel := chromedp.NewExecAllocator(context.Background(), opts...)
@@ -1261,13 +1264,16 @@ func (gc *GuardianClient) performBrowserAutomationWithKeepAlive(targetURL string
 		timestamp := time.Now().UnixNano()
 		uniqueID = fmt.Sprintf("%d_%p", timestamp, gc)
 	}
+	// 根据DisplayEnabled设置是否启用无头模式
+	headlessMode := !gc.GetDisplayEnabled()
+
 	opts := append(chromedp.DefaultExecAllocatorOptions[:],
-		chromedp.Flag("headless", false),             // 非无头模式以便观察
+		chromedp.Flag("headless", headlessMode),      // 根据DisplayEnabled决定是否启用无头模式
 		chromedp.Flag("disable-web-security", false), // 启用网络安全以支持正常网站功能
 		chromedp.Flag("disable-features", "VizDisplayCompositor"),
 		chromedp.Flag("no-sandbox", true),
 		chromedp.Flag("disable-dev-shm-usage", true),
-		chromedp.Flag("disable-gpu", false),                    // 启用GPU加速
+		chromedp.Flag("disable-gpu", !headlessMode),            // 如果非无头模式，启用GPU加速
 		chromedp.Flag("blink-settings", "imagesEnabled=true"),  // 启用图片加载以支持验证码等功能
 		chromedp.Flag("enable-automation", false),              // 防止被网站检测为自动化
 		chromedp.Flag("exclude-switches", "enable-automation"), // 排除自动化开关
@@ -1280,8 +1286,8 @@ func (gc *GuardianClient) performBrowserAutomationWithKeepAlive(targetURL string
 		chromedp.Flag("max_old_space_size", "4096"),
 		chromedp.Flag("no-first-run", "true"),
 		chromedp.Flag("no-default-browser-check", "true"),
-		chromedp.Flag("disable-backgrounding-occluded-windows", "false"),                       // 确保窗口可见
-		chromedp.Flag("disable-renderer-backgrounding", "true"),                                // 防止后台渲染
+		chromedp.Flag("disable-backgrounding-occluded-windows", !headlessMode),                 // 如果非无头模式，确保窗口可见
+		chromedp.Flag("disable-renderer-backgrounding", !headlessMode),                         // 如果非无头模式，防止后台渲染
 		chromedp.Flag("disable-background-timer-throttling", "true"),                           // 防止定时器节流
 		chromedp.Flag("disable-background-networking", "false"),                                // 允许后台网络活动
 		chromedp.Flag("window-size", "1000,850"),                                               // 设置浏览器窗口尺寸为1000x850

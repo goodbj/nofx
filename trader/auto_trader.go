@@ -676,6 +676,8 @@ func (at *AutoTrader) Run() error {
 				continue
 			}
 
+			cycleStartTime := time.Now()
+
 			if err := at.runCycleWithExecutionLock(); err != nil {
 				// Only log error if it's not because manual scan is in progress
 				if err.Error() != "automatic scan skipped: manual scan in progress" {
@@ -688,7 +690,19 @@ func (at *AutoTrader) Run() error {
 			logger.Infof("🎲 [%s] Adding random delay: %.0f seconds to avoid bot detection", at.name, randomDelay.Seconds())
 			time.Sleep(randomDelay)
 
-			// 🔥 更新下次扫描时间（加上随机延迟）
+			// 🔥 确保按设定的间隔执行：计算本次周期总耗时，等待到下一个完整间隔时间点
+			totalCycleTime := time.Since(cycleStartTime)
+			if totalCycleTime < at.config.ScanInterval {
+				sleepTime := at.config.ScanInterval - totalCycleTime
+				logger.Infof("⏱️ [%s] Cycle took %.0fs, sleeping for %.0fs to maintain %.0f minute interval",
+					at.name, totalCycleTime.Seconds(), sleepTime.Seconds(), at.config.ScanInterval.Minutes())
+				time.Sleep(sleepTime)
+			} else {
+				logger.Warnf("⚠️ [%s] Cycle took %.0fs which exceeds configured interval of %.0fs, next cycle will start immediately",
+					at.name, totalCycleTime.Seconds(), at.config.ScanInterval.Seconds())
+			}
+
+			// 🔥 更新下次扫描时间
 			at.nextSystemScanTime = time.Now().Add(at.config.ScanInterval)
 		case <-at.stopMonitorCh:
 			logger.Infof("[%s] ⏹ Stop signal received, exiting automatic trading main loop", at.name)

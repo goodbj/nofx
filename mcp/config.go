@@ -34,6 +34,9 @@ type Config struct {
 	EnableContextCompression bool // 是否启用上下文压缩
 	ModelContextSize         int  // 模型上下文大小（字符数/tokens）
 
+	// Browser display configuration
+	DisplayEnabled bool // 是否启用浏览器显示
+
 	// Trader identification for browser data isolation
 	TraderID string // 交易员ID，用于浏览器数据隔离
 
@@ -56,6 +59,9 @@ func DefaultConfig() *Config {
 		// Context compression configuration
 		EnableContextCompression: getEnvBool("MCP_ENABLE_CONTEXT_COMPRESSION", true), // 默认开启压缩
 		ModelContextSize:         getEnvInt("MCP_MODEL_CONTEXT_SIZE", 0),             // 0表示自动检测
+
+		// Browser display configuration
+		DisplayEnabled: getEnvBool("GUARDIAN_DISPLAY_ENABLED", true), // 从环境变量读取显示设置
 
 		// Default dependencies (use global logger)
 		Logger:     logger.NewMCPLogger(),

@@ -170,6 +170,17 @@ func WithQwenConfig(apiKey string) ClientOption {
 	}
 }
 
+// WithDisplayEnabled sets whether browser display is enabled
+//
+// Usage example:
+//
+//	client := mcp.NewClient(mcp.WithDisplayEnabled(false))
+func WithDisplayEnabled(enabled bool) ClientOption {
+	return func(c *Config) {
+		c.DisplayEnabled = enabled
+	}
+}
+
 // WithTraderID sets trader ID for browser data isolation
 //
 // Usage example:

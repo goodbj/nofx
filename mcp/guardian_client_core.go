@@ -69,8 +69,8 @@ func NewGuardianClientFromConfig(config Config) *GuardianClient {
 		SystemPrompt:   "", // Config结构体中没有SystemPrompt字段，暂时设为空
 		logger:         log.Default(),
 		httpClient:     config.HTTPClient,
-		DisplayEnabled: true,            // 默认启用显示
-		TraderID:       config.TraderID, // 设置交易员ID
+		DisplayEnabled: config.DisplayEnabled, // 从配置中读取显示设置
+		TraderID:       config.TraderID,       // 设置交易员ID
 	}
 
 	return client
