@@ -1110,7 +1110,7 @@ func (e *StrategyEngine) BuildSystemPrompt(accountEquity float64, variant string
 	//	sb.WriteString("- **CRITICAL**: In `reasoning` field, DO NOT use quotes (neither double \" nor single ') as they break JSON parsing. Use parentheses () or other punctuation instead.\n\n")
 	//sb.WriteString("- **CRITICAL**: In the `reasoning` field, do NOT use quotation marks of any kind (especially double quotes) as they break JSON parsing. Use parentheses () or other punctuation instead.\n\n")
 	//sb.WriteString("- **CRITICAL**: In the `reasoning` field, do NOT use any quotation marks (especially English double quotes \") as they break JSON parsing. Use parentheses () or other punctuation instead.\n")
-	sb.WriteString("- **重要规则**: 在`reasoning`字段中，严格禁止使用ASCII双引号(\").请使用以下替代方案:\n   1. 中文双引号:" + `""` + "\n   2. 单引号:'\n   3. 不使用引号的表达方式\n   请确保reasoning字段完全符合此格式要求.\n\n")
+	sb.WriteString("- **重要规则**: `reasoning`字段字数不能超过10个字符，在`reasoning`字段中，严格禁止使用ASCII双引号(\").请使用以下替代方案:\n   1. 中文双引号:" + `""` + "  2. 单引号:'  3. 不使用引号的表达方式   请确保reasoning字段完全符合此格式要求.\n\n")
 
 	// 8. Custom Prompt
 	if e.config.CustomPrompt != "" {
