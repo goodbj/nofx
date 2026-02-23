@@ -1107,7 +1107,8 @@ func (e *StrategyEngine) BuildSystemPrompt(accountEquity float64, variant string
 	sb.WriteString("- Required when trailing_stop: trail_percentage, activation_price, callback_rate, confidence, reasoning\n")
 	sb.WriteString("- Required when dynamic_take_profit: target_roi, max_roi, time_limit_hours, confidence, reasoning\n")
 	sb.WriteString("- **IMPORTANT**: All numeric values must be calculated numbers, NOT formulas/expressions (e.g., use `27.76` not `3000 * 0.01`)\n")
-	sb.WriteString("- **CRITICAL**: In `reasoning` field, DO NOT use quotes (neither double \" nor single ') as they break JSON parsing. Use parentheses () or other punctuation instead.\n\n")
+	//	sb.WriteString("- **CRITICAL**: In `reasoning` field, DO NOT use quotes (neither double \" nor single ') as they break JSON parsing. Use parentheses () or other punctuation instead.\n\n")
+	sb.WriteString("- **CRITICAL**: In the `reasoning` field, do NOT use quotation marks of any kind (especially double quotes) as they break JSON parsing. Use parentheses () or other punctuation instead.\n\n")
 
 	// 8. Custom Prompt
 	if e.config.CustomPrompt != "" {
