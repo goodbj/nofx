@@ -1089,12 +1089,12 @@ func (e *StrategyEngine) BuildSystemPrompt(accountEquity float64, variant string
 	sb.WriteString("```json\n[\n")
 	// Use the actual configured position value ratio for BTC/ETH in the example
 	examplePositionSize := accountEquity * btcEthPosValueRatio
-	sb.WriteString(fmt.Sprintf("  {\"symbol\": \"BTCUSDT\", \"action\": \"open_short\", \"leverage\": %d, \"position_size_usd\": %.0f, \"stop_loss\": 97000, \"take_profit\": 91000, \"confidence\": 85, \"risk_usd\": 300, \"reasoning\": \"BTC价格跌破95000关键支撑位，MACD死叉确认下跌趋势，持仓量下降表明多头离场，技术面和资金流向一致看空，风险回报比1:3可接受，执行做空。\"},\n",
+	sb.WriteString(fmt.Sprintf("  {\"symbol\": \"BTCUSDT\", \"action\": \"open_short\", \"leverage\": %d, \"position_size_usd\": %.0f, \"stop_loss\": 97000, \"take_profit\": 91000, \"confidence\": 85, \"risk_usd\": 300, \"reasoning\": \"MACD死叉确认下跌趋势，风险回报比1:3可接受，执行做空。\"},\n",
 		riskControl.BTCETHMaxLeverage, examplePositionSize))
-	sb.WriteString("  {\"symbol\": \"ETHUSDT\", \"action\": \"close_long\", \"confidence\": 80, \"reasoning\": \"ETH多头仓位已盈利3.2%但RSI进入超买区域且出现顶背离信号，为避免利润回吐选择平仓。\"},\n")
-	sb.WriteString("  {\"symbol\": \"SOLUSDT\", \"action\": \"update_stop_loss\", \"position_direction\": \"long\", \"new_stop_loss\": 150.5, \"confidence\": 75, \"reasoning\": \"SOL价格已从145上涨至165，为保护已有利润将止损上移至150.5，实现盈亏平衡。\"},\n")
-	sb.WriteString("  {\"symbol\": \"ADAUSDT\", \"action\": \"update_take_profit\", \"position_direction\": \"long\", \"new_take_profit\": 0.85, \"confidence\": 80, \"reasoning\": \"ADA突破重要阻力位0.78，上涨动能强劲，将止盈目标上调至0.85以捕捉更多利润。\"},\n")
-	sb.WriteString("  {\"symbol\": \"XRPUSDT\", \"action\": \"partial_close\", \"close_percentage\": 50, \"confidence\": 70, \"reasoning\": \"XRP多头仓位已盈利8.5%，接近历史峰值，为锁定部分利润并降低风险选择平仓50%。\"}\n")
+	sb.WriteString("  {\"symbol\": \"ETHUSDT\", \"action\": \"close_long\", \"confidence\": 80, \"reasoning\": \"为避免利润回吐选择平仓。\"},\n")
+	sb.WriteString("  {\"symbol\": \"SOLUSDT\", \"action\": \"update_stop_loss\", \"position_direction\": \"long\", \"new_stop_loss\": 150.5, \"confidence\": 75, \"reasoning\": \"实现盈亏平衡。\"},\n")
+	sb.WriteString("  {\"symbol\": \"ADAUSDT\", \"action\": \"update_take_profit\", \"position_direction\": \"long\", \"new_take_profit\": 0.85, \"confidence\": 80, \"reasoning\": \"将止盈目标上调至0.85以捕捉更多利润。\"},\n")
+	sb.WriteString("  {\"symbol\": \"XRPUSDT\", \"action\": \"partial_close\", \"close_percentage\": 50, \"confidence\": 70, \"reasoning\": \"为锁定部分利润并降低风险选择平仓50%。\"}\n")
 	sb.WriteString("]\n```\n")
 	sb.WriteString("</decision>\n\n")
 	sb.WriteString("## Field Description\n\n")
@@ -1107,9 +1107,6 @@ func (e *StrategyEngine) BuildSystemPrompt(accountEquity float64, variant string
 	sb.WriteString("- Required when trailing_stop: trail_percentage, activation_price, callback_rate, confidence, reasoning\n")
 	sb.WriteString("- Required when dynamic_take_profit: target_roi, max_roi, time_limit_hours, confidence, reasoning\n")
 	sb.WriteString("- **IMPORTANT**: All numeric values must be calculated numbers, NOT formulas/expressions (e.g., use `27.76` not `3000 * 0.01`)\n")
-	//	sb.WriteString("- **CRITICAL**: In `reasoning` field, DO NOT use quotes (neither double \" nor single ') as they break JSON parsing. Use parentheses () or other punctuation instead.\n\n")
-	//sb.WriteString("- **CRITICAL**: In the `reasoning` field, do NOT use quotation marks of any kind (especially double quotes) as they break JSON parsing. Use parentheses () or other punctuation instead.\n\n")
-	//sb.WriteString("- **CRITICAL**: In the `reasoning` field, do NOT use any quotation marks (especially English double quotes \") as they break JSON parsing. Use parentheses () or other punctuation instead.\n")
 	sb.WriteString("- **重要规则**: `reasoning`字段字数不能超过10个字符，在`reasoning`字段中，严格禁止使用ASCII双引号(\").请使用以下替代方案:\n   1. 中文双引号:" + `""` + "  2. 单引号:'  3. 不使用引号的表达方式   请确保reasoning字段完全符合此格式要求.\n\n")
 
 	// 8. Custom Prompt
