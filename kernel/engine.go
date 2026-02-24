@@ -1836,10 +1836,11 @@ func preprocessChineseSymbols(text string) string {
 }
 
 func fixMissingQuotes(jsonStr string) string {
-	jsonStr = strings.ReplaceAll(jsonStr, "\u201c", "\"")
-	jsonStr = strings.ReplaceAll(jsonStr, "\u201d", "\"")
-	jsonStr = strings.ReplaceAll(jsonStr, "\u2018", "'")
-	jsonStr = strings.ReplaceAll(jsonStr, "\u2019", "'")
+	jsonStr = strings.ReplaceAll(jsonStr, "“", "\"")
+	jsonStr = strings.ReplaceAll(jsonStr, "”", "\"")
+	// 不再将中文单引号替换为英文单引号，避免影响JSON解析
+	// jsonStr = strings.ReplaceAll(jsonStr, "‘", "'")
+	// jsonStr = strings.ReplaceAll(jsonStr, "’", "'")
 
 	jsonStr = strings.ReplaceAll(jsonStr, "［", "[")
 	jsonStr = strings.ReplaceAll(jsonStr, "］", "]")
@@ -1874,7 +1875,8 @@ func fixCommonJSONIssues(jsonStr string) string {
 
 	// 修复可能的引号问题：确保所有字符串值都有正确的引号
 	// 处理reasoning等字段中可能存在的特殊字符
-	reUnquotedStrings := regexp.MustCompile(`(:\s*)([^"{[}\],\n\r]+)(\s*[,\]\}])`)
+	// 注意：只处理ASCII范围内的未加引号的值，避免误处理中文等Unicode字符
+	reUnquotedStrings := regexp.MustCompile(`(:\s*)([a-zA-Z_][a-zA-Z0-9_.\-]*)\s*([,\]\}])`)
 	jsonStr = reUnquotedStrings.ReplaceAllStringFunc(jsonStr, func(match string) string {
 		parts := reUnquotedStrings.FindStringSubmatch(match)
 		if len(parts) == 4 {
@@ -1890,11 +1892,16 @@ func fixCommonJSONIssues(jsonStr string) string {
 				return keyValSep + value + endChar
 			} else {
 				// 对于非数字/非布尔值，添加引号
-				// 先清理值中的引号和换行符，正确转义内部的双引号
-				value = strings.TrimSpace(value)
-				// 正确转义内部的双引号（只转义未被转义的引号）
-				value = escapeUnescapedQuotesInString(value)
-				return keyValSep + `"` + value + `"` + endChar
+				// 只处理ASCII范围内的值，避免误处理中文等Unicode字符
+				// 如果值包含非ASCII字符，则跳过处理
+				if isASCII(value) {
+					// 正确转义内部的双引号（只转义未被转义的引号）
+					value = escapeUnescapedQuotesInString(value)
+					return keyValSep + `"` + value + `"` + endChar
+				} else {
+					// 包含非ASCII字符（如中文），跳过处理以避免编码问题
+					return match
+				}
 			}
 		}
 		return match
@@ -1909,25 +1916,9 @@ func fixCommonJSONIssues(jsonStr string) string {
 
 // fixNestedQuotesInReasoning 修复reasoning字段中嵌套引号的问题
 func fixNestedQuotesInReasoning(jsonStr string) string {
-	// 使用正则表达式找到所有的reasoning字段及其值
-	re := regexp.MustCompile(`"reasoning"\s*:\s*"((?:[^"\\]|\\.)*)"`)
-
-	// 替换所有reasoning字段中的值，处理其中的引号
-	result := re.ReplaceAllStringFunc(jsonStr, func(match string) string {
-		// 提取匹配的部分
-		submatches := re.FindStringSubmatch(match)
-		if len(submatches) < 2 {
-			return match // 如果没找到子匹配，返回原字符串
-		}
-
-		originalValue := submatches[1]                                 // 获取reasoning字段的原始值
-		processedValue := escapeUnescapedQuotesInString(originalValue) // 处理引号
-
-		// 重建reasoning字段
-		return fmt.Sprintf(`"reasoning":"%s"`, processedValue)
-	})
-
-	return result
+	// 根据用户要求，不对reasoning字段的值做任何改动
+	// 直接返回原始JSON字符串
+	return jsonStr
 }
 
 // escapeUnescapedQuotesInString 处理reasoning字段值中的所有可能导致JSON错误的特殊字符
@@ -1947,12 +1938,12 @@ func escapeUnescapedQuotesInString(s string) string {
 			result.WriteString("\\\"")
 			i += 2 // 跳过接下来的两个字节
 		} else if i+2 < len(s) && s[i] == '\xE2' && s[i+1] == '\x80' && s[i+2] == '\x98' {
-			// 中文左单引号 ' -> 英文单引号并转义
-			result.WriteString("\\'")
-			i += 2 // 跳过接下来的两个字节
+			// 中文左单引号 ' -> 保持原样，避免影响JSON解析
+			// result.WriteString("\\'")
+			i += 2 //跳过接下来的两个字节
 		} else if i+2 < len(s) && s[i] == '\xE2' && s[i+1] == '\x80' && s[i+2] == '\x99' {
-			// 中文右单引号 ' -> 英文单引号并转义
-			result.WriteString("\\'")
+			// 中文右单引号 ' -> 保持原样，避免影响JSON解析
+			// result.WriteString("\\'")
 			i += 2 // 跳过接下来的两个字节
 		} else if s[i] == '\n' {
 			// 换行符替换为空格，避免JSON格式错误
@@ -1979,21 +1970,43 @@ func escapeUnescapedQuotesInString(s string) string {
 	return result.String()
 }
 
+// decodeUnicodeEscapes 解码Unicode转义序列
+func decodeUnicodeEscapes(s string) string {
+	// 处理常见的Unicode转义序列
+	replacements := map[string]string{
+		"\\u003e": ">",  // 大于号
+		"\\u003c": "<",  // 小于号
+		"\\u0026": "&",  // 和号
+		"\\u0027": "'",  // 单引号
+		"\\u0022": "\"", // 双引号
+	}
+
+	result := s
+	for unicodeSeq, replacement := range replacements {
+		result = strings.ReplaceAll(result, unicodeSeq, replacement)
+	}
+
+	return result
+}
+
 // preprocessJSONContent 预处理JSON内容，自动修复常见问题
 func preprocessJSONContent(jsonStr string) string {
-	// 1. 移除范围符号
+	// 1. 解码Unicode转义序列
+	jsonStr = decodeUnicodeEscapes(jsonStr)
+
+	// 2. 移除范围符号
 	jsonStr = removeRangeSymbols(jsonStr)
 
-	// 2. 修复缺失的引号
+	// 3. 修复缺失的引号
 	jsonStr = fixMissingQuotes(jsonStr)
 
-	// 3. 修复常见的JSON格式问题
+	// 4. 修复常见的JSON格式问题
 	jsonStr = fixCommonJSONIssues(jsonStr)
 
-	// 4. 压缩数组开头
+	// 5. 压缩数组开头
 	jsonStr = compactArrayOpen(jsonStr)
 
-	// 5. 移除不可见字符
+	// 6. 移除不可见字符
 	jsonStr = removeInvisibleRunes(jsonStr)
 
 	logger.Debugf("🔧 JSON预处理完成，修复后长度: %d -> %d", len(jsonStr), len(jsonStr))
@@ -2060,6 +2073,16 @@ func removeInvisibleRunes(s string) string {
 
 func compactArrayOpen(s string) string {
 	return reArrayOpenSpace.ReplaceAllString(strings.TrimSpace(s), "[{")
+}
+
+// isASCII 检查字符串是否只包含ASCII字符
+func isASCII(s string) bool {
+	for i := 0; i < len(s); i++ {
+		if s[i] > 127 {
+			return false
+		}
+	}
+	return true
 }
 
 // ============================================================================
