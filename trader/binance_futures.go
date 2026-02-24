@@ -1471,9 +1471,9 @@ func (t *FuturesTrader) GetStopLossOrders(symbol string) ([]map[string]interface
 	return stopLossOrders, nil
 }
 
-// UpdateStopLoss 更新止损单 - 采用安全的事务性操作
+// UpdateStopLoss updates stop loss order with proper error handling for existing orders
 func (t *FuturesTrader) UpdateStopLoss(symbol string, positionSide string, newStopPrice float64) error {
-	// 获取当前持仓数量
+	// 1. 获取当前持仓信息 ✅
 	positions, err := t.GetPositions()
 	if err != nil {
 		return fmt.Errorf("获取持仓失败: %w", err)
@@ -1507,29 +1507,35 @@ func (t *FuturesTrader) UpdateStopLoss(symbol string, positionSide string, newSt
 		return fmt.Errorf("未找到 %s 的 %s 仓位", symbol, positionSide)
 	}
 
-	// 🔐 安全的止损更新：先设置新止损，确认成功后再取消旧止损
-	logger.Infof("🔒 开始安全更新止损: %s 从当前可能存在的止损更新到 %.4f", symbol, newStopPrice)
-
-	// 首先获取当前所有活动的止损订单ID（用于后续比较）
-	activeStopOrders, err := t.GetStopLossOrders(symbol)
+	// 2. 检查现有止损/止盈订单状态 🔍（只是当前币种的）
+	logger.Infof("🔍 检查 %s 现有止损订单...", symbol)
+	existingStopOrders, err := t.GetStopLossOrders(symbol)
 	if err != nil {
-		logger.Warnf("⚠️ 获取当前止损订单失败，但仍继续更新: %v", err)
-		// 如果无法获取当前止损订单，仍继续执行，因为我们知道要取消的是什么
+		logger.Warnf("⚠️ 无法获取现有止损订单: %v", err)
 	}
 
-	// 尝试设置新的止损单
-	err = t.SetStopLoss(symbol, positionSide, currentQty, newStopPrice)
+	logger.Infof("🔍 检查 %s 现有止盈订单...", symbol)
+	existingTakeProfitOrders, err := t.GetTakeProfitOrders(symbol)
 	if err != nil {
-		// 🔴 如果新止损设置失败，保留原止损，返回错误
-		logger.Errorf("❌ 设置新止损失败，保留原止损保护: %v", err)
-		return fmt.Errorf("设置新止损失败，保持原有止损保护: %w", err)
+		logger.Warnf("⚠️ 无法获取现有止盈订单: %v", err)
 	}
-	logger.Infof("✅ 新止损设置成功: %s -> %.4f", symbol, newStopPrice)
 
-	// 新止损设置成功后，再取消旧的止损订单
-	if len(activeStopOrders) > 0 {
-		// 取消所有旧的止损订单
-		for _, order := range activeStopOrders {
+	logger.Infof("📊 当前订单状态: 止损订单=%d个, 止盈订单=%d个", len(existingStopOrders), len(existingTakeProfitOrders))
+
+	// 保存原始止损价格用于回滚
+	var originalStopPrice *float64
+	if len(existingStopOrders) > 0 {
+		// 获取第一个止损订单的价格作为原始价格
+		if stopPrice, ok := existingStopOrders[0]["stopPrice"].(float64); ok {
+			originalStopPrice = &stopPrice
+			logger.Infof("💾 保存原始止损价格: %.4f", stopPrice)
+		}
+	}
+
+	// 3. 预取消现有的止损订单 ⚠️（只是当前币种的）
+	if len(existingStopOrders) > 0 {
+		logger.Infof("⚠️ 检测到已有止损订单，先尝试取消...")
+		for _, order := range existingStopOrders {
 			orderIDStr, ok := order["orderId"].(string)
 			if !ok {
 				continue
@@ -1551,20 +1557,80 @@ func (t *FuturesTrader) UpdateStopLoss(symbol string, positionSide string, newSt
 				logger.Infof("🗑️ 旧止损订单 %d 已取消", orderID)
 			}
 		}
-	} else {
-		// 如果没有找到特定的止损订单，说明可能使用了Algo Orders
-		// 这种情况下不应盲目取消所有止损订单，因为刚刚设置的新订单可能还在生效
-		logger.Infof("🔍 未找到特定的传统止损订单，新止损订单可能已通过Algo API设置并生效")
-		// 不再调用 CancelStopLossOrders，因为这会取消刚设置的新订单
 	}
 
-	logger.Infof("✅ 止损更新完成: %s -> %.4f", symbol, newStopPrice)
+	// 等待一小段时间确保订单取消完成
+	time.Sleep(500 * time.Millisecond)
+
+	// 4. 设置新的止损订单 ✅（只是当前币种的）
+	logger.Infof("🔒 开始设置新止损: %s -> %.4f", symbol, newStopPrice)
+	err = t.SetStopLoss(symbol, positionSide, currentQty, newStopPrice)
+	if err != nil {
+		logger.Errorf("❌ 设置新止损失败: %v", err)
+
+		// 6. 确认更新完成 🎯（如果更新失败？下达旧订单的修改指令，避免失去保护）
+		if originalStopPrice != nil {
+			logger.Warnf("🔄 更新失败，尝试恢复原始止损保护...")
+			// 尝试恢复原始止损价格
+			restoreErr := t.SetStopLoss(symbol, positionSide, currentQty, *originalStopPrice)
+			if restoreErr != nil {
+				logger.Errorf("❌ 恢复原始止损也失败: %v", restoreErr)
+				return fmt.Errorf("止损更新失败且无法恢复原始保护: 新止损=%v, 原始止损=%v, 错误=%w",
+					err, restoreErr, fmt.Errorf("original protection lost"))
+			}
+			logger.Infof("✅ 原始止损保护已恢复: %.4f", *originalStopPrice)
+			return fmt.Errorf("止损更新失败但原始保护已恢复: %w", err)
+		} else {
+			// 没有原始止损可恢复，但至少保留错误信息
+			return fmt.Errorf("止损更新失败且无原始保护可恢复: %w", err)
+		}
+	}
+	logger.Infof("✅ 新止损设置成功: %s -> %.4f", symbol, newStopPrice)
+
+	// 5. 清理任何残留的旧订单 🗑️（只是当前币种的）
+	// 新止损设置成功后，再取消任何残留的旧止损订单
+	activeStopOrders, err := t.GetStopLossOrders(symbol)
+	if err != nil {
+		logger.Warnf("⚠️ 获取当前止损订单失败，但仍继续更新: %v", err)
+	}
+
+	if len(activeStopOrders) > 0 {
+		logger.Infof("🔍 清理可能残留的旧止损订单...")
+		for _, order := range activeStopOrders {
+			orderIDStr, ok := order["orderId"].(string)
+			if !ok {
+				continue
+			}
+			orderID, convErr := strconv.ParseInt(orderIDStr, 10, 64)
+			if convErr != nil {
+				continue
+			}
+			// 使用Binance API直接取消订单
+			ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+			defer cancel()
+			_, err := t.client.NewCancelOrderService().
+				Symbol(symbol).
+				OrderID(orderID).
+				Do(ctx)
+			if err != nil {
+				logger.Warnf("⚠️ 取消残留止损订单 %d 失败: %v", orderID, err)
+			} else {
+				logger.Infof("🗑️ 残留止损订单 %d 已取消", orderID)
+			}
+		}
+	} else {
+		logger.Infof("🔍 未找到需要清理的残留止损订单")
+	}
+
+	logger.Infof("🎯 止损更新完成: %s -> %.4f", symbol, newStopPrice)
 	return nil
 }
 
-// UpdateTakeProfit 更新止盈单 - 采用安全的事务性操作
+// UpdateTakeProfit 更新止盈单 - 采用安全的六步原子执行流程
 func (t *FuturesTrader) UpdateTakeProfit(symbol string, positionSide string, newTakeProfitPrice float64) error {
-	// 获取当前持仓数量
+	logger.Infof("🔄 开始执行止盈更新原子操作流程: %s %s -> %.4f", symbol, positionSide, newTakeProfitPrice)
+
+	// 1. 获取当前持仓信息 📊（只是当前币种的）
 	positions, err := t.GetPositions()
 	if err != nil {
 		return fmt.Errorf("获取持仓失败: %w", err)
@@ -1598,28 +1664,32 @@ func (t *FuturesTrader) UpdateTakeProfit(symbol string, positionSide string, new
 		return fmt.Errorf("未找到 %s 的 %s 仓位", symbol, positionSide)
 	}
 
-	// 🔐 安全的止盈更新：先设置新止盈，确认成功后再取消旧止盈
-	logger.Infof("🔒 开始安全更新止盈: %s 从当前可能存在的止盈更新到 %.4f", symbol, newTakeProfitPrice)
+	logger.Infof("📊 步骤1完成: 获取到 %s %s 仓位，数量: %.6f", symbol, positionSide, currentQty)
 
-	// 首先获取当前所有活动的止盈订单ID（用于后续比较）
+	// 2. 检查现有止盈订单状态 🔍（只是当前币种的）
 	activeTakeProfitOrders, err := t.GetTakeProfitOrders(symbol)
 	if err != nil {
-		logger.Warnf("⚠️ 获取当前止盈订单失败，但仍继续更新: %v", err)
-		// 如果无法获取当前止盈订单，仍继续执行，因为我们知道要取消的是什么
+		logger.Warnf("⚠️ 步骤2警告: 获取当前止盈订单失败: %v", err)
+		activeTakeProfitOrders = []map[string]interface{}{} // 继续执行，但记录警告
 	}
 
-	// 尝试设置新的止盈单
-	err = t.SetTakeProfit(symbol, positionSide, currentQty, newTakeProfitPrice)
-	if err != nil {
-		// 🔴 如果新止盈设置失败，保留原止盈，返回错误
-		logger.Errorf("❌ 设置新止盈失败，保留原止盈保护: %v", err)
-		return fmt.Errorf("设置新止盈失败，保持原有止盈保护: %w", err)
-	}
-	logger.Infof("✅ 新止盈设置成功: %s -> %.4f", symbol, newTakeProfitPrice)
-
-	// 新止盈设置成功后，再取消旧的止盈订单
+	originalTakeProfitPrice := (*float64)(nil)
 	if len(activeTakeProfitOrders) > 0 {
-		// 取消所有旧的止盈订单
+		// 保存原始止盈价格用于可能的恢复
+		if priceStr, ok := activeTakeProfitOrders[0]["price"].(string); ok {
+			if originalPrice, err := strconv.ParseFloat(priceStr, 64); err == nil {
+				originalTakeProfitPrice = &originalPrice
+				logger.Infof("🔒 保存原始止盈价格: %.4f", originalPrice)
+			}
+		}
+		logger.Infof("🔍 步骤2完成: 发现 %d 个现有止盈订单", len(activeTakeProfitOrders))
+	} else {
+		logger.Infof("🔍 步骤2完成: 未发现现有止盈订单")
+	}
+
+	// 3. 预取消现有的止盈订单 ⚠️（只是当前币种的）
+	if len(activeTakeProfitOrders) > 0 {
+		logger.Infof("⚠️ 开始预取消 %d 个现有止盈订单...", len(activeTakeProfitOrders))
 		for _, order := range activeTakeProfitOrders {
 			orderIDStr, ok := order["orderId"].(string)
 			if !ok {
@@ -1637,19 +1707,77 @@ func (t *FuturesTrader) UpdateTakeProfit(symbol string, positionSide string, new
 				OrderID(orderID).
 				Do(ctx)
 			if err != nil {
-				logger.Warnf("⚠️ 取消旧止盈订单 %d 失败: %v", orderID, err)
+				logger.Warnf("⚠️ 预取消止盈订单 %d 失败: %v", orderID, err)
 			} else {
-				logger.Infof("🗑️ 旧止盈订单 %d 已取消", orderID)
+				logger.Infof("🗑️ 止盈订单 %d 已预取消", orderID)
+			}
+		}
+	}
+
+	// 等待一小段时间确保订单取消完成
+	time.Sleep(500 * time.Millisecond)
+
+	// 4. 设置新的止盈订单 ✅（只是当前币种的）
+	logger.Infof("🔒 开始设置新止盈: %s -> %.4f", symbol, newTakeProfitPrice)
+	err = t.SetTakeProfit(symbol, positionSide, currentQty, newTakeProfitPrice)
+	if err != nil {
+		logger.Errorf("❌ 设置新止盈失败: %v", err)
+
+		// 6. 确认更新完成 🎯（如果更新失败？下达旧订单的修改指令，避免失去保护）
+		if originalTakeProfitPrice != nil {
+			logger.Warnf("🔄 更新失败，尝试恢复原始止盈保护...")
+			// 尝试恢复原始止盈价格
+			restoreErr := t.SetTakeProfit(symbol, positionSide, currentQty, *originalTakeProfitPrice)
+			if restoreErr != nil {
+				logger.Errorf("❌ 恢复原始止盈也失败: %v", restoreErr)
+				return fmt.Errorf("止盈更新失败且无法恢复原始保护: 新止盈=%v, 原始止盈=%v, 错误=%w",
+					err, restoreErr, fmt.Errorf("original protection lost"))
+			}
+			logger.Infof("✅ 原始止盈保护已恢复: %.4f", *originalTakeProfitPrice)
+			return fmt.Errorf("止盈更新失败但原始保护已恢复: %w", err)
+		} else {
+			// 没有原始止盈可恢复，但至少保留错误信息
+			return fmt.Errorf("止盈更新失败且无原始保护可恢复: %w", err)
+		}
+	}
+	logger.Infof("✅ 新止盈设置成功: %s -> %.4f", symbol, newTakeProfitPrice)
+
+	// 5. 清理任何残留的旧订单 🗑️（只是当前币种的）
+	// 新止盈设置成功后，再取消任何残留的旧止盈订单
+	activeTakeProfitOrders, err = t.GetTakeProfitOrders(symbol)
+	if err != nil {
+		logger.Warnf("⚠️ 获取当前止盈订单失败，但仍继续更新: %v", err)
+	}
+
+	if len(activeTakeProfitOrders) > 0 {
+		logger.Infof("🔍 清理可能残留的旧止盈订单...")
+		for _, order := range activeTakeProfitOrders {
+			orderIDStr, ok := order["orderId"].(string)
+			if !ok {
+				continue
+			}
+			orderID, convErr := strconv.ParseInt(orderIDStr, 10, 64)
+			if convErr != nil {
+				continue
+			}
+			// 使用Binance API直接取消订单
+			ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+			defer cancel()
+			_, err := t.client.NewCancelOrderService().
+				Symbol(symbol).
+				OrderID(orderID).
+				Do(ctx)
+			if err != nil {
+				logger.Warnf("⚠️ 取消残留止盈订单 %d 失败: %v", orderID, err)
+			} else {
+				logger.Infof("🗑️ 残留止盈订单 %d 已取消", orderID)
 			}
 		}
 	} else {
-		// 如果没有找到特定的止盈订单，说明可能使用了Algo Orders
-		// 这种情况下不应盲目取消所有止盈订单，因为刚刚设置的新订单可能还在生效
-		logger.Infof("🔍 未找到特定的传统止盈订单，新止盈订单可能已通过Algo API设置并生效")
-		// 不再调用 CancelTakeProfitOrders，因为这会取消刚设置的新订单
+		logger.Infof("🔍 未找到需要清理的残留止盈订单")
 	}
 
-	logger.Infof("✅ 止盈更新完成: %s -> %.4f", symbol, newTakeProfitPrice)
+	logger.Infof("🎯 止盈更新完成: %s -> %.4f", symbol, newTakeProfitPrice)
 	return nil
 }
 

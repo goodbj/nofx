@@ -3933,6 +3933,48 @@ func (at *AutoTrader) executeUpdateTakeProfitWithRecord(decision *kernel.Decisio
 	err = at.trader.UpdateTakeProfit(decision.Symbol, side, newTakeProfitPrice)
 	if err != nil {
 		logger.Errorf("  ❌ Failed to update take profit for %s: %v", decision.Symbol, err)
+
+		// 🔒 紧急保护机制：如果止盈更新失败，检查是否需要紧急处理
+		logger.Errorf("⚠️ 止盈更新失败，启动紧急保护检查...")
+
+		// 获取当前持仓的所有开放订单
+		openOrders, ordersErr := at.trader.GetOpenOrders(decision.Symbol)
+		if ordersErr != nil {
+			logger.Warnf("⚠️ 无法获取开放订单信息: %v", ordersErr)
+			openOrders = []OpenOrder{} // 继续执行，但记录警告
+		}
+
+		// 分类统计止损和止盈订单
+		stopLossCount := 0
+		takeProfitCount := 0
+
+		for _, order := range openOrders {
+			orderType := strings.ToUpper(order.Type)
+			if strings.Contains(orderType, "STOP") && !strings.Contains(orderType, "TAKE") {
+				stopLossCount++
+			} else if strings.Contains(orderType, "TAKE") && !strings.Contains(orderType, "STOP") {
+				takeProfitCount++
+			}
+		}
+
+		logger.Infof("  📊 当前保护状态: 止损订单=%d, 止盈订单=%d", stopLossCount, takeProfitCount)
+
+		// 如果既没有止损也没有止盈，执行紧急平仓
+		if stopLossCount == 0 && takeProfitCount == 0 {
+			logger.Errorf("🚨 严重风险：仓位失去所有保护！立即执行紧急平仓...")
+			closeErr := at.emergencyClosePosition(decision.Symbol, side)
+			if closeErr != nil {
+				logger.Errorf("❌ 紧急平仓也失败: %v", closeErr)
+				return fmt.Errorf("止盈更新失败且紧急平仓失败: %w (紧急平仓错误: %v)", err, closeErr)
+			}
+			logger.Infof("✅ 紧急平仓成功，避免了无保护风险仓位")
+			return fmt.Errorf("止盈更新失败但已执行紧急平仓: %w", err)
+		} else if takeProfitCount == 0 {
+			// 如果只有止损没有止盈，记录警告但不平仓
+			logger.Warnf("⚠️ 止盈更新失败且当前无止盈保护，但仍有止损保护")
+			return fmt.Errorf("止盈更新失败但止损保护仍在: %w", err)
+		}
+
 		return fmt.Errorf("failed to update take profit: %w", err)
 	}
 
