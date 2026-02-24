@@ -2,7 +2,6 @@ package utils
 
 import (
 	"encoding/json"
-	"regexp"
 	"strings"
 )
 
@@ -83,10 +82,8 @@ func replaceQuotesWithChinese(input string) string {
 func filterReasoningInMap(data map[string]interface{}) {
 	for key, value := range data {
 		if strings.ToLower(key) == "reasoning" {
-			// 如果值是字符串，过滤其中的引号
-			if str, ok := value.(string); ok {
-				data[key] = filterQuotesInString(str)
-			}
+			// 不再对reasoning字段进行过滤，保留原始值
+			// 什么都不做，保持原值不变
 		} else if nestedMap, ok := value.(map[string]interface{}); ok {
 			// 递归处理嵌套的map
 			filterReasoningInMap(nestedMap)
@@ -103,19 +100,6 @@ func filterReasoningInMap(data map[string]interface{}) {
 
 // filterQuotesInString 过滤字符串中的引号
 func filterQuotesInString(input string) string {
-	// 替换双引号为圆括号，保留语义但避免JSON解析问题
-	re := regexp.MustCompile(`"([^"]*)"`)
-
-	// 先处理引号对
-	result := re.ReplaceAllStringFunc(input, func(matched string) string {
-		inner := matched[1 : len(matched)-1] // 移除外层引号
-		return "(" + inner + ")"             // 用圆括号包围
-	})
-
-	// 还可以用其他方式处理，如直接移除或使用其他标点符号
-	// 例如，将双引号替换成全角引号或其他符号
-	result = strings.ReplaceAll(result, "\"", "''")
-	result = strings.ReplaceAll(result, "'", "`")
-
-	return result
+	// 取消过滤操作，直接返回原始输入
+	return input
 }

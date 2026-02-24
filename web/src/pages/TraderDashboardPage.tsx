@@ -427,39 +427,35 @@ export function TraderDashboardPage({
     setPositionsCurrentPage(1)
   }, [selectedTraderId, positionsPageSize])
 
-  // 轮询倒计时信息（每500ms检查一次）
+  // 分离的倒计时显示逻辑（不影响周期执行）
   useEffect(() => {
-    if (!selectedTraderId || !status?.is_running) {
+    if (!selectedTraderId) {
       setNextScanCountdown(0)
       return
     }
-
+    
+    // 使用较低频率轮询，避免影响周期执行
     const pollInterval = setInterval(async () => {
       try {
-        // 只在trader运行中时轮询
+        // 仅获取状态信息用于显示，不干预实际周期执行
         const currentStatus = await api.getTraderStatus(selectedTraderId)
-
-        // 更新倒计时信息
-        if (currentStatus && 'seconds_until_next_scan' in currentStatus) {
-          setNextScanCountdown(currentStatus.seconds_until_next_scan || 0)
-          console.debug('🔄 倒计时更新:', currentStatus.seconds_until_next_scan)
-        } else {
-          console.debug('⚠️  API未返回倒计时信息')
-        }
         
-        // 调试信息
-        console.debug('📊 状态更新:', {
-          nextScanCountdown,
-          status: currentStatus
-        })
+        // 仅更新UI显示的倒计时
+        if (currentStatus && 'seconds_until_next_scan' in currentStatus && currentStatus.is_running) {
+          setNextScanCountdown(currentStatus.seconds_until_next_scan || 0)
+          // console.debug('🔄倒时显示更新:', currentStatus.seconds_until_next_scan) // 可选调试
+        } else {
+          // 如果交易员未运行，将倒计时设为0
+          setNextScanCountdown(0)
+        }
       } catch (error) {
-        // 静默失败，不影响用户体验
-        console.debug('Status poll failed:', error)
+        // 静默处理，不影响主功能
+        // console.debug('Display poll failed:', error) // 可选调试
       }
-    }, 500) // 每500ms轮询一次
-
+    }, 3000) // 降低到每3秒轮询一次，减少对后端压力
+  
     return () => clearInterval(pollInterval)
-  }, [selectedTraderId, status?.is_running])
+  }, [selectedTraderId])
 
   // Get current exchange info for perp-dex wallet display
   const currentExchange = exchanges?.find(
@@ -1459,16 +1455,33 @@ ${promptPreview.user_prompt}`
                   )}
                 </div>
               </div>
-              {/* 仅显示倒计时，移除AI分析中状态 */}
-              {/* 倒计时显示逻辑 */}
-              {(status?.is_running && nextScanCountdown > 0) && (
+              {/* 显示状态 - 仅在交易员运行时显示倒计时 */}
+              {status?.is_running && (
                 <div
-                  className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border mr-2 bg-blue-500/10 border-blue-500/30`}
+                  className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border mr-2 ${
+                    status?.is_executing
+                      ? 'bg-purple-500/10 border-purple-500/30' // AI执行中
+                      : nextScanCountdown > 0
+                        ? 'bg-blue-500/10 border-blue-500/30' //正常倒计时
+                        : 'bg-blue-500/10 border-blue-500/30' //运行中（准备下次扫描）
+                  }`}
                 >
-                  <span className={`text-sm font-medium text-blue-300`}>
+                  <span className={`text-sm font-medium ${
+                    status?.is_executing
+                      ? 'text-purple-300'
+                      : 'text-blue-300'
+                  }`}>
                     {language === 'zh'
-                      ? `AI分析将在 ${nextScanCountdown} 秒后开始`
-                      : `AI analysis in ${nextScanCountdown}s`}
+                      ? status?.is_executing
+                        ? `AI运算中... (${nextScanCountdown}s)`
+                        : nextScanCountdown > 0
+                          ? `AI分析将在 ${nextScanCountdown} 秒后开始`
+                          : '交易员运行中'
+                      : status?.is_executing
+                        ? `AI processing... (${nextScanCountdown}s)`
+                        : nextScanCountdown > 0
+                          ? `AI analysis in ${nextScanCountdown}s`
+                          : 'Trader running'}
                   </span>
                 </div>
               )}
@@ -1745,6 +1758,16 @@ ${promptPreview.user_prompt}`
                           ? '交易员已启动'
                           : 'Trader started successfully'
                       )
+
+                      // 立即触发一次轮询（延迟一小段时间确保交易员完全启动）
+                      setTimeout(async () => {
+                        try {
+                          await api.triggerDecision(selectedTraderId)
+                          console.log('✅ 立即轮询已触发')
+                        } catch (error) {
+                          console.error('❌ 立即轮询失败:', error)
+                        }
+                      }, 1000) // 延迟1秒执行
                     }
 
                     // 刷新相关数据
@@ -1754,6 +1777,9 @@ ${promptPreview.user_prompt}`
                       mutate(`decisions-${selectedTraderId}`),
                       mutate(`position-history-${selectedTraderId}`),
                     ])
+
+                    // 重置倒计时，无论启动还是停止
+                    setNextScanCountdown(0)
                   } catch (error: any) {
                     // 如果启动失败，清除冷却状态
                     if (!status?.is_running) {
