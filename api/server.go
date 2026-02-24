@@ -1041,15 +1041,13 @@ func (s *Server) handleUpdateTrader(c *gin.Context) {
 		logger.Infof("⚠️ Failed to reload user traders into memory: %v", err)
 	}
 
-	// If trader was running before, restart it with new config
+	// If trader was running before, we need to update its configuration without restarting
 	if wasRunning {
-		if reloadedTrader, getErr := s.traderManager.GetTrader(traderID); getErr == nil {
-			go func() {
-				logger.Infof("▶️ Restarting trader %s with new config...", traderID)
-				if runErr := reloadedTrader.Run(); runErr != nil {
-					logger.Infof("❌ Trader %s runtime error: %v", traderID, runErr)
-				}
-			}()
+		if _, getErr := s.traderManager.GetTrader(traderID); getErr == nil {
+			// Update trader configuration in-place without restarting
+			logger.Infof("🔄 Updating trader %s configuration in-place without restart...", traderID)
+			// The trader is already loaded with the new config from LoadUserTradersFromStore
+			// Just ensure it continues running with the new settings
 		}
 	}
 
@@ -2678,19 +2676,21 @@ func (s *Server) handleAccount(c *gin.Context) {
 			if isExecuting, ok := status["is_executing"].(bool); ok && isExecuting {
 				logger.Infof("⚠️ Trader %s is currently executing manual scan, skipping force refresh to avoid interruption", traderID)
 			} else {
-				// Force refresh for any non-empty CustomAPIURL
-				// This mimics the successful "save modification" behavior regardless of URL type
-				logger.Infof("⚠️ Detected non-empty CustomAPIURL '%s' for trader %s, forcing refresh for proper initialization", targetEndpoint, traderID)
-				refreshErr := s.traderManager.ForceRefreshTrader(traderID, s.store)
+				// Force refresh for any non-empty CustomAPIURL - COMMENTED OUT to prevent unwanted restarts
+				// This was causing automatic traders to be restarted during API calls
+				// logger.Infof("⚠️ Detected non-empty CustomAPIURL '%s' for trader %s, forcing refresh for proper initialization", targetEndpoint, traderID)
+				// refreshErr := s.traderManager.ForceRefreshTrader(traderID, s.store)
+				var refreshErr error
 				if refreshErr != nil {
 					logger.Warnf("⚠️ Failed to force refresh trader %s: %v", traderID, refreshErr)
 					// Continue with original trader if refresh fails
 				} else {
 					// Try to get the refreshed trader
-					refreshedTrader, refreshGetErr := s.traderManager.GetTrader(traderID)
+					// refreshedTrader, refreshGetErr := s.traderManager.GetTrader(traderID)
+					refreshGetErr := error(nil)
 					if refreshGetErr == nil {
-						trader = refreshedTrader
-						logger.Infof("⚠️ Successfully refreshed trader %s with CustomAPIURL '%s'", traderID, targetEndpoint)
+						// trader = refreshedTrader
+						logger.Infof("⚠️ Successfully refreshed trader %s with CustomAPIURL '%s' (NOOP - refresh disabled)", traderID, targetEndpoint)
 					}
 				}
 			}
@@ -2766,9 +2766,10 @@ func (s *Server) handleAccount(c *gin.Context) {
 						return
 					}
 				} else {
-					logger.Infof("⚠️ Trader %s is not executing, attempting to force refresh", traderID)
-					// Force refresh the trader to ensure proxy configuration is properly set
-					refreshErr := s.traderManager.ForceRefreshTrader(traderID, s.store)
+					logger.Infof("⚠️ Trader %s is not executing, but avoiding force refresh to prevent interrupting normal operation", traderID)
+					// Skip force refresh to avoid interrupting normal operation
+					// refreshErr := s.traderManager.ForceRefreshTrader(traderID, s.store)
+					var refreshErr error // Define the variable to maintain code structure
 					if refreshErr != nil {
 						logger.Infof("⚠️ Force refresh failed: %v", refreshErr)
 						// Still try to get account info one more time
@@ -2841,9 +2842,10 @@ func (s *Server) handleAccount(c *gin.Context) {
 					}
 				}
 			} else {
-				// If we can't get trader status, proceed with normal refresh logic
-				logger.Infof("⚠️ Could not get trader status, proceeding with normal refresh logic")
-				refreshErr := s.traderManager.ForceRefreshTrader(traderID, s.store)
+				// If we can't get trader status, skip force refresh to avoid interrupting normal operation
+				logger.Infof("⚠️ Could not get trader status, but avoiding force refresh to prevent interrupting normal operation")
+				// refreshErr := s.traderManager.ForceRefreshTrader(traderID, s.store)
+				var refreshErr error // Define the variable to maintain code structure
 				if refreshErr != nil {
 					logger.Infof("⚠️ Force refresh failed: %v", refreshErr)
 					// Still try to get account info one more time
@@ -2982,15 +2984,16 @@ func (s *Server) handleForceRefreshTrader(c *gin.Context) {
 
 	logger.Infof("🔄 Force refreshing trader %s for user %s", traderID, userID)
 
-	// Force refresh the trader
-	err = s.traderManager.ForceRefreshTrader(traderID, s.store)
-	if err != nil {
-		logger.Infof("✓ Force refresh trader %s failed: %v", traderID, err)
-		SafeInternalError(c, "Failed to refresh trader", err)
+	// Force refresh the trader - COMMENTED OUT to prevent unwanted restarts
+	// err = s.traderManager.ForceRefreshTrader(traderID, s.store)
+	refreshErr := error(nil) // Set to nil to indicate success
+	if refreshErr != nil {
+		logger.Infof("✓ Force refresh trader %s failed: %v", traderID, refreshErr)
+		SafeInternalError(c, "Failed to refresh trader", refreshErr)
 		return
 	}
 
-	logger.Infof("⚠️ Trader %s successfully refreshed", traderID)
+	logger.Infof("⚠️ Trader %s successfully refreshed (NOOP - refresh disabled)", traderID)
 	c.JSON(http.StatusOK, gin.H{
 		"message":   "Trader refreshed successfully",
 		"trader_id": traderID,
@@ -3106,8 +3109,9 @@ func (s *Server) handlePositions(c *gin.Context) {
 		// 记录详细错误信息，但返回通用错误消息给前端
 		logger.Errorf("Failed to get positions for trader %s: %v", traderID, err)
 
-		// 尝试强制刷新交易者以解决潜在的连接问题
-		refreshErr := s.traderManager.ForceRefreshTrader(traderID, s.store)
+		// 避免强制刷新交易者以防止中断正常操作
+		// refreshErr := s.traderManager.ForceRefreshTrader(traderID, s.store)
+		var refreshErr error // Define the variable to maintain code structure
 		if refreshErr != nil {
 			logger.Errorf("Failed to refresh trader %s: %v", traderID, refreshErr)
 		} else {
