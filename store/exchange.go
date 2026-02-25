@@ -161,6 +161,8 @@ func getExchangeNameAndType(exchangeType string) (name string, typ string) {
 	switch exchangeType {
 	case "binance":
 		return "Binance Futures", "cex"
+	case "binance_demo":
+		return "Binance Futures Demo", "cex"
 	case "bybit":
 		return "Bybit Futures", "cex"
 	case "okx":

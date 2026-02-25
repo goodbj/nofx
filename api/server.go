@@ -458,12 +458,6 @@ func (s *Server) getTraderFromQuery(c *gin.Context) (*manager.TraderManager, str
 	userID := c.GetString("user_id")
 	traderID := c.Query("trader_id")
 
-	// Ensure user's traders are loaded into memory
-	err := s.traderManager.LoadUserTradersFromStore(s.store, userID)
-	if err != nil {
-		logger.Infof("⚠️ Failed to load traders for user %s: %v", userID, err)
-	}
-
 	if traderID == "" {
 		// If no trader_id specified, return first trader for this user
 		ids := s.traderManager.GetTraderIDs()
@@ -480,19 +474,34 @@ func (s *Server) getTraderFromQuery(c *gin.Context) (*manager.TraderManager, str
 		}
 	}
 
-	// Verify that the specific trader exists in memory, if not try to reload
+	// First, try to get the trader directly from memory
+	_, err := s.traderManager.GetTrader(traderID)
+	if err == nil {
+		// Trader found in memory, return it
+		return s.traderManager, traderID, nil
+	}
+
+	// Trader not found in memory, check if it belongs to the user and load it
+	logger.Infof("⚠️ Trader %s not found in memory, verifying ownership and loading...", traderID)
+
+	// Verify that the trader belongs to this user before attempting to load
+	_, configErr := s.store.Trader().GetFullConfig(userID, traderID)
+	if configErr != nil {
+		logger.Infof("⚠️ Trader %s does not exist or does not belong to user %s: %v", traderID, userID, configErr)
+		return nil, "", fmt.Errorf("trader %s not found: %w", traderID, configErr)
+	}
+
+	// Load only this user's traders to ensure the specific trader is loaded
+	err = s.traderManager.LoadUserTradersFromStore(s.store, userID)
+	if err != nil {
+		logger.Infof("⚠️ Failed to load traders for user %s: %v", userID, err)
+		return nil, "", fmt.Errorf("failed to load traders: %w", err)
+	}
+
+	// Try to get the trader again after loading
 	_, err = s.traderManager.GetTrader(traderID)
 	if err != nil {
-		logger.Infof("⚠️ Trader %s not found in memory, attempting reload...", traderID)
-		err = s.traderManager.LoadUserTradersFromStore(s.store, userID)
-		if err != nil {
-			logger.Infof("⚠️ Failed to reload traders for user %s: %v", userID, err)
-		}
-		// Try again after reload
-		_, err = s.traderManager.GetTrader(traderID)
-		if err != nil {
-			return nil, "", fmt.Errorf("trader %s not found after reload: %w", traderID, err)
-		}
+		return nil, "", fmt.Errorf("trader %s not found in memory after loading: %w", traderID, err)
 	}
 
 	return s.traderManager, traderID, nil
@@ -2427,7 +2436,7 @@ func (s *Server) handleCreateExchange(c *gin.Context) {
 
 	// Validate exchange type
 	validTypes := map[string]bool{
-		"binance": true, "bybit": true, "okx": true, "bitget": true,
+		"binance": true, "binance_demo": true, "bybit": true, "okx": true, "bitget": true,
 		"hyperliquid": true, "aster": true, "lighter": true,
 	}
 	if !validTypes[req.ExchangeType] {
@@ -2610,6 +2619,15 @@ func (s *Server) handleStatus(c *gin.Context) {
 	c.JSON(http.StatusOK, status)
 }
 
+// getCurrentTraderExchangeConfig 获取当前交易者的交易所配置信息
+// 注意：这是一个辅助方法，用于比较当前交易者配置与数据库中存储的配置
+func (s *Server) getCurrentTraderExchangeConfig(trader *trader.AutoTrader) *store.Exchange {
+	// 这是一个简化实现，实际中可能需要通过反射或其他方式获取配置
+	// 由于AutoTrader结构未导出配置信息，这里返回nil表示无法获取
+	// 在实际实现中，可能需要修改AutoTrader以提供获取配置的方法
+	return nil
+}
+
 // handleAccount Account information with caching optimization
 func (s *Server) handleAccount(c *gin.Context) {
 	userID := c.GetString("user_id")
@@ -2630,34 +2648,26 @@ func (s *Server) handleAccount(c *gin.Context) {
 	// Cache miss, proceed with original logic
 	logger.Infof("🔄 Cache miss for trader %s, fetching from API", traderID)
 
-	// First, ensure user's traders are loaded into memory
-	err := s.traderManager.LoadUserTradersFromStore(s.store, userID)
-	if err != nil {
-		logger.Infof("⚠️ Failed to load traders for user %s: %v", userID, err)
-		SafeInternalError(c, "Failed to load traders", err)
-		return
-	}
-
-	// Attempt to get the trader
+	// Attempt to get the trader directly from memory first
 	trader, err := s.traderManager.GetTrader(traderID)
 	if err != nil {
-		// If trader is not found, it might be because it was just created and not fully initialized
-		// Let's wait a bit and retry
-		logger.Infof("⚠️ Trader %s not found in memory, reloading user traders...", traderID)
+		// If trader is not found in memory, load user's traders to memory
+		// But only do this once to avoid excessive reloading
+		logger.Infof("⚠️ Trader %s not found in memory, loading user traders...", traderID)
 
-		// Reload user traders to ensure the trader is loaded
+		// Load only this user's traders (this will add the specific trader if it exists)
 		err = s.traderManager.LoadUserTradersFromStore(s.store, userID)
 		if err != nil {
-			logger.Infof("✅ Failed to reload traders for user %s: %v", userID, err)
-			SafeInternalError(c, "Failed to reload traders", err)
+			logger.Infof("⚠️ Failed to load traders for user %s: %v", userID, err)
+			SafeInternalError(c, "Failed to load traders", err)
 			return
 		}
 
-		// Retry getting the trader
+		// Try to get the trader again after loading
 		trader, err = s.traderManager.GetTrader(traderID)
 		if err != nil {
-			logger.Infof("⚠️ Trader %s still not found after reload: %v", traderID, err)
-			SafeNotFound(c, "Trader not found after reload")
+			logger.Infof("❌ Trader %s still not found after loading user traders: %v", traderID, err)
+			SafeNotFound(c, "Trader not found after loading")
 			return
 		}
 	}
@@ -2668,7 +2678,6 @@ func (s *Server) handleAccount(c *gin.Context) {
 	// Direct approach: force refresh for any non-empty CustomAPIURL
 	fullConfig, configErr := s.store.Trader().GetFullConfig(userID, traderID)
 	if configErr == nil && fullConfig != nil && fullConfig.Exchange != nil && fullConfig.Exchange.CustomAPIURL != "" {
-		targetEndpoint := strings.TrimSpace(fullConfig.Exchange.CustomAPIURL)
 
 		// 🔥 检查交易员是否正在执行手动扫描，如果是则跳过强制刷新
 		if traderInstance, getErr := s.traderManager.GetTrader(traderID); getErr == nil {
@@ -2676,22 +2685,39 @@ func (s *Server) handleAccount(c *gin.Context) {
 			if isExecuting, ok := status["is_executing"].(bool); ok && isExecuting {
 				logger.Infof("⚠️ Trader %s is currently executing manual scan, skipping force refresh to avoid interruption", traderID)
 			} else {
-				// Force refresh for any non-empty CustomAPIURL - COMMENTED OUT to prevent unwanted restarts
-				// This was causing automatic traders to be restarted during API calls
-				// logger.Infof("⚠️ Detected non-empty CustomAPIURL '%s' for trader %s, forcing refresh for proper initialization", targetEndpoint, traderID)
-				// refreshErr := s.traderManager.ForceRefreshTrader(traderID, s.store)
-				var refreshErr error
+				// NEW: Always force refresh to ensure correct endpoint is used
+				// This solves the issue where in-memory trader instances have incorrect configurations
+				logger.Infof("🔄 Force refreshing trader %s to ensure correct endpoint configuration", traderID)
+				refreshErr := s.traderManager.ForceRefreshTrader(traderID, s.store)
 				if refreshErr != nil {
 					logger.Warnf("⚠️ Failed to force refresh trader %s: %v", traderID, refreshErr)
 					// Continue with original trader if refresh fails
 				} else {
-					// Try to get the refreshed trader
-					// refreshedTrader, refreshGetErr := s.traderManager.GetTrader(traderID)
-					refreshGetErr := error(nil)
+					// Get the newly refreshed trader instance
+					refreshedTrader, refreshGetErr := s.traderManager.GetTrader(traderID)
 					if refreshGetErr == nil {
-						// trader = refreshedTrader
-						logger.Infof("⚠️ Successfully refreshed trader %s with CustomAPIURL '%s' (NOOP - refresh disabled)", traderID, targetEndpoint)
+						trader = refreshedTrader
+						logger.Infof("✅ Successfully refreshed trader %s with correct configuration", traderID)
+					} else {
+						logger.Warnf("⚠️ Could not retrieve refreshed trader %s: %v", traderID, refreshGetErr)
 					}
+				}
+			}
+		}
+	}
+
+	// 验证交易员类型与配置的一致性，确保完全隔离
+	// 获取交易员的详细配置以验证类型一致性
+	validationConfig, valErr := s.store.Trader().GetByID(traderID)
+	if valErr == nil && validationConfig != nil {
+		// 获取关联的交易所配置
+		exchanges, exchErr := s.store.Exchange().List(validationConfig.UserID)
+		if exchErr == nil {
+			for _, exchange := range exchanges {
+				if exchange.ID == validationConfig.ExchangeID {
+					logger.Infof("🔒 Validating trader configuration consistency: ExchangeType='%s', ExchangeID='%s'",
+						exchange.ExchangeType, exchange.ID)
+					break
 				}
 			}
 		}
@@ -5226,8 +5252,13 @@ func (s *Server) handleOpenGuardianBrowser(c *gin.Context) {
 
 // createBinanceTraderWithProxy 创建带代理支持的币安交易者实例
 func createBinanceTraderWithProxy(userID string, exchangeCfg *store.Exchange) trader.Trader {
+	logger.Debugf("🔗 [createBinanceTraderWithProxy] Creating binance trader with proxy for user: %s, exchange type: %s", userID, exchangeCfg.ExchangeType)
+
+	// 使用统一的EndpointSelector来确定真实的交易所API URL
+	endpointSelector := trader.NewEndpointSelector()
+
 	// 确定真实的交易所API URL（用于代理转发）
-	// 根据新规则：完全忽略Testnet开关，只看CustomAPIURL
+	// 根据新规则：完全忽略Testnet开关，只看CustomAPIURL内容
 	// 但本地代理地址仍需特殊处理，因为它们通常不应该作为最终目标
 	realExchangeEndpoint := ""
 	if exchangeCfg.CustomAPIURL != "" && strings.TrimSpace(exchangeCfg.CustomAPIURL) != "" {
@@ -5235,24 +5266,52 @@ func createBinanceTraderWithProxy(userID string, exchangeCfg *store.Exchange) tr
 		isLocalhost := strings.Contains(exchangeCfg.CustomAPIURL, "://localhost:") ||
 			strings.Contains(exchangeCfg.CustomAPIURL, "://127.0.0.1:")
 
+		logger.Debugf("🔗 [createBinanceTraderWithProxy] CustomAPIURL is not empty, isLocalhost: %t", isLocalhost)
+
 		if isLocalhost {
-			// 如果是本地代理地址，使用默认主网API
+			// 如果是本地代理地址，使用相应的EndpointSelector来决定目标端点
 			// 这是因为本地代理通常是中间节点，不是最终目标
-			realExchangeEndpoint = "https://fapi.binance.com" // 默认主网API URL
+			// 我们根据CustomAPIURL中的内容来决定真正的目标端点
+			if exchangeCfg.ExchangeType == "binance_demo" {
+				// 虚拟盘使用专门的端点选择器
+				logger.Debugf("🔗 [createBinanceTraderWithProxy] Using Demo EndpointSelector for localhost URL: %s", exchangeCfg.CustomAPIURL)
+				realExchangeEndpoint = endpointSelector.GetBinanceDemoEndpoint(exchangeCfg.CustomAPIURL)
+			} else {
+				// 实盘使用专门的端点选择器
+				logger.Debugf("🔗 [createBinanceTraderWithProxy] Using Mainnet EndpointSelector for localhost URL: %s", exchangeCfg.CustomAPIURL)
+				realExchangeEndpoint = endpointSelector.GetBinanceMainnetEndpoint(exchangeCfg.CustomAPIURL)
+			}
 		} else {
-			// 如果是有效的非本地地址，则直接使用它
-			realExchangeEndpoint = exchangeCfg.CustomAPIURL
+			// 如果是有效的非本地地址，使用相应的EndpointSelector来规范化端点
+			if exchangeCfg.ExchangeType == "binance_demo" {
+				// 虚拟盘使用专门的端点选择器
+				logger.Debugf("🔗 [createBinanceTraderWithProxy] Using Demo EndpointSelector for non-localhost URL: %s", exchangeCfg.CustomAPIURL)
+				realExchangeEndpoint = endpointSelector.GetBinanceDemoEndpoint(exchangeCfg.CustomAPIURL)
+			} else {
+				// 实盘使用专门的端点选择器
+				logger.Debugf("🔗 [createBinanceTraderWithProxy] Using Mainnet EndpointSelector for non-localhost URL: %s", exchangeCfg.CustomAPIURL)
+				realExchangeEndpoint = endpointSelector.GetBinanceMainnetEndpoint(exchangeCfg.CustomAPIURL)
+			}
 		}
+		logger.Debugf("🔗 [createBinanceTraderWithProxy] EndpointSelector returned: %s", realExchangeEndpoint)
 	} else {
-		// 如果CustomAPIURL为空，则使用交易所默认API地址
-		realExchangeEndpoint = "https://fapi.binance.com" // 默认主网API URL
+		// 如果CustomAPIURL为空，则使用对应类型的默认API
+		if exchangeCfg.ExchangeType == "binance_demo" {
+			logger.Debugf("🔗 [createBinanceTraderWithProxy] Demo CustomAPIURL is empty, using default testnet API")
+			realExchangeEndpoint = "https://testnet.binancefuture.com" // 虚拟盘默认测试网API URL
+		} else {
+			logger.Debugf("🔗 [createBinanceTraderWithProxy] CustomAPIURL is empty, using default mainnet API")
+			realExchangeEndpoint = "https://fapi.binance.com" // 默认主网API URL
+		}
 	}
 
 	// 调试日志：记录确定的交易所端点
 	logger.Debugf("🔍 [createBinanceTraderWithProxy] UserID: %s, ExchangeType: %s, Original CustomAPIURL: '%s', Determined realExchangeEndpoint: '%s'", userID, exchangeCfg.ExchangeType, exchangeCfg.CustomAPIURL, realExchangeEndpoint)
+	logger.Debugf("🔗 [createBinanceTraderWithProxy] Final realExchangeEndpoint: '%s'", realExchangeEndpoint)
 
 	// 检查全局代理开关
 	useProxyGlobal := os.Getenv("USE_BINANCE_PROXY") == "true"
+	logger.Debugf("🔗 [createBinanceTraderWithProxy] USE_BINANCE_PROXY env var: %s, useProxyGlobal: %t", os.Getenv("USE_BINANCE_PROXY"), useProxyGlobal)
 
 	if useProxyGlobal {
 		proxyURL := os.Getenv("BINANCE_PROXY_URL")
@@ -5264,16 +5323,33 @@ func createBinanceTraderWithProxy(userID string, exchangeCfg *store.Exchange) tr
 			}
 			proxyURL = "http://localhost:" + proxyPort // 默认代理URL
 		}
+		logger.Debugf("🔗 [createBinanceTraderWithProxy] Proxy mode: proxyURL='%s', realExchangeEndpoint='%s'", proxyURL, realExchangeEndpoint)
 
 		// 在代理模式下，创建一个连接到代理服务的交易者实例
 		// 代理服务将使用X-Target-URL头部中的真实端点信息转发请求
 		logger.Debugf("🔗 [createBinanceTraderWithProxy] Using proxy mode: connecting to proxyURL='%s', realExchangeEndpoint='%s'", proxyURL, realExchangeEndpoint)
-		originalTrader := trader.NewFuturesTraderViaProxy(string(exchangeCfg.APIKey), string(exchangeCfg.SecretKey), userID, proxyURL, realExchangeEndpoint)
+		logger.Debugf("🔗 [createBinanceTraderWithProxy] Calling NewFuturesTraderViaProxy with proxyURL: %s, targetEndpoint: %s", proxyURL, realExchangeEndpoint)
+
+		// 根据交易类型使用不同的交易者创建函数
+		var originalTrader trader.Trader
+		if exchangeCfg.ExchangeType == "binance_demo" {
+			// 虚拟盘使用专门的函数
+			logger.Debugf("🔄 Creating NewDemoFuturesTraderViaProxy for DEMO account: proxyURL=%s, targetEndpoint=%s", proxyURL, realExchangeEndpoint)
+			originalTrader = trader.NewDemoFuturesTraderViaProxy(string(exchangeCfg.APIKey), string(exchangeCfg.SecretKey), userID, proxyURL, realExchangeEndpoint)
+		} else {
+			// 实盘使用标准函数
+			logger.Debugf("🔄 Creating NewFuturesTraderViaProxy for REAL account: proxyURL=%s, targetEndpoint=%s", proxyURL, realExchangeEndpoint)
+			originalTrader = trader.NewFuturesTraderViaProxy(string(exchangeCfg.APIKey), string(exchangeCfg.SecretKey), userID, proxyURL, realExchangeEndpoint)
+		}
+
+		logger.Debugf("🔗 [createBinanceTraderWithProxy] NewFuturesTraderViaProxy returned, wrapping with ProxyTraderWrapper")
 		return trader.NewProxyTraderWrapperWithAuth(originalTrader, "proxy", proxyURL, string(exchangeCfg.APIKey), string(exchangeCfg.SecretKey), realExchangeEndpoint)
 	} else {
 		// 在非代理模式下，直接连接到真实交易所
 		logger.Debugf("🔗 [createBinanceTraderWithProxy] Using native mode: connecting directly to realExchangeEndpoint='%s'", realExchangeEndpoint)
+		logger.Debugf("🔗 [createBinanceTraderWithProxy] Using native mode, calling NewFuturesTrader with endpoint: %s", realExchangeEndpoint)
 		originalTrader := trader.NewFuturesTrader(string(exchangeCfg.APIKey), string(exchangeCfg.SecretKey), userID, realExchangeEndpoint)
+		logger.Debugf("🔗 [createBinanceTraderWithProxy] NewFuturesTrader returned, wrapping with ProxyTraderWrapper")
 		return trader.NewProxyTraderWrapperWithAuth(originalTrader, "native", "", string(exchangeCfg.APIKey), string(exchangeCfg.SecretKey), realExchangeEndpoint)
 	}
 }

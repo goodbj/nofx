@@ -428,6 +428,7 @@ func (tm *TraderManager) RemoveTrader(traderID string) {
 }
 
 // LoadUserTradersFromStore loads traders from store for a specific user to memory
+// This function implements smart loading - only adds new traders, preserves existing ones unless specifically needed
 func (tm *TraderManager) LoadUserTradersFromStore(st *store.Store, userID string) error {
 	tm.mu.Lock()
 	defer tm.mu.Unlock()
@@ -455,9 +456,9 @@ func (tm *TraderManager) LoadUserTradersFromStore(st *store.Store, userID string
 
 	// Load configuration for each trader
 	for _, traderCfg := range traders {
-		// Check if this trader is already loaded
+		// Check if this trader is already loaded - only load if not present
 		if _, exists := tm.traders[traderCfg.ID]; exists {
-			// Trader already loaded - this is normal, no need to log
+			// Trader already loaded, skip to avoid disrupting existing connections
 			continue
 		}
 
@@ -507,8 +508,8 @@ func (tm *TraderManager) LoadUserTradersFromStore(st *store.Store, userID string
 			continue
 		}
 
-		// Use existing method to load trader
-		logger.Infof("📦 Loading trader %s (AI Model: %s, Exchange: %s/%s, Strategy ID: %s)", traderCfg.Name, aiModelCfg.Provider, exchangeCfg.ExchangeType, exchangeCfg.AccountName, traderCfg.StrategyID)
+		// Use existing method to load trader (create new instance only if not present)
+		logger.Infof("📦 Loading new trader %s (AI Model: %s, Exchange: %s/%s, Strategy ID: %s)", traderCfg.Name, aiModelCfg.Provider, exchangeCfg.ExchangeType, exchangeCfg.AccountName, traderCfg.StrategyID)
 		err = tm.addTraderFromStore(traderCfg, aiModelCfg, exchangeCfg, st)
 		if err != nil {
 			logger.Infof("❌ Failed to load trader %s: %v", traderCfg.Name, err)
@@ -729,8 +730,15 @@ func (tm *TraderManager) addTraderFromStore(traderCfg *store.Trader, aiModelCfg 
 		traderConfig.BinanceAPIKey = string(exchangeCfg.APIKey)
 		traderConfig.BinanceSecretKey = string(exchangeCfg.SecretKey)
 		traderConfig.BinanceCustomAPIURL = exchangeCfg.CustomAPIURL
-		logger.Infof("🔧 [TRADER MANAGER DEBUG] Setting BinanceCustomAPIURL to: '%s' (from exchangeCfg.CustomAPIURL: '%s')",
-			traderConfig.BinanceCustomAPIURL, exchangeCfg.CustomAPIURL)
+		traderConfig.Exchange = "binance" // Explicitly set exchange type
+		logger.Infof("🔧 [TRADER MANAGER DEBUG] Setting BinanceCustomAPIURL to: '%s' (from exchangeCfg.CustomAPIURL: '%s') for trader: %s (ExchangeType: %s)",
+			traderConfig.BinanceCustomAPIURL, exchangeCfg.CustomAPIURL, traderCfg.Name, exchangeCfg.ExchangeType)
+	case "binance_demo":
+		traderConfig.BinanceAPIKey = string(exchangeCfg.APIKey)
+		traderConfig.BinanceSecretKey = string(exchangeCfg.SecretKey)
+		traderConfig.BinanceCustomAPIURL = exchangeCfg.CustomAPIURL // Now this will be used by validation function
+		traderConfig.Exchange = "binance_demo"                      // Explicitly set exchange type
+		logger.Infof("🔧 [TRADER MANAGER DEBUG] Setting Binance Demo with API keys and CustomAPIURL: '%s' for trader: %s (ExchangeType: %s)", exchangeCfg.CustomAPIURL, traderCfg.Name, exchangeCfg.ExchangeType)
 	case "bybit":
 		traderConfig.BybitAPIKey = string(exchangeCfg.APIKey)
 		traderConfig.BybitSecretKey = string(exchangeCfg.SecretKey)
@@ -878,6 +886,16 @@ func (tm *TraderManager) ForceRefreshTrader(traderID string, st *store.Store) er
 			logger.Infof("⏹ Stopping trader %s before refreshing...", traderID)
 			existingTrader.Stop()
 		}
+
+		// 特别处理AutoTrader，确保内部的交易员实例也被重建以实现完全隔离
+		// 这有助于防止实盘和虚拟盘交易员之间的配置污染
+		logger.Debugf("🔄 [ForceRefreshTrader] Processing AutoTrader for complete isolation before removal: %s", traderID)
+		// 直接调用AutoTrader的RecreateInternalTrader方法以确保完全隔离
+		if recreateErr := existingTrader.RecreateInternalTrader(st, traderCfg.UserID); recreateErr != nil {
+			logger.Warnf("⚠️ Warning: Failed to recreate internal trader during force refresh: %v", recreateErr)
+			// 如果内部重建失败，仍然继续删除并重新创建整个实例
+		}
+
 		delete(tm.traders, traderID)
 		logger.Infof("🗑 Removed old trader %s from memory", traderID)
 	}

@@ -226,6 +226,10 @@ func NewFuturesTrader(apiKey, secretKey, userId, customEndpoint string) *Futures
 // proxyURL: 代理服务的URL
 // targetEndpoint: 真正的目标端点
 func NewFuturesTraderViaProxy(apiKey, secretKey, userId, proxyURL, targetEndpoint string) *FuturesTrader {
+	logger.Debugf("🔗 [NewFuturesTraderViaProxy] proxyURL: %s", proxyURL)
+	logger.Debugf("🔗 [NewFuturesTraderViaProxy] targetEndpoint (should be mainnet for real traders): %s", targetEndpoint)
+	logger.Debugf("🔗 [NewFuturesTraderViaProxy] Called by UserID: %s, API Key prefix: %s", userId, getAPIKeyPrefix(apiKey))
+
 	var client *futures.Client
 	// 连接到代理URL
 	client = futures.NewClient(apiKey, secretKey)
@@ -248,6 +252,7 @@ func NewFuturesTraderViaProxy(apiKey, secretKey, userId, proxyURL, targetEndpoin
 
 	// 创建CustomTransport，将真正的目标端点传递给代理
 	logger.Debugf("🔍 NewFuturesTraderViaProxy - proxyURL: %s, targetEndpoint: %s", proxyURL, targetEndpoint)
+	logger.Debugf("🔗 [NewFuturesTraderViaProxy] Creating CustomTransport with TargetEndpoint: %s", targetEndpoint)
 	customTransport := &CustomTransport{
 		Transport:      transport,
 		TargetEndpoint: targetEndpoint, // 真正的目标URL
@@ -286,7 +291,90 @@ func NewFuturesTraderViaProxy(apiKey, secretKey, userId, proxyURL, targetEndpoin
 		logger.Infof("⚠️ Failed to set dual-side position mode: %v (ignore this warning if already in dual-side mode)", err)
 	}
 
+	logger.Debugf("🔗 [NewFuturesTraderViaProxy] COMPLETED, trader created with TargetEndpoint: %s", targetEndpoint)
+
 	return trader
+}
+
+// NewDemoFuturesTraderViaProxy 创建通过代理的期货模拟交易者实例 (专门为虚拟盘设计)
+// proxyURL: 代理服务的URL
+// targetEndpoint: 真正的目标端点 (应为测试网)
+func NewDemoFuturesTraderViaProxy(apiKey, secretKey, userId, proxyURL, targetEndpoint string) *FuturesTrader {
+	logger.Debugf("🔗 [NewDemoFuturesTraderViaProxy] Demo proxyURL: %s", proxyURL)
+	logger.Debugf("🔗 [NewDemoFuturesTraderViaProxy] Demo targetEndpoint (should be testnet): %s", targetEndpoint)
+	logger.Debugf("🔗 [NewDemoFuturesTraderViaProxy] Called by UserID: %s, API Key prefix: %s", userId, getAPIKeyPrefix(apiKey))
+
+	var client *futures.Client
+	// 连接到代理URL
+	client = futures.NewClient(apiKey, secretKey)
+	client.BaseURL = proxyURL // 连接到代理
+
+	// 为虚拟盘增强HTTP客户端配置
+	transport := &http.Transport{
+		DialContext: (&net.Dialer{
+			Timeout:   30 * time.Second,
+			KeepAlive: 30 * time.Second,
+		}).DialContext,
+		TLSHandshakeTimeout:   30 * time.Second,
+		ResponseHeaderTimeout: 60 * time.Second,
+		ExpectContinueTimeout: 1 * time.Second,
+		MaxIdleConns:          100,
+		MaxIdleConnsPerHost:   10,
+		IdleConnTimeout:       90 * time.Second,
+	}
+
+	// 为虚拟盘创建CustomTransport，将真正的目标端点传递给代理
+	logger.Debugf("🔍 NewDemoFuturesTraderViaProxy - proxyURL: %s, targetEndpoint: %s", proxyURL, targetEndpoint)
+	logger.Debugf("🔗 [NewDemoFuturesTraderViaProxy] Creating Demo CustomTransport with TargetEndpoint: %s", targetEndpoint)
+	customTransport := &CustomTransport{
+		Transport:      transport,
+		TargetEndpoint: targetEndpoint, // 真正的目标URL
+	}
+
+	if client.HTTPClient == nil {
+		client.HTTPClient = &http.Client{
+			Transport: customTransport,
+			Timeout:   120 * time.Second, // Increased timeout
+		}
+	} else {
+		client.HTTPClient.Transport = customTransport
+		client.HTTPClient.Timeout = 120 * time.Second // Increased timeout
+	}
+
+	hookRes := hook.HookExec[hook.NewBinanceTraderResult](hook.NEW_BINANCE_TRADER, userId, client)
+	if hookRes != nil && hookRes.GetResult() != nil {
+		client = hookRes.GetResult()
+	}
+
+	// Sync time to avoid "Timestamp ahead" error
+	syncBinanceServerTime(client)
+
+	// Create precision manager with file-based cache
+	precisionManager := NewFileBasedPrecisionManager(client, filepath.Join("data", "jingdu.json"))
+
+	trader := &FuturesTrader{
+		client:           client,
+		cacheDuration:    30 * time.Second, // 30-second cache for better performance
+		precisionManager: precisionManager,
+	}
+
+	// Set dual-side position mode (Hedge Mode)
+	// This is required because the code uses PositionSide (LONG/SHORT)
+	if err := trader.setDualSidePosition(); err != nil {
+		logger.Infof("⚠️ Demo trader - Failed to set dual-side position mode: %v (ignore this warning if already in dual-side mode)", err)
+	}
+
+	logger.Debugf("🔗 [NewDemoFuturesTraderViaProxy] COMPLETED, demo trader created with TargetEndpoint: %s", targetEndpoint)
+
+	return trader
+}
+
+// Helper function to get API key prefix for debugging
+func getAPIKeyPrefix(apiKey string) string {
+	if len(apiKey) > 8 {
+		return apiKey[:8] + "..."
+	}
+	return apiKey
 }
 
 // setDualSidePosition sets dual-side position mode (called during initialization)
@@ -2780,17 +2868,36 @@ type CustomTransport struct {
 
 // RoundTrip 实现RoundTripper接口
 func (ct *CustomTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	// 添加明显的调试日志
+	logger.Debugf("🔗 [CustomTransport.RoundTrip] Request URL: %s", req.URL.String())
+	logger.Debugf("🔗 [CustomTransport.RoundTrip] Request Host: %s", req.Host)
+	logger.Debugf("🔗 [CustomTransport.RoundTrip] Current X-Target-URL Header: %s", req.Header.Get("X-Target-URL"))
+	logger.Debugf("🔗 [CustomTransport.RoundTrip] CustomTransport TargetEndpoint: %s", ct.TargetEndpoint)
+
 	// 如果我们正在使用代理，将真实的目标端点添加到请求头中
 	// 这样代理就知道应该将请求转发到哪里
 	if ct.TargetEndpoint != "" {
 		originalTarget := req.Header.Get("X-Target-URL")
+		logger.Debugf("🔗 [CustomTransport.RoundTrip] About to set X-Target-URL, original: %s, new: %s", originalTarget, ct.TargetEndpoint)
+
 		if originalTarget != "" && originalTarget != ct.TargetEndpoint {
 			logger.Warnf("⚠️ X-Target-URL header already exists with different value: %s, replacing with: %s", originalTarget, ct.TargetEndpoint)
 		}
 		req.Header.Set("X-Target-URL", ct.TargetEndpoint)
+		logger.Debugf("🔗 [CustomTransport.RoundTrip] X-Target-URL header SET to: %s", ct.TargetEndpoint)
+	} else {
+		logger.Debugf("🔗 [CustomTransport.RoundTrip] CustomTransport TargetEndpoint is EMPTY, skipping X-Target-URL header setting")
 	}
 
 	resp, err := ct.Transport.RoundTrip(req)
+	logger.Debugf("🔗 [CustomTransport.RoundTrip] Request completed, Response Status: %v, Error: %v",
+		func() string {
+			if resp != nil {
+				return resp.Status
+			}
+			return "nil"
+		}(), err)
+
 	if err != nil {
 		logger.Errorf("❌ Request failed: %v", err)
 		return resp, err

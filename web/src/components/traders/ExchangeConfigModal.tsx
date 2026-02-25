@@ -19,6 +19,7 @@ import { getShortName } from './utils'
 // Supported exchange templates for creating new accounts
 const SUPPORTED_EXCHANGE_TEMPLATES = [
   { exchange_type: 'binance', name: 'Binance Futures', type: 'cex' as const },
+  { exchange_type: 'binance_demo', name: 'Binance Futures Demo', type: 'cex' as const },
   { exchange_type: 'bybit', name: 'Bybit Futures', type: 'cex' as const },
   { exchange_type: 'okx', name: 'OKX Futures', type: 'cex' as const },
   { exchange_type: 'bitget', name: 'Bitget Futures', type: 'cex' as const },
@@ -124,6 +125,7 @@ export function ExchangeConfigModal({
   // 交易所注册链接配置
   const exchangeRegistrationLinks: Record<string, { url: string; hasReferral?: boolean }> = {
     binance: { url: 'https://www.binance.com/join?ref=NOFXENG', hasReferral: true },
+    binance_demo: { url: 'https://testnet.binancefuture.com/', hasReferral: false },
     okx: { url: 'https://www.okx.com/join/1865360', hasReferral: true },
     bybit: { url: 'https://partner.bybit.com/b/83856', hasReferral: true },
     bitget: { url: 'https://www.bitget.com/referral/register?from=referral&clacCode=c8a43172', hasReferral: true },
@@ -158,7 +160,7 @@ export function ExchangeConfigModal({
 
   // 加载服务器IP（当选择binance时）
   useEffect(() => {
-    if (currentExchangeType === 'binance' && !serverIP) {
+    if ((currentExchangeType as string) === 'binance' && !serverIP) {
       setLoadingIP(true)
       api
         .getServerIP()
@@ -280,7 +282,7 @@ export function ExchangeConfigModal({
     setIsSaving(true)
     try {
       // 根据交易所类型验证不同字段
-      if (currentExchangeType === 'binance') {
+      if (currentExchangeType === 'binance' || currentExchangeType === 'binance_demo') {
         if (!apiKey.trim() || !secretKey.trim()) return
         await onSave(exchangeId, exchangeType, trimmedAccountName, apiKey.trim(), secretKey.trim(), '', false, customApiUrl)
       } else if (currentExchangeType === 'okx') {
@@ -556,13 +558,14 @@ export function ExchangeConfigModal({
             {selectedTemplate && (
               <>
                 {/* Binance/Bybit/OKX/Bitget 的输入字段 */}
-                {(currentExchangeType === 'binance' ||
+                {((currentExchangeType as string) === 'binance' ||
+                  (currentExchangeType as string) === 'binance_demo' ||
                   currentExchangeType === 'bybit' ||
                   currentExchangeType === 'okx' ||
                   currentExchangeType === 'bitget') && (
                     <>
                       {/* 币安用户配置提示 (D1 方案) */}
-                      {currentExchangeType === 'binance' && (
+                      {(currentExchangeType as string) === 'binance' && (
                         <div
                           className="mb-4 p-3 rounded cursor-pointer transition-colors"
                           style={{
@@ -712,8 +715,8 @@ export function ExchangeConfigModal({
                         />
                       </div>
 
-                      {/* Custom API URL for Binance */}
-                      {currentExchangeType === 'binance' && (
+                      {/* Custom API URL for Binance and Binance Demo */}
+                      {((currentExchangeType as string) === 'binance' || (currentExchangeType as string) === 'binance_demo') && (
                         <div>
                           <label
                             className="block text-sm font-semibold mb-2"
@@ -774,7 +777,7 @@ export function ExchangeConfigModal({
                       )}
 
                       {/* Binance 白名单IP提示 */}
-                      {currentExchangeType === 'binance' && (
+                      {(currentExchangeType as string) === 'binance' && (
                         <div
                           className="p-4 rounded"
                           style={{
@@ -1280,8 +1283,9 @@ export function ExchangeConfigModal({
                 isSaving ||
                 !selectedTemplate ||
                 !accountName.trim() ||
-                (currentExchangeType === 'binance' &&
-                  (!apiKey.trim() || !secretKey.trim())) ||
+                ((currentExchangeType as string) === 'binance' ||
+                  (currentExchangeType as string) === 'binance_demo') &&
+                  (!apiKey.trim() || !secretKey.trim()) ||
                 (currentExchangeType === 'okx' &&
                   (!apiKey.trim() ||
                     !secretKey.trim() ||

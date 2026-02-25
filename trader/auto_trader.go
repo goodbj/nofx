@@ -378,6 +378,8 @@ func NewAutoTrader(config AutoTraderConfig, st *store.Store, userID string) (*Au
 	}
 	logger.Infof("📊 [%s] Position mode: %s", config.Name, marginModeStr)
 
+	logger.Infof("🏦 [%s] Exchange type: %s, BinanceCustomAPIURL: '%s'", config.Name, config.Exchange, config.BinanceCustomAPIURL)
+
 	switch config.Exchange {
 	case "binance":
 		logger.Infof("🏦 [%s] Using Binance Futures trading", config.Name)
@@ -404,6 +406,7 @@ func NewAutoTrader(config AutoTraderConfig, st *store.Store, userID string) (*Au
 			logger.Infof("🔧 [DEBUG] Final targetEndpoint: '%s'", targetEndpoint)
 
 			// 在代理模式下，创建一个连接到代理服务的交易者实例
+			logger.Infof("🔄 Creating NewFuturesTraderViaProxy for REAL account: proxyURL=%s, targetEndpoint=%s", endpoint, targetEndpoint)
 			originalTrader := NewFuturesTraderViaProxy(config.BinanceAPIKey, config.BinanceSecretKey, userID, endpoint, targetEndpoint)
 			trader = NewProxyTraderWrapperWithAuth(originalTrader, "proxy", os.Getenv("BINANCE_PROXY_URL"), config.BinanceAPIKey, config.BinanceSecretKey, targetEndpoint)
 		} else {
@@ -411,8 +414,36 @@ func NewAutoTrader(config AutoTraderConfig, st *store.Store, userID string) (*Au
 			targetEndpoint = endpoint
 
 			// 在非代理模式下，直接连接到真实交易所
+			logger.Infof("🔄 Creating NewFuturesTrader for REAL account: endpoint=%s", endpoint)
 			originalTrader := NewFuturesTrader(config.BinanceAPIKey, config.BinanceSecretKey, userID, endpoint)
 			trader = NewProxyTraderWrapperWithAuth(originalTrader, "native", "", config.BinanceAPIKey, config.BinanceSecretKey, targetEndpoint)
+		}
+	case "binance_demo":
+		logger.Infof("🏦 [%s] Using Binance Futures Demo trading", config.Name)
+		// 对于demo模式，始终使用测试网端点
+		endpoint := validateBinanceDemoEndpoint(config.BinanceCustomAPIURL)
+		targetEndpoint := endpoint
+
+		// 检查全局代理开关
+		useProxyGlobal := os.Getenv("USE_BINANCE_PROXY") == "true"
+
+		if useProxyGlobal {
+			// 对于代理模式，连接到代理但目标是测试网
+			proxyURL := os.Getenv("BINANCE_PROXY_URL")
+			if proxyURL == "" {
+				proxyURL = "http://localhost:8081" // 默认代理URL
+			}
+			endpoint = proxyURL
+			logger.Infof("🔧 [DEBUG] Binance Demo connecting via proxy to testnet: '%s'", targetEndpoint)
+
+			// 在代理模式下，创建一个连接到代理服务的交易者实例，目标是测试网
+			// 使用专门的虚拟盘函数，避免与实盘交易员混淆
+			originalTrader := NewDemoFuturesTraderViaProxy(config.BinanceAPIKey, config.BinanceSecretKey, userID, endpoint, targetEndpoint)
+			trader = NewProxyTraderWrapperWithAuth(originalTrader, "proxy_demo", os.Getenv("BINANCE_PROXY_URL"), config.BinanceAPIKey, config.BinanceSecretKey, targetEndpoint)
+		} else {
+			// 在非代理模式下，直接连接到测试网
+			originalTrader := NewFuturesTrader(config.BinanceAPIKey, config.BinanceSecretKey, userID, endpoint)
+			trader = NewProxyTraderWrapperWithAuth(originalTrader, "demo_native", "", config.BinanceAPIKey, config.BinanceSecretKey, targetEndpoint)
 		}
 	case "bybit":
 		logger.Infof("🏦 [%s] Using Bybit Futures trading", config.Name)
@@ -678,6 +709,144 @@ func (at *AutoTrader) Run() error {
 }
 
 // Stop stops the automatic trading
+// RecreateInternalTrader 重新创建内部交易员实例以确保完全隔离
+// 这对于防止实盘和虚拟盘交易员之间的配置污染至关重要
+func (at *AutoTrader) RecreateInternalTrader(st *store.Store, userID string) error {
+	logger.Debugf("🔄 [RecreateInternalTrader] Recreating internal trader for %s (ID: %s)", at.name, at.id)
+	logger.Debugf("🔄 [RecreateInternalTrader] Exchange type: %s, BinanceCustomAPIURL: '%s'", at.config.Exchange, at.config.BinanceCustomAPIURL)
+
+	// 先停止当前的交易员
+	// 注意：这里我们不调用 at.trader.GetStatus() 和 at.trader.Stop()，因为Trader接口没有这些方法
+	// 我们只会在替换时简单地替换实例
+
+	// 重新创建交易员实例
+	var newTrader Trader
+	var err error
+
+	// 记录位置模式 (general)
+	marginModeStr := "Cross Margin"
+	if !at.config.IsCrossMargin {
+		marginModeStr = "Isolated Margin"
+	}
+	logger.Infof("📊 [%s] Position mode: %s", at.name, marginModeStr)
+
+	logger.Infof("🏦 [%s] Exchange type: %s, BinanceCustomAPIURL: '%s'", at.name, at.config.Exchange, at.config.BinanceCustomAPIURL)
+
+	switch at.config.Exchange {
+	case "binance":
+		logger.Infof("🏦 [%s] Using Binance Futures trading", at.name)
+		// 检查全局代理开关
+		useProxyGlobal := os.Getenv("USE_BINANCE_PROXY") == "true"
+
+		// 根据全局设置决定使用哪种端点
+		var endpoint string
+		var targetEndpoint string
+		if useProxyGlobal {
+			// 对于代理模式，我们需要连接到代理服务，但告诉代理真正的目标URL
+			proxyURL := os.Getenv("BINANCE_PROXY_URL")
+			if proxyURL == "" {
+				proxyURL = "http://localhost:8081" // 默认代理URL
+			}
+			endpoint = proxyURL
+			// 真正的目标端点应该是自定义API URL或默认的交易所URL
+			targetEndpoint = getBinanceCustomEndpointForAutoTrader(&at.config)
+			logger.Infof("🔧 [DEBUG] BinanceCustomAPIURL from config: '%s', targetEndpoint after getBinanceCustomEndpointForAutoTrader: '%s'",
+				at.config.BinanceCustomAPIURL, targetEndpoint)
+			if targetEndpoint == "" {
+				targetEndpoint = "https://fapi.binance.com" // Always default to mainnet
+			}
+			logger.Infof("🔧 [DEBUG] Final targetEndpoint: '%s'", targetEndpoint)
+
+			// 在代理模式下，创建一个连接到代理服务的交易者实例
+			logger.Infof("🔄 Creating NewFuturesTraderViaProxy for REAL account: proxyURL=%s, targetEndpoint=%s", endpoint, targetEndpoint)
+			originalTrader := NewFuturesTraderViaProxy(at.config.BinanceAPIKey, at.config.BinanceSecretKey, userID, endpoint, targetEndpoint)
+			newTrader = NewProxyTraderWrapperWithAuth(originalTrader, "proxy", os.Getenv("BINANCE_PROXY_URL"), at.config.BinanceAPIKey, at.config.BinanceSecretKey, targetEndpoint)
+		} else {
+			endpoint = getBinanceCustomEndpointForAutoTrader(&at.config)
+			targetEndpoint = endpoint
+
+			// 在非代理模式下，直接连接到真实交易所
+			logger.Infof("🔄 Creating NewFuturesTrader for REAL account: endpoint=%s", endpoint)
+			originalTrader := NewFuturesTrader(at.config.BinanceAPIKey, at.config.BinanceSecretKey, userID, endpoint)
+			newTrader = NewProxyTraderWrapperWithAuth(originalTrader, "native", "", at.config.BinanceAPIKey, at.config.BinanceSecretKey, targetEndpoint)
+		}
+	case "binance_demo":
+		logger.Infof("🏦 [%s] Using Binance Futures Demo trading", at.name)
+		// 对于demo模式，始终使用测试网端点
+		endpoint := validateBinanceDemoEndpoint(at.config.BinanceCustomAPIURL)
+		targetEndpoint := endpoint
+
+		// 检查全局代理开关
+		useProxyGlobal := os.Getenv("USE_BINANCE_PROXY") == "true"
+
+		if useProxyGlobal {
+			// 对于代理模式，连接到代理但目标是测试网
+			proxyURL := os.Getenv("BINANCE_PROXY_URL")
+			if proxyURL == "" {
+				proxyURL = "http://localhost:8081" // 默认代理URL
+			}
+			endpoint = proxyURL
+			logger.Infof("🔧 [DEBUG] Binance Demo connecting via proxy to testnet: '%s'", targetEndpoint)
+
+			// 在代理模式下，创建一个连接到代理服务的交易者实例，目标是测试网
+			// 使用专门的虚拟盘函数，避免与实盘交易员混淆
+			originalTrader := NewDemoFuturesTraderViaProxy(at.config.BinanceAPIKey, at.config.BinanceSecretKey, userID, endpoint, targetEndpoint)
+			newTrader = NewProxyTraderWrapperWithAuth(originalTrader, "proxy_demo", os.Getenv("BINANCE_PROXY_URL"), at.config.BinanceAPIKey, at.config.BinanceSecretKey, targetEndpoint)
+		} else {
+			// 在非代理模式下，直接连接到测试网
+			originalTrader := NewFuturesTrader(at.config.BinanceAPIKey, at.config.BinanceSecretKey, userID, endpoint)
+			newTrader = NewProxyTraderWrapperWithAuth(originalTrader, "demo_native", "", at.config.BinanceAPIKey, at.config.BinanceSecretKey, targetEndpoint)
+		}
+	case "bybit":
+		logger.Infof("🏦 [%s] Using Bybit Futures trading", at.name)
+		newTrader = NewBybitTrader(at.config.BybitAPIKey, at.config.BybitSecretKey)
+	case "okx":
+		logger.Infof("🏦 [%s] Using OKX Futures trading", at.name)
+		newTrader = NewOKXTrader(at.config.OKXAPIKey, at.config.OKXSecretKey, at.config.OKXPassphrase)
+	case "bitget":
+		logger.Infof("🏦 [%s] Using Bitget Futures trading", at.name)
+		newTrader = NewBitgetTrader(at.config.BitgetAPIKey, at.config.BitgetSecretKey, at.config.BitgetPassphrase)
+	case "hyperliquid":
+		logger.Infof("🏦 [%s] Using Hyperliquid trading", at.name)
+		newTrader, err = NewHyperliquidTrader(at.config.HyperliquidPrivateKey, at.config.HyperliquidWalletAddr, at.config.HyperliquidTestnet)
+		if err != nil {
+			return fmt.Errorf("failed to initialize Hyperliquid trader: %w", err)
+		}
+	case "aster":
+		logger.Infof("工商联 [%s] Using Aster trading", at.name)
+		newTrader, err = NewAsterTrader(at.config.AsterUser, at.config.AsterSigner, at.config.AsterPrivateKey)
+		if err != nil {
+			return fmt.Errorf("failed to initialize Aster trader: %w", err)
+		}
+	case "lighter":
+		logger.Infof("工商联 [%s] Using LIGHTER trading", at.name)
+
+		if at.config.LighterWalletAddr == "" || at.config.LighterAPIKeyPrivateKey == "" {
+			return fmt.Errorf("Lighter requires wallet address and API Key private key")
+		}
+
+		// Lighter only supports mainnet (testnet disabled)
+		newTrader, err = NewLighterTraderV2(
+			at.config.LighterWalletAddr,
+			at.config.LighterAPIKeyPrivateKey,
+			at.config.LighterAPIKeyIndex,
+			false, // Always use mainnet for Lighter
+		)
+		if err != nil {
+			return fmt.Errorf("failed to initialize LIGHTER trader: %w", err)
+		}
+		logger.Infof("✓ LIGHTER trader initialized successfully")
+	default:
+		return fmt.Errorf("unsupported trading platform: %s", at.config.Exchange)
+	}
+
+	// 替换内部交易员实例
+	at.trader = newTrader
+
+	logger.Debugf("✅ [RecreateInternalTrader] Internal trader recreated successfully for %s", at.name)
+	return nil
+}
+
 func (at *AutoTrader) Stop() {
 	at.isRunningMutex.Lock()
 	if !at.isRunning {
@@ -3668,28 +3837,71 @@ func (at *AutoTrader) GetOpenOrders(symbol string) ([]OpenOrder, error) {
 
 // getBinanceCustomEndpointForAutoTrader extracts the custom API endpoint for Binance from auto trader config
 func getBinanceCustomEndpointForAutoTrader(config *AutoTraderConfig) string {
-	// 判断条件a：如果CustomAPIURL为空，使用默认主网API
-	if config.BinanceCustomAPIURL == "" {
-		return "https://fapi.binance.com" // 默认主网API URL
-	}
+	logger.Debugf("🔗 [getBinanceCustomEndpointForAutoTrader] Input BinanceCustomAPIURL: '%s', Input Config Exchange: '%s'", config.BinanceCustomAPIURL, config.Exchange)
 
-	// 判断条件b：如果CustomAPIURL不为空且不是空白字符，直接使用CustomAPIURL
-	trimmedURL := strings.TrimSpace(config.BinanceCustomAPIURL)
-	if trimmedURL == "" {
-		return "https://fapi.binance.com" // 默认主网API URL
-	}
+	// 使用统一的EndpointSelector来确定正确的端点
+	endpointSelector := NewEndpointSelector()
 
-	// 判断条件c：检查是否为本地代理地址（localhost或127.0.0.1）
-	isLocalhost := strings.Contains(trimmedURL, "://localhost:") ||
-		strings.Contains(trimmedURL, "://127.0.0.1:")
+	// 对于不同类型的交易所，使用不同的处理逻辑
+	if config.Exchange == "binance_demo" {
+		// 对于虚拟盘交易，使用专门的端点选择器
+		logger.Debugf("🔗 [getBinanceCustomEndpointForAutoTrader] Binance Demo exchange detected, using demo endpoint selector")
+		trimmedURL := strings.TrimSpace(config.BinanceCustomAPIURL)
+		if trimmedURL == "" {
+			logger.Debugf("🔗 [getBinanceCustomEndpointForAutoTrader] Demo BinanceCustomAPIURL is empty, using default testnet endpoint")
+			return "https://testnet.binancefuture.com"
+		}
+		logger.Debugf("🔗 [getBinanceCustomEndpointForAutoTrader] Calling EndpointSelector.GetBinanceDemoEndpoint with URL: %s", trimmedURL)
+		result := endpointSelector.GetBinanceDemoEndpoint(trimmedURL)
+		logger.Debugf("🔗 [getBinanceCustomEndpointForAutoTrader] Demo EndpointSelector returned: %s", result)
+		return result
+	} else if config.Exchange == "binance" {
+		// 对于实盘交易，使用专门的端点选择器
+		logger.Debugf("🔗 [getBinanceCustomEndpointForAutoTrader] Binance Real exchange detected, using mainnet endpoint selector")
+		// 判断条件a：如果CustomAPIURL为空，使用默认主网API
+		if config.BinanceCustomAPIURL == "" {
+			logger.Debugf("🔗 [getBinanceCustomEndpointForAutoTrader] Real BinanceCustomAPIURL is empty, returning default mainnet API")
+			return "https://fapi.binance.com" // 默认主网API URL
+		}
 
-	// 判断条件d：如果是本地代理地址，使用默认主网API
-	if isLocalhost {
-		return "https://fapi.binance.com" // 默认主网API URL
+		// 判断条件b：如果CustomAPIURL不为空且不是空白字符，使用EndpointSelector处理
+		trimmedURL := strings.TrimSpace(config.BinanceCustomAPIURL)
+		logger.Debugf("🔗 [getBinanceCustomEndpointForAutoTrader] Trimmed URL for real account: '%s'", trimmedURL)
+		if trimmedURL == "" {
+			logger.Debugf("🔗 [getBinanceCustomEndpointForAutoTrader] Trimmed URL is empty, returning default mainnet API")
+			return "https://fapi.binance.com" // 默认主网API URL
+		}
+
+		// 判断条件c：检查是否为本地代理地址（localhost或127.0.0.1）
+		isLocalhost := strings.Contains(trimmedURL, "://localhost:") ||
+			strings.Contains(trimmedURL, "://127.0.0.1:")
+		logger.Debugf("🔗 [getBinanceCustomEndpointForAutoTrader] Is localhost URL for real account: %t", isLocalhost)
+
+		// 判断条件d：如果是本地代理地址，使用默认主网API
+		if isLocalhost {
+			logger.Debugf("🔗 [getBinanceCustomEndpointForAutoTrader] Real account URL is localhost, returning default mainnet API")
+			return "https://fapi.binance.com" // 默认主网API URL
+		} else {
+			// 如果不是本地代理地址，使用专门的主网端点选择器
+			logger.Debugf("🔗 [getBinanceCustomEndpointForAutoTrader] Calling EndpointSelector.GetBinanceMainnetEndpoint with URL: %s", trimmedURL)
+			result := endpointSelector.GetBinanceMainnetEndpoint(trimmedURL)
+			logger.Debugf("🔗 [getBinanceCustomEndpointForAutoTrader] Mainnet EndpointSelector returned: %s", result)
+			return result
+		}
 	} else {
-		// 如果不是本地代理地址，直接使用CustomAPIURL
-		return trimmedURL
+		// 对于其他类型的交易所，返回默认主网API
+		logger.Debugf("🔗 [getBinanceCustomEndpointForAutoTrader] Other exchange type, returning default mainnet API")
+		return "https://fapi.binance.com"
 	}
+}
+
+// validateBinanceDemoEndpoint 确保币安虚拟盘使用正确的测试网端点
+func validateBinanceDemoEndpoint(url string) string {
+	// 如果URL为空或不是测试网URL，则返回正确的测试网URL
+	if url == "" || !strings.Contains(url, "testnet.binancefuture.com") {
+		return "https://testnet.binancefuture.com"
+	}
+	return url
 }
 
 // executeUpdateStopLossWithRecord executes update stop loss and records detailed information

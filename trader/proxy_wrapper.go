@@ -10,7 +10,7 @@ import (
 // 根据DataAccessMethod配置决定是否通过代理服务调用API
 type ProxyTraderWrapper struct {
 	trader           Trader // 原始交易者实例
-	dataAccessMethod string // "native" 或 "proxy"
+	dataAccessMethod string // "native" 或 "proxy" 或 "proxy_demo" 等具体类型
 	proxyURL         string // 代理服务URL
 	// 存储认证信息用于代理模式
 	apiKey         string
@@ -53,6 +53,30 @@ func NewProxyTraderWrapperWithAuth(originalTrader Trader, dataAccessMethod strin
 	}
 
 	return pw
+}
+
+// UpdateConfig 更新代理包装器的配置
+// 这对于在交易员刷新时同步更新配置非常重要
+func (p *ProxyTraderWrapper) UpdateConfig(dataAccessMethod string, proxyURL, apiKey, secretKey, customAPIURL string) {
+	logger.Debugf("🔄 [ProxyTraderWrapper.UpdateConfig] Updating config: method=%s, proxy=%s, customEndpoint=%s", dataAccessMethod, proxyURL, customAPIURL)
+	p.dataAccessMethod = dataAccessMethod
+	if proxyURL != "" {
+		p.proxyURL = proxyURL
+	}
+	p.apiKey = apiKey
+	p.secretKey = secretKey
+	p.customEndpoint = customAPIURL
+	logger.Debugf("✅ [ProxyTraderWrapper.UpdateConfig] Config updated successfully")
+}
+
+// GetDataAccessMethod 获取数据访问方法
+func (p *ProxyTraderWrapper) GetDataAccessMethod() string {
+	return p.dataAccessMethod
+}
+
+// GetCustomEndpoint 获取自定义端点
+func (p *ProxyTraderWrapper) GetCustomEndpoint() string {
+	return p.customEndpoint
 }
 
 // shouldUseProxy 判断是否应该使用代理
