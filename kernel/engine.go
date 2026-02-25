@@ -1856,7 +1856,8 @@ func fixMissingQuotes(jsonStr string) string {
 	jsonStr = strings.ReplaceAll(jsonStr, "、", ",")
 
 	jsonStr = strings.ReplaceAll(jsonStr, "　", " ")
-
+	jsonStr = strings.ReplaceAll(jsonStr, "reasoning': '", "reasoning\":\"")
+	jsonStr = strings.ReplaceAll(jsonStr, "',", "\",")
 	return jsonStr
 }
 
@@ -2009,6 +2010,9 @@ func preprocessJSONContent(jsonStr string) string {
 	// 6. 移除不可见字符
 	jsonStr = removeInvisibleRunes(jsonStr)
 
+	// 7. 修复reasoning字段中的引号问题
+	jsonStr = strings.ReplaceAll(jsonStr, "reasoning': '", "reasoning\":\"")
+	jsonStr = strings.ReplaceAll(jsonStr, "',", "\",")
 	logger.Debugf("🔧 JSON预处理完成，修复后长度: %d -> %d", len(jsonStr), len(jsonStr))
 	return jsonStr
 }
