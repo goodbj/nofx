@@ -1842,7 +1842,10 @@ func fixMissingQuotes(jsonStr string) string {
 	// 不再将中文单引号替换为英文单引号，避免影响JSON解析
 	// jsonStr = strings.ReplaceAll(jsonStr, "‘", "'")
 	// jsonStr = strings.ReplaceAll(jsonStr, "’", "'")
-
+	jsonStr = strings.ReplaceAll(jsonStr, "\u201c", "\"")
+	jsonStr = strings.ReplaceAll(jsonStr, "\u201d", "\"")
+	jsonStr = strings.ReplaceAll(jsonStr, "\u2018", "'")
+	jsonStr = strings.ReplaceAll(jsonStr, "\u2019", "'")
 	jsonStr = strings.ReplaceAll(jsonStr, "［", "[")
 	jsonStr = strings.ReplaceAll(jsonStr, "］", "]")
 	jsonStr = strings.ReplaceAll(jsonStr, "｛", "{")
