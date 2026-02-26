@@ -13,6 +13,7 @@ import (
 	"nofx/store"
 	"nofx/utils"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -178,10 +179,10 @@ type Decision struct {
 	TakeProfit      float64 `json:"take_profit,omitempty"`
 
 	// Additional parameters for new action types
-	NewStopLoss       float64 `json:"new_stop_loss,omitempty"`      // New stop loss price (for update_stop_loss)
-	NewTakeProfit     float64 `json:"new_take_profit,omitempty"`    // New take profit price (for update_take_profit)
-	ClosePercentage   float64 `json:"close_percentage,omitempty"`   // Close percentage (for partial_close)
-	PositionDirection string  `json:"position_direction,omitempty"` // Position direction: "long" or "short" (for update_stop_loss/update_take_profit)
+	NewStopLoss       interface{} `json:"new_stop_loss,omitempty"`      // New stop loss price (for update_stop_loss) - can be string or number
+	NewTakeProfit     float64     `json:"new_take_profit,omitempty"`    // New take profit price (for update_take_profit)
+	ClosePercentage   float64     `json:"close_percentage,omitempty"`   // Close percentage (for partial_close)
+	PositionDirection string      `json:"position_direction,omitempty"` // Position direction: "long" or "short" (for update_stop_loss/update_take_profit)
 
 	// Dynamic stop loss and take profit parameters
 	TrailPercentage float64 `json:"trail_percentage,omitempty"` // Trailing stop percentage (for trailing_stop)
@@ -2391,4 +2392,31 @@ func isCoinFromOITopSource(coin CandidateCoin) bool {
 // IsCoinInStaticListPublic exposes the static list check functionality publicly
 func IsCoinInStaticListPublic(symbol string, config *store.StrategyConfig) bool {
 	return isCoinInStaticList(symbol, config)
+}
+
+// GetNewStopLoss 获取new_stop_loss的float64值，支持字符串和数字类型
+func (d *Decision) GetNewStopLoss() (float64, error) {
+	switch v := d.NewStopLoss.(type) {
+	case float64:
+		return v, nil
+	case int:
+		return float64(v), nil
+	case float32:
+		return float64(v), nil
+	case string:
+		//尝试解析字符串为浮点数
+		if f, err := strconv.ParseFloat(v, 64); err == nil {
+			return f, nil
+		}
+		return 0, fmt.Errorf("invalid new_stop_loss string value: %s", v)
+	case nil:
+		return 0, fmt.Errorf("new_stop_loss is nil")
+	default:
+		return 0, fmt.Errorf("unsupported new_stop_loss type: %T", v)
+	}
+}
+
+// GetNewTakeProfit 获取new_take_profit的float64值
+func (d *Decision) GetNewTakeProfit() (float64, error) {
+	return d.NewTakeProfit, nil
 }

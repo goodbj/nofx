@@ -104,6 +104,12 @@ type DecisionAction struct {
 	MaxROI                    float64 `json:"max_roi,omitempty"`                      // Maximum ROI percentage
 	TimeLimitHours            float64 `json:"time_limit_hours,omitempty"`             // Time limit in hours for dynamic orders
 	AdditionalPositionSizeUSD float64 `json:"additional_position_size_usd,omitempty"` // Additional position size for adding to existing position
+
+	// Fields for close position P&L information
+	EntryPrice            float64 `json:"entry_price,omitempty"`             // Entry price for calculating P&L
+	ExitPrice             float64 `json:"exit_price,omitempty"`              // Exit price for calculating P&L
+	RealizedPnL           float64 `json:"realized_pnl,omitempty"`            // Realized profit/loss amount
+	RealizedPnLPercentage float64 `json:"realized_pnl_percentage,omitempty"` // Realized profit/loss percentage
 }
 
 // Statistics statistics information

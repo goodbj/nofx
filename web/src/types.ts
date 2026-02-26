@@ -86,6 +86,12 @@ export interface DecisionAction {
   max_roi?: number                // 最大收益率 (dynamic_take_profit)
   additional_position_size_usd?: number  // 追加仓位金额 (add_position)
   pnl?: number              // 盈亏金额 (close_long, close_short)
+  
+  // 新增：平仓盈亏信息字段
+  entry_price?: number            // 入场价格，用于计算盈亏
+  exit_price?: number             // 出场价格，用于计算盈亏
+  realized_pnl?: number           // 已实现盈亏金额
+  realized_pnl_percentage?: number // 已实现盈亏百分比
 }
 
 export interface AccountSnapshot {

@@ -124,6 +124,7 @@ export const translations = {
     symbol: 'Symbol',
     side: 'Side',
     entryPrice: 'Entry Price',
+    exitPrice: 'Exit Price',
     stopLoss: 'Stop Loss',
     takeProfit: 'Take Profit',
     riskReward: 'Risk/Reward',

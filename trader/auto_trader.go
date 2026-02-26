@@ -1135,7 +1135,7 @@ func (at *AutoTrader) runCycle() error {
 			Success:    false,
 
 			// Additional parameters for advanced action types
-			NewStopLoss:               d.NewStopLoss,
+			NewStopLoss:               func() float64 { val, _ := d.GetNewStopLoss(); return val }(),
 			NewTakeProfit:             d.NewTakeProfit,
 			ClosePercentage:           d.ClosePercentage,
 			TrailPercentage:           d.TrailPercentage,
@@ -1627,7 +1627,7 @@ func (at *AutoTrader) ExecuteDecision(d *kernel.Decision) error {
 		Reasoning:  d.Reasoning,
 
 		// Additional parameters for advanced action types
-		NewStopLoss:               d.NewStopLoss,
+		NewStopLoss:               func() float64 { val, _ := d.GetNewStopLoss(); return val }(),
 		NewTakeProfit:             d.NewTakeProfit,
 		ClosePercentage:           d.ClosePercentage,
 		TrailPercentage:           d.TrailPercentage,
@@ -2339,6 +2339,23 @@ func (at *AutoTrader) executeCloseLongWithRecord(decision *kernel.Decision, acti
 		actionRecord.OrderID = orderID
 	}
 
+	// Calculate P&L for long position: (exit_price - entry_price) * quantity
+	exitPrice := marketData.CurrentPrice
+	realizedPnL := (exitPrice - entryPrice) * quantity
+	realizedPnLPercentage := 0.0
+	if entryPrice != 0 {
+		realizedPnLPercentage = ((exitPrice - entryPrice) / entryPrice) * 100
+	}
+
+	// Set P&L information in action record
+	actionRecord.EntryPrice = entryPrice
+	actionRecord.ExitPrice = exitPrice
+	actionRecord.RealizedPnL = realizedPnL
+	actionRecord.RealizedPnLPercentage = realizedPnLPercentage
+
+	logger.Infof("  💰 Long P&L for %s: %.4f USDT (%.2f%%), Qty: %.6f, Entry: %.6f, Exit: %.6f",
+		decision.Symbol, realizedPnL, realizedPnLPercentage, quantity, entryPrice, exitPrice)
+
 	// Record order to database and poll for confirmation
 	at.recordAndConfirmOrder(order, decision.Symbol, "close_long", quantity, marketData.CurrentPrice, 0, entryPrice)
 
@@ -2432,6 +2449,23 @@ func (at *AutoTrader) executeCloseShortWithRecord(decision *kernel.Decision, act
 	if orderID, ok := order["orderId"].(int64); ok {
 		actionRecord.OrderID = orderID
 	}
+
+	// Calculate P&L for short position: (entry_price - exit_price) * quantity
+	exitPrice := marketData.CurrentPrice
+	realizedPnL := (entryPrice - exitPrice) * quantity
+	realizedPnLPercentage := 0.0
+	if entryPrice != 0 {
+		realizedPnLPercentage = ((entryPrice - exitPrice) / entryPrice) * 100
+	}
+
+	// Set P&L information in action record
+	actionRecord.EntryPrice = entryPrice
+	actionRecord.ExitPrice = exitPrice
+	actionRecord.RealizedPnL = realizedPnL
+	actionRecord.RealizedPnLPercentage = realizedPnLPercentage
+
+	logger.Infof("  💰 Short P&L for %s: %.4f USDT (%.2f%%), Qty: %.6f, Entry: %.6f, Exit: %.6f",
+		decision.Symbol, realizedPnL, realizedPnLPercentage, quantity, entryPrice, exitPrice)
 
 	// Record order to database and poll for confirmation
 	at.recordAndConfirmOrder(order, decision.Symbol, "close_short", quantity, marketData.CurrentPrice, 0, entryPrice)
@@ -4002,6 +4036,12 @@ func (at *AutoTrader) executeUpdateStopLossWithRecord(decision *kernel.Decision,
 
 	logger.Debugf("🔍 使用AI指定的仓位方向: side=%s", side)
 
+	//🔧型转换：处理new_stop_loss可能为字符串的情况
+	newStopLossPrice, err := decision.GetNewStopLoss()
+	if err != nil {
+		return fmt.Errorf("failed to parse new_stop_loss: %w", err)
+	}
+
 	// Get current market price for reference
 	marketData, err := market.Get(decision.Symbol)
 	if err != nil {
@@ -4009,7 +4049,6 @@ func (at *AutoTrader) executeUpdateStopLossWithRecord(decision *kernel.Decision,
 	}
 
 	// Use current market price if new stop loss price is 0
-	newStopLossPrice := decision.NewStopLoss
 	if newStopLossPrice == 0 && marketData != nil {
 		newStopLossPrice = marketData.CurrentPrice
 		logger.Infof("  💡 Using current market price as stop loss price: %.4f", newStopLossPrice)
@@ -4041,12 +4080,12 @@ func (at *AutoTrader) executeUpdateStopLossWithRecord(decision *kernel.Decision,
 			Type:            "STOP_MARKET", // Or STOP_LIMIT depending on implementation
 			Side:            "STOP_LOSS",
 			Quantity:        qtyFloat,
-			Price:           decision.NewStopLoss, // Target stop loss price
-			Status:          "UPDATED",            // Status indicating the stop loss was updated
-			FilledQuantity:  0,                    // Not filled yet, just updated
-			AvgFillPrice:    0,                    // Will be filled when triggered
-			Commission:      0,                    // No commission for stop loss updates
-			FilledAt:        0,                    // Will be set when triggered
+			Price:           func() float64 { val, _ := decision.GetNewStopLoss(); return val }(), // Target stop loss price
+			Status:          "UPDATED",                                                            // Status indicating the stop loss was updated
+			FilledQuantity:  0,                                                                    // Not filled yet, just updated
+			AvgFillPrice:    0,                                                                    // Will be filled when triggered
+			Commission:      0,                                                                    // No commission for stop loss updates
+			FilledAt:        0,                                                                    // Will be set when triggered
 			CreatedAt:       time.Now().UTC().UnixMilli(),
 			UpdatedAt:       time.Now().UTC().UnixMilli(),
 		}
@@ -4307,6 +4346,13 @@ func (at *AutoTrader) executePartialCloseWithRecord(decision *kernel.Decision, a
 
 	// Debug log for exchange API call
 	logger.Infof("  📡 Submitting partial close to exchange: Symbol=%s, Position Type=%s, ClosePercentage=%.2f%%", decision.Symbol, positionType, decision.ClosePercentage)
+
+	// Get entry price from the position
+	entryPrice := 0.0
+	if ep, ok := foundPos["entryPrice"].(float64); ok {
+		entryPrice = ep
+	}
+
 	// Close partial position
 	order, err := at.trader.PartialClose(decision.Symbol, positionType, decision.ClosePercentage)
 	if err != nil {
@@ -4314,7 +4360,32 @@ func (at *AutoTrader) executePartialCloseWithRecord(decision *kernel.Decision, a
 		return fmt.Errorf("failed to partially close position: %w", err)
 	}
 
+	// Calculate P&L for partial close based on position type
+	exitPrice := marketData.CurrentPrice
+	var realizedPnL, realizedPnLPercentage float64
+	if positionType == "long" {
+		// Long position: (exit_price - entry_price) * partial_quantity
+		realizedPnL = (exitPrice - entryPrice) * partialQty
+		if entryPrice != 0 {
+			realizedPnLPercentage = ((exitPrice - entryPrice) / entryPrice) * 100
+		}
+	} else {
+		// Short position: (entry_price - exit_price) * partial_quantity
+		realizedPnL = (entryPrice - exitPrice) * partialQty
+		if entryPrice != 0 {
+			realizedPnLPercentage = ((entryPrice - exitPrice) / entryPrice) * 100
+		}
+	}
+
+	// Set P&L information in action record
+	actionRecord.EntryPrice = entryPrice
+	actionRecord.ExitPrice = exitPrice
+	actionRecord.RealizedPnL = realizedPnL
+	actionRecord.RealizedPnLPercentage = realizedPnLPercentage
+
 	logger.Infof("  ✓ Partial close executed successfully for %s, %.4f quantity", decision.Symbol, partialQty)
+	logger.Infof("  💰 Partial close P&L for %s: %.4f USDT (%.2f%%), Qty: %.6f, Entry: %.6f, Exit: %.6f, Close %%: %.2f%%",
+		decision.Symbol, realizedPnL, realizedPnLPercentage, partialQty, entryPrice, exitPrice, decision.ClosePercentage)
 
 	// Record order to database with market price reference
 	at.recordAndConfirmOrder(order, decision.Symbol, "partial_close", partialQty, marketData.CurrentPrice, 0, decision.ClosePercentage)
