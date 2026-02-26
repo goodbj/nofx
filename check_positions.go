@@ -8,7 +8,7 @@ import (
 func main() {
 	st, err := store.NewWithConfig(store.DBConfig{
 		Type: store.DBTypeSQLite,
-		Path: "./data/nofx.db",
+		Path: "./data/data.db",
 	})
 	if err != nil {
 		fmt.Printf("Error creating store: %v\n", err)
@@ -24,13 +24,13 @@ func main() {
 	}
 
 	fmt.Printf("Found %d OPEN positions in database\n", len(positions))
-	
+
 	for _, pos := range positions {
 		traderIDPrefix := pos.TraderID
 		if len(traderIDPrefix) > 8 {
 			traderIDPrefix = traderIDPrefix[:8]
 		}
-		fmt.Printf("- ID: %d, Trader: %s, Symbol: %s, Side: %s, EntryTime: %d\n", 
+		fmt.Printf("- ID: %d, Trader: %s, Symbol: %s, Side: %s, EntryTime: %d\n",
 			pos.ID, traderIDPrefix, pos.Symbol, pos.Side, pos.EntryTime)
 	}
 }

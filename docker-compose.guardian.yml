@@ -12,7 +12,7 @@ services:
       - GUARDIAN_AI_SERVICE=deepseek
       - GUARDIAN_DISPLAY_ENABLED=false  # 在生产环境中通常设为false
       - LOG_LEVEL=info
-      - DB_PATH=./data/nofx.db
+      - DB_PATH=./data/data.db
     volumes:
       - ./data:/app/data
       - /dev/shm:/dev/shm  # 共享内存，用于Chrome

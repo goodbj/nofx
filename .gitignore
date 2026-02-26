@@ -125,7 +125,6 @@ dmypy.json
 .pyre/
 PR_DESCRIPTION.md
 data/data.db
-data/nofx.db
 AI/AI_TRADING_LOGIC_GUIDE.md
 AI/DEEPSEEK_STRATEGY_FIELDS_GUIDE.md
 AI/README.md
