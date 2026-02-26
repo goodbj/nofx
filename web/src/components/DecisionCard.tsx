@@ -75,14 +75,11 @@ function openExchangeLink(symbol: string, exchangeType?: string, customUrl?: str
   // Determine language code for URL (default to 'en' if not specified or unsupported)
   const langCode = language === 'zh' ? 'zh-CN' : 'en';
   
+  // Determine if this is a testnet/demo environment based on exchange type
+  const isTestnet = exchangeType?.toLowerCase() === 'binance_demo';
+  
   // If a custom URL is provided, use it as the base URL
   if (customUrl) {
-    // Check if the custom URL is a testnet URL by looking for testnet indicators
-    const isTestnet = customUrl.toLowerCase().includes('test') || 
-                      customUrl.toLowerCase().includes('sandbox') || 
-                      customUrl.toLowerCase().includes('demo') ||
-                      customUrl.toLowerCase().includes('futures-test') ||
-                      customUrl.toLowerCase().includes('testnet');
     
     if (customUrl.includes('{symbol}')) {
       // Replace placeholder in custom URL if present
@@ -103,8 +100,23 @@ function openExchangeLink(symbol: string, exchangeType?: string, customUrl?: str
             exchangeUrl = exchangeUrl.includes('?') ? `${exchangeUrl}&lang=${langCode}` : `${exchangeUrl}?lang=${langCode}`;
           } else {
             // If it's a custom testnet URL that looks like binance, append to the standard testnet URL
-            exchangeUrl = `https://testnet.binancefuture.com/${langCode}/futures/${symbol}`;
+            exchangeUrl = `https://testnet.binancefuture.com/futures/${symbol}`;
+            // Add language parameter
+            exchangeUrl = exchangeUrl.includes('?') ? `${exchangeUrl}&lang=${langCode}` : `${exchangeUrl}?lang=${langCode}`;
           }
+        } else if (customUrl.includes('bybit')) {
+          // Handle Bybit testnet URL
+          exchangeUrl = customUrl.includes('testnet') 
+            ? `https://testnet.bybit.com/trade/futures/${symbol.replace('USDT', '')}-USDT`
+            : `https://testnet.bybit.com/trade/futures/${symbol.replace('USDT', '')}-USDT`;
+          // Add language parameter
+          exchangeUrl = exchangeUrl.includes('?') ? `${exchangeUrl}&l=${langCode}` : `${exchangeUrl}?l=${langCode}`;
+        } else if (customUrl.includes('okx')) {
+          // Handle OKX testnet URL
+          exchangeUrl = `https://www.okx.com/${langCode}/trade-futures-demo/${symbol.toLowerCase()}`;
+        } else if (customUrl.includes('bitget')) {
+          // Handle Bitget testnet URL
+          exchangeUrl = `https://www.bitget.com/futures/${symbol.replace('USDT', '')}_USDT?lng=${langCode}`;
         } else {
           // For other exchange testnets, append symbol to custom URL
           exchangeUrl = customUrl.endsWith('/') ? `${customUrl}${symbol}` : `${customUrl}/${symbol}`;
@@ -116,21 +128,29 @@ function openExchangeLink(symbol: string, exchangeType?: string, customUrl?: str
     }
   } else {
     // Determine exchange URL based on exchange type
-    // Check if we can infer testnet from other contextual clues
-    const isLikelyTestnet = false; // We can't determine this without explicit config
+    // Determine if this is a testnet/demo environment based on exchange type
+    const isLikelyTestnet = exchangeType?.toLowerCase() === 'binance_demo';
     
     switch (exchangeType?.toLowerCase()) {
       case 'binance':
-        // Use appropriate URL based on whether it's likely testnet
-        exchangeUrl = isLikelyTestnet 
-          ? `https://testnet.binancefuture.com/${langCode}/futures/${symbol}` 
-          : `https://www.binance.com/${langCode}/futures/${symbol}`;
+        // Binance mainnet (real trading)
+        exchangeUrl = `https://www.binance.com/${langCode}/futures/${symbol}`;
+        break;
+      case 'binance_demo':
+        // Binance testnet (demo/virtual trading)
+        exchangeUrl = `https://testnet.binancefuture.com/futures/${symbol}`;
+        // Add language parameter for testnet
+        exchangeUrl = exchangeUrl.includes('?') ? `${exchangeUrl}&lang=${langCode}` : `${exchangeUrl}?lang=${langCode}`;
         break;
       case 'bybit':
         // Bybit uses language in URL path or query parameter
         exchangeUrl = isLikelyTestnet 
-          ? `https://testnet.bybit.com/trade/futures/${symbol.replace('USDT', '')}-USDT?l=${langCode}`
+          ? `https://testnet.bybit.com/trade/futures/${symbol.replace('USDT', '')}-USDT`
           : `https://www.bybit.com/${langCode}/trade/futures/${symbol.replace('USDT', '')}-USDT`;
+        // Add language parameter for testnet
+        if (isLikelyTestnet) {
+          exchangeUrl = exchangeUrl.includes('?') ? `${exchangeUrl}&l=${langCode}` : `${exchangeUrl}?l=${langCode}`;
+        }
         break;
       case 'okx':
         // OKX uses language in subdomain or path
@@ -141,14 +161,20 @@ function openExchangeLink(symbol: string, exchangeType?: string, customUrl?: str
       case 'bitget':
         // Bitget uses language in query parameter
         exchangeUrl = isLikelyTestnet 
-          ? `https://www.bitget.com/futures/${symbol.replace('USDT', '')}_USDT?lng=${langCode}`
-          : `https://www.bitget.com/futures/${symbol.replace('USDT', '')}_USDT?lng=${langCode}`;
+          ? `https://www.bitget.com/futures/${symbol.replace('USDT', '')}_USDT`
+          : `https://www.bitget.com/futures/${symbol.replace('USDT', '')}_USDT`;
+        // Add language parameter for testnet
+        if (isLikelyTestnet) {
+          exchangeUrl = exchangeUrl.includes('?') ? `${exchangeUrl}?lng=${langCode}` : `${exchangeUrl}?lng=${langCode}`;
+        }
         break;
       case 'hyperliquid':
         // Hyperliquid doesn't typically use language codes in URL, but we can add it as a parameter
         exchangeUrl = isLikelyTestnet 
-          ? `https://app.hyperliquid.xyz/demo#/${symbol.replace('USDT', '')}?lang=${langCode}`
-          : `https://app.hyperliquid.xyz/trade#${symbol.replace('USDT', '')}?lang=${langCode}`;
+          ? `https://app.hyperliquid.xyz/demo#/${symbol.replace('USDT', '')}`
+          : `https://app.hyperliquid.xyz/trade#${symbol.replace('USDT', '')}`;
+        // Add language parameter for both
+        exchangeUrl = exchangeUrl.includes('?') ? `${exchangeUrl}&lang=${langCode}` : `${exchangeUrl}?lang=${langCode}`;
         break;
       case 'aster':
         exchangeUrl = isLikelyTestnet 

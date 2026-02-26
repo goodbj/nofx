@@ -326,7 +326,7 @@ export function TraderDashboardPage({
       notify.success(language === 'zh' ? '决策删除成功' : 'Decision deleted successfully')
       
       // 刷新决策列表
-      await mutate(`decisions-${selectedTraderId}`)
+      await mutate(`decisions/latest-${selectedTraderId}-${decisionsLimit}`)
     } catch (error: unknown) {
       const errorMessage = 
         error instanceof Error 
