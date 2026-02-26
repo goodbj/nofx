@@ -80,6 +80,9 @@ function openExchangeLink(symbol: string, exchangeType?: string, customUrl?: str
   // Determine language code for URL (default to 'en' if not specified or unsupported)
   const langCode = language === 'zh' ? 'zh-CN' : 'en';
   
+  // Debug logging to verify parameters are correctly passed
+  console.log('openExchangeLink debug:', { symbol, exchangeType, customUrl, language, langCode });
+  
   // Determine if this is a testnet/demo environment based on exchange type
   const isTestnet = exchangeType?.toLowerCase().includes('binance_demo');
   
@@ -99,15 +102,11 @@ function openExchangeLink(symbol: string, exchangeType?: string, customUrl?: str
         if (customUrl.includes('binance')) {
           // If it's clearly a binance testnet URL
           if (customUrl.includes('testnet.binancefuture.com')) {
-            // Append language parameter to binance testnet URL
-            exchangeUrl = customUrl.endsWith('/') ? `${customUrl}${symbol}` : `${customUrl}/${symbol}`;
-            // Add language parameter if not already present
-            exchangeUrl = exchangeUrl.includes('?') ? `${exchangeUrl}&lang=${langCode}` : `${exchangeUrl}?lang=${langCode}`;
+            // Use demo.binance.com directly since testnet.binancefuture.com gets redirected anyway
+            exchangeUrl = `https://demo.binance.com/${langCode}/futures/${symbol}`;
           } else {
-            // If it's a custom testnet URL that looks like binance, append to the standard testnet URL
-            exchangeUrl = `https://testnet.binancefuture.com/futures/${symbol}`;
-            // Add language parameter
-            exchangeUrl = exchangeUrl.includes('?') ? `${exchangeUrl}&lang=${langCode}` : `${exchangeUrl}?lang=${langCode}`;
+            // If it's a custom testnet URL that looks like binance, use demo.binance.com
+            exchangeUrl = `https://demo.binance.com/${langCode}/futures/${symbol}`;
           }
         } else if (customUrl.includes('bybit')) {
           // Handle Bybit testnet URL
@@ -127,8 +126,15 @@ function openExchangeLink(symbol: string, exchangeType?: string, customUrl?: str
           exchangeUrl = customUrl.endsWith('/') ? `${customUrl}${symbol}` : `${customUrl}/${symbol}`;
         }
       } else {
-        // For non-testnet, append symbol to custom URL
-        exchangeUrl = customUrl.endsWith('/') ? `${customUrl}${symbol}` : `${customUrl}/${symbol}`;
+        // For non-testnet, we should NOT use the custom API URL for frontend navigation
+        // Custom API URLs are for backend API calls, not for frontend navigation
+        // So we use the standard exchange website URL based on exchange type
+        if (exchangeType?.toLowerCase().includes('binance')) {
+          exchangeUrl = `https://www.binance.com/${langCode}/futures/${symbol}`;
+        } else {
+          // For other exchanges, append symbol to custom URL as fallback
+          exchangeUrl = customUrl.endsWith('/') ? `${customUrl}${symbol}` : `${customUrl}/${symbol}`;
+        }
       }
     }
   } else {
@@ -143,9 +149,10 @@ function openExchangeLink(symbol: string, exchangeType?: string, customUrl?: str
         break;
       case 'binance_demo':
         // Binance testnet (demo/virtual trading)
-        exchangeUrl = `https://testnet.binancefuture.com/futures/${symbol}`;
-        // Add language parameter for testnet
-        exchangeUrl = exchangeUrl.includes('?') ? `${exchangeUrl}&lang=${langCode}` : `${exchangeUrl}?lang=${langCode}`;
+        // Use demo.binance.com directly since testnet.binancefuture.com gets redirected anyway
+        // Ensure symbol is properly formatted for Binance testnet
+        const formattedSymbol = symbol && symbol !== '' ? symbol.toUpperCase() : 'BTCUSDT';
+        exchangeUrl = `https://demo.binance.com/${langCode}/futures/${formattedSymbol}`;
         break;
       case 'bybit':
         // Bybit uses language in URL path or query parameter
