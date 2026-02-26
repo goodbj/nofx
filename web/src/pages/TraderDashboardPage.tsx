@@ -1867,6 +1867,9 @@ ${promptPreview.user_prompt}`
                       onDelete={handleDeleteDecision}
                       expandedState={expandedStates[decisionKey]}
                       onUpdateExpansion={(newState) => updateDecisionExpansion(decisionKey, newState)}
+                      exchanges={exchanges}
+                      traderId={selectedTraderId}
+                      traders={traders}
                     />
                   );
                 })

@@ -17,6 +17,11 @@ interface DecisionCardProps {
     enabled: boolean;
     testnet?: boolean;  // 添加testnet标识
   }>;
+  traders?: Array<{
+    trader_id: string;
+    exchange_id: string;
+  }>;
+  traderId?: string;
   expandedState?: {
     showSystemPrompt: boolean;
     showInputPrompt: boolean;
@@ -46,7 +51,7 @@ const ACTION_CONFIG = (language: Language): Record<string, { color: string; bg: 
 // Format price with proper decimals
 function formatPrice(price: number | undefined): string {
   if (price === undefined || Number.isNaN(price)) return '-'
-  if (price === 0) return '0'
+  if (price === 0) return '0.00'
   if (price >= 1000) return price.toFixed(2)
   if (price >= 1) return price.toFixed(4)
   return price.toFixed(6)
@@ -76,7 +81,7 @@ function openExchangeLink(symbol: string, exchangeType?: string, customUrl?: str
   const langCode = language === 'zh' ? 'zh-CN' : 'en';
   
   // Determine if this is a testnet/demo environment based on exchange type
-  const isTestnet = exchangeType?.toLowerCase() === 'binance_demo';
+  const isTestnet = exchangeType?.toLowerCase().includes('binance_demo');
   
   // If a custom URL is provided, use it as the base URL
   if (customUrl) {
@@ -204,32 +209,39 @@ function getExchangeInfoByTraderId(
     customApiUrl?: string;
     name: string;
     enabled: boolean;
+  }> | undefined,
+  traders: Array<{
+    trader_id: string;
+    exchange_id: string;
   }> | undefined
 ): { exchangeType?: string; customUrl?: string } {
-  if (!exchanges) {
+  if (!exchanges || !traders) {
     return {};
   }
 
-  // Find the exchange associated with the trader
-  // In the system, traderId might match exchange.id or there might be a mapping
-  const exchange = exchanges.find(ex => ex.id === traderId);
-  
-  if (exchange) {
-    return {
-      exchangeType: exchange.exchange_type,
-      customUrl: exchange.customApiUrl
-    };
+  // First, find the trader by traderId
+  const trader = traders.find(t => t.trader_id === traderId);
+  if (!trader) {
+    return {};
   }
 
-  // If direct match not found, return empty object
-  return {};
+  // Then find the exchange by exchange_id
+  const exchange = exchanges.find(e => e.id === trader.exchange_id);
+  if (!exchange) {
+    return {};
+  }
+
+  return {
+    exchangeType: exchange.exchange_type,
+    customUrl: exchange.customApiUrl
+  };
 }
 
 // 移除：渲染数值变化信息（阶段1）
 // 此函数已被弃用，所有数值变化信息现在都在Trading Details Grid中统一显示
 
 // Single Action Card Component
-function ActionCard({ action, language, onSymbolClick, positions, exchangeType, exchangeCustomUrl, exchanges, traderId }: { action: DecisionAction; language: Language; onSymbolClick?: (symbol: string) => void; positions?: any[]; exchangeType?: string; exchangeCustomUrl?: string; exchanges?: Array<{ id: string; exchange_type: string; customApiUrl?: string; name: string; enabled: boolean; }>; traderId?: string }) {
+function ActionCard({ action, language, onSymbolClick, positions, exchangeType, exchangeCustomUrl, exchanges, traderId, traders }: { action: DecisionAction; language: Language; onSymbolClick?: (symbol: string) => void; positions?: any[]; exchangeType?: string; exchangeCustomUrl?: string; exchanges?: Array<{ id: string; exchange_type: string; customApiUrl?: string; name: string; enabled: boolean; }>; traderId?: string; traders?: Array<{ trader_id: string; exchange_id: string; }> }) {
   const actionConfigs = ACTION_CONFIG(language);
   const config = actionConfigs[action.action] || actionConfigs.wait
   const isLong = action.action.includes('long')
@@ -259,9 +271,9 @@ function ActionCard({ action, language, onSymbolClick, positions, exchangeType, 
               // If exchange info is passed directly, use it
               if (exchangeType || exchangeCustomUrl) {
                 openExchangeLink(action.symbol, exchangeType, exchangeCustomUrl, language);
-              } else if (exchanges && traderId) {
+              } else if (exchanges && traders && traderId) {
                 // Otherwise, get exchange info based on traderId
-                const exchangeInfo = getExchangeInfoByTraderId(traderId, exchanges);
+                const exchangeInfo = getExchangeInfoByTraderId(traderId, exchanges, traders);
                 openExchangeLink(action.symbol, exchangeInfo.exchangeType, exchangeInfo.customUrl, language);
               } else {
                 // Fallback to default behavior
@@ -322,7 +334,7 @@ function ActionCard({ action, language, onSymbolClick, positions, exchangeType, 
                 (action.realized_pnl !== undefined ? `${action.realized_pnl >= 0 ? '+' : ''}${action.realized_pnl.toFixed(2)} USDT` : '-') : 
                 formatPrice(action.price)}
             </div>
-            {isClose && action.realized_pnl && action.quantity && (
+            {isClose && action.realized_pnl !== undefined && action.realized_pnl !== null && (
               <div className="text-xs mt-0.5" style={{ color: action.realized_pnl >= 0 ? '#0ECB81' : '#F6465D' }}>
                 {action.realized_pnl >= 0 ? t('profit', language) : t('loss', language)}
               </div>
@@ -340,7 +352,7 @@ function ActionCard({ action, language, onSymbolClick, positions, exchangeType, 
                   {action.realized_pnl_percentage !== undefined ? 
                     `${action.realized_pnl_percentage >= 0 ? '+' : ''}${action.realized_pnl_percentage.toFixed(2)}%` : '-'}
                 </div>
-                {action.realized_pnl_percentage !== undefined && (
+                {action.realized_pnl_percentage !== undefined && action.realized_pnl_percentage !== null && (
                   <div className="text-xs mt-0.5" style={{ color: '#848E9C' }}>
                     {Math.abs(action.realized_pnl_percentage).toFixed(2)}%{t('yieldRatio', language)}
                   </div>
@@ -532,7 +544,7 @@ function ActionCard({ action, language, onSymbolClick, positions, exchangeType, 
   )
 }
 
-export function DecisionCard({ decision, language, onSymbolClick, onDelete, exchangeType, exchangeCustomUrl, exchanges, expandedState, onUpdateExpansion }: DecisionCardProps) {
+export function DecisionCard({ decision, language, onSymbolClick, onDelete, exchangeType, exchangeCustomUrl, exchanges, traders, traderId, expandedState, onUpdateExpansion }: DecisionCardProps) {
   // 使用传入的状态，如果没有则使用默认值
   const showSystemPrompt = expandedState?.showSystemPrompt || false;
   const showInputPrompt = expandedState?.showInputPrompt || false;
@@ -636,6 +648,7 @@ export function DecisionCard({ decision, language, onSymbolClick, onDelete, exch
               exchangeCustomUrl={exchangeCustomUrl}
               exchanges={exchanges}
               traderId={decision.trader_id}
+              traders={traders}
             />
           ))}
         </div>
