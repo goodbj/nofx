@@ -357,7 +357,7 @@ const TestPage: React.FC = () => {
     "symbol": "${symbol}",
     "action": "open_long",
     "leverage": 10,
-    "position_size_usd": 200,
+    "position_size_usd": 1000,
     "stop_loss": ${stopLoss.toFixed(2)},
     "take_profit": ${takeProfit.toFixed(2)},
     "confidence": 85,
@@ -377,7 +377,7 @@ const TestPage: React.FC = () => {
     "symbol": "${symbol}",
     "action": "open_short",
     "leverage": 10,
-    "position_size_usd": 200,
+    "position_size_usd": 1000,
     "stop_loss": ${stopLoss.toFixed(2)},
     "take_profit": ${takeProfit.toFixed(2)},
     "confidence": 85,
@@ -396,6 +396,7 @@ const TestPage: React.FC = () => {
     "symbol": "${symbol}",
     "action": "update_stop_loss",
     "new_stop_loss": ${newStopLoss.toFixed(2)},
+    "position_direction": "long",
     "confidence": 75
   }
 ]`;
@@ -411,6 +412,7 @@ const TestPage: React.FC = () => {
     "symbol": "${symbol}",
     "action": "update_take_profit",
     "new_take_profit": ${newTakeProfit.toFixed(2)},
+    "position_direction": "long",
     "confidence": 75
   }
 ]`;
@@ -695,6 +697,7 @@ const TestPage: React.FC = () => {
     "symbol": "${symbol}",
     "action": "update_stop_loss",
     "new_stop_loss": ${(isLong ? cp * 0.98 : cp * 1.02).toFixed(2)},
+    "position_direction": "${isLong ? 'long' : 'short'}",
     "confidence": 85,
     "reasoning": "Manual test SL"
   },
@@ -702,6 +705,7 @@ const TestPage: React.FC = () => {
     "symbol": "${symbol}",
     "action": "update_take_profit",
     "new_take_profit": ${(isLong ? cp * 1.05 : cp * 0.95).toFixed(2)},
+    "position_direction": "${isLong ? 'long' : 'short'}",
     "confidence": 85,
     "reasoning": "Manual test TP"
   }
@@ -769,7 +773,7 @@ const TestPage: React.FC = () => {
     "symbol": "${symbol}",
     "action": "bracket_order",
     "leverage": 3,
-    "position_size_usd": 200,
+    "position_size_usd": 1000,
     "stop_loss": ${(cpBracket * 0.98).toFixed(2)},
     "take_profit": ${(cpBracket * 1.06).toFixed(2)},
     "confidence": 85,

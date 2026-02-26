@@ -299,74 +299,11 @@ func NewFuturesTraderViaProxy(apiKey, secretKey, userId, proxyURL, targetEndpoin
 // NewDemoFuturesTraderViaProxy 创建通过代理的期货模拟交易者实例 (专门为虚拟盘设计)
 // proxyURL: 代理服务的URL
 // targetEndpoint: 真正的目标端点 (应为测试网)
+// 已废弃：现在统一使用 NewFuturesTraderViaProxy，不区分实盘/虚拟盘
 func NewDemoFuturesTraderViaProxy(apiKey, secretKey, userId, proxyURL, targetEndpoint string) *FuturesTrader {
-	logger.Debugf("🔗 [NewDemoFuturesTraderViaProxy] Demo proxyURL: %s", proxyURL)
-	logger.Debugf("🔗 [NewDemoFuturesTraderViaProxy] Demo targetEndpoint (should be testnet): %s", targetEndpoint)
-	logger.Debugf("🔗 [NewDemoFuturesTraderViaProxy] Called by UserID: %s, API Key prefix: %s", userId, getAPIKeyPrefix(apiKey))
-
-	var client *futures.Client
-	// 连接到代理URL
-	client = futures.NewClient(apiKey, secretKey)
-	client.BaseURL = proxyURL // 连接到代理
-
-	// 为虚拟盘增强HTTP客户端配置
-	transport := &http.Transport{
-		DialContext: (&net.Dialer{
-			Timeout:   30 * time.Second,
-			KeepAlive: 30 * time.Second,
-		}).DialContext,
-		TLSHandshakeTimeout:   30 * time.Second,
-		ResponseHeaderTimeout: 60 * time.Second,
-		ExpectContinueTimeout: 1 * time.Second,
-		MaxIdleConns:          100,
-		MaxIdleConnsPerHost:   10,
-		IdleConnTimeout:       90 * time.Second,
-	}
-
-	// 为虚拟盘创建CustomTransport，将真正的目标端点传递给代理
-	logger.Debugf("🔍 NewDemoFuturesTraderViaProxy - proxyURL: %s, targetEndpoint: %s", proxyURL, targetEndpoint)
-	logger.Debugf("🔗 [NewDemoFuturesTraderViaProxy] Creating Demo CustomTransport with TargetEndpoint: %s", targetEndpoint)
-	customTransport := &CustomTransport{
-		Transport:      transport,
-		TargetEndpoint: targetEndpoint, // 真正的目标URL
-	}
-
-	if client.HTTPClient == nil {
-		client.HTTPClient = &http.Client{
-			Transport: customTransport,
-			Timeout:   120 * time.Second, // Increased timeout
-		}
-	} else {
-		client.HTTPClient.Transport = customTransport
-		client.HTTPClient.Timeout = 120 * time.Second // Increased timeout
-	}
-
-	hookRes := hook.HookExec[hook.NewBinanceTraderResult](hook.NEW_BINANCE_TRADER, userId, client)
-	if hookRes != nil && hookRes.GetResult() != nil {
-		client = hookRes.GetResult()
-	}
-
-	// Sync time to avoid "Timestamp ahead" error
-	syncBinanceServerTime(client)
-
-	// Create precision manager with file-based cache
-	precisionManager := NewFileBasedPrecisionManager(client, filepath.Join("data", "jingdu.json"))
-
-	trader := &FuturesTrader{
-		client:           client,
-		cacheDuration:    30 * time.Second, // 30-second cache for better performance
-		precisionManager: precisionManager,
-	}
-
-	// Set dual-side position mode (Hedge Mode)
-	// This is required because the code uses PositionSide (LONG/SHORT)
-	if err := trader.setDualSidePosition(); err != nil {
-		logger.Infof("⚠️ Demo trader - Failed to set dual-side position mode: %v (ignore this warning if already in dual-side mode)", err)
-	}
-
-	logger.Debugf("🔗 [NewDemoFuturesTraderViaProxy] COMPLETED, demo trader created with TargetEndpoint: %s", targetEndpoint)
-
-	return trader
+	logger.Warnf("⚠️ [NewDemoFuturesTraderViaProxy] Deprecated function called - redirecting to NewFuturesTraderViaProxy")
+	// 为了向后兼容，调用统一的代理函数
+	return NewFuturesTraderViaProxy(apiKey, secretKey, userId, proxyURL, targetEndpoint)
 }
 
 // Helper function to get API key prefix for debugging
@@ -1624,25 +1561,48 @@ func (t *FuturesTrader) UpdateStopLoss(symbol string, positionSide string, newSt
 	if len(existingStopOrders) > 0 {
 		logger.Infof("⚠️ 检测到已有止损订单，先尝试取消...")
 		for _, order := range existingStopOrders {
+			// Check if it's a traditional order or an algo order
 			orderIDStr, ok := order["orderId"].(string)
-			if !ok {
-				continue
-			}
-			orderID, convErr := strconv.ParseInt(orderIDStr, 10, 64)
-			if convErr != nil {
-				continue
-			}
-			// 使用Binance API直接取消订单
-			ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-			defer cancel()
-			_, err := t.client.NewCancelOrderService().
-				Symbol(symbol).
-				OrderID(orderID).
-				Do(ctx)
-			if err != nil {
-				logger.Warnf("⚠️ 取消旧止损订单 %d 失败: %v", orderID, err)
+			if ok {
+				// This is a traditional order, cancel using traditional API
+				orderID, convErr := strconv.ParseInt(orderIDStr, 10, 64)
+				if convErr == nil {
+					// Use Binance API to cancel traditional order
+					ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+					defer cancel()
+					_, err := t.client.NewCancelOrderService().
+						Symbol(symbol).
+						OrderID(orderID).
+						Do(ctx)
+					if err != nil {
+						logger.Warnf("⚠️ 取消旧止损订单 %d 失败: %v", orderID, err)
+					} else {
+						logger.Infof("🗑️ 旧传统止损订单 %d 已取消", orderID)
+					}
+				}
 			} else {
-				logger.Infof("🗑️ 旧止损订单 %d 已取消", orderID)
+				// This might be an algo order, try to cancel using algo order API
+				algoIDInterface, algoOk := order["algoId"]
+				if algoOk {
+					algoIDStr, ok := algoIDInterface.(string)
+					if ok {
+						// Convert string algoID to int64
+						algoID, convErr := strconv.ParseInt(algoIDStr, 10, 64)
+						if convErr == nil {
+							// Cancel using algo order API
+							ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+							defer cancel()
+							_, err := t.client.NewCancelAlgoOrderService().
+								AlgoID(algoID).
+								Do(ctx)
+							if err != nil {
+								logger.Warnf("⚠️ 取消算法止损订单 %s 失败: %v", algoIDStr, err)
+							} else {
+								logger.Infof("🗑️ 旧算法止损订单 %s 已取消", algoIDStr)
+							}
+						}
+					}
+				}
 			}
 		}
 	}
@@ -1779,25 +1739,48 @@ func (t *FuturesTrader) UpdateTakeProfit(symbol string, positionSide string, new
 	if len(activeTakeProfitOrders) > 0 {
 		logger.Infof("⚠️ 开始预取消 %d 个现有止盈订单...", len(activeTakeProfitOrders))
 		for _, order := range activeTakeProfitOrders {
+			// Check if it's a traditional order or an algo order
 			orderIDStr, ok := order["orderId"].(string)
-			if !ok {
-				continue
-			}
-			orderID, convErr := strconv.ParseInt(orderIDStr, 10, 64)
-			if convErr != nil {
-				continue
-			}
-			// 使用Binance API直接取消订单
-			ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-			defer cancel()
-			_, err := t.client.NewCancelOrderService().
-				Symbol(symbol).
-				OrderID(orderID).
-				Do(ctx)
-			if err != nil {
-				logger.Warnf("⚠️ 预取消止盈订单 %d 失败: %v", orderID, err)
+			if ok {
+				// This is a traditional order, cancel using traditional API
+				orderID, convErr := strconv.ParseInt(orderIDStr, 10, 64)
+				if convErr == nil {
+					// Use Binance API to cancel traditional order
+					ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+					defer cancel()
+					_, err := t.client.NewCancelOrderService().
+						Symbol(symbol).
+						OrderID(orderID).
+						Do(ctx)
+					if err != nil {
+						logger.Warnf("⚠️ 预取消止盈订单 %d 失败: %v", orderID, err)
+					} else {
+						logger.Infof("🗑️ 旧传统止盈订单 %d 已取消", orderID)
+					}
+				}
 			} else {
-				logger.Infof("🗑️ 止盈订单 %d 已预取消", orderID)
+				// This might be an algo order, try to cancel using algo order API
+				algoIDInterface, algoOk := order["algoId"]
+				if algoOk {
+					algoIDStr, ok := algoIDInterface.(string)
+					if ok {
+						// Convert string algoID to int64
+						algoID, convErr := strconv.ParseInt(algoIDStr, 10, 64)
+						if convErr == nil {
+							// Cancel using algo order API
+							ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+							defer cancel()
+							_, err := t.client.NewCancelAlgoOrderService().
+								AlgoID(algoID).
+								Do(ctx)
+							if err != nil {
+								logger.Warnf("⚠️ 取消算法止盈订单 %s 失败: %v", algoIDStr, err)
+							} else {
+								logger.Infof("🗑️ 旧算法止盈订单 %s 已取消", algoIDStr)
+							}
+						}
+					}
+				}
 			}
 		}
 	}
@@ -1903,8 +1886,8 @@ func (t *FuturesTrader) CalculatePositionSize(balance, riskPercent, price float6
 	return quantity
 }
 
-// SetStopLoss sets stop-loss order using traditional order API
-// If algo order fails, fallback to traditional stop market order
+// SetStopLoss sets stop-loss order using new Algo Order API
+// Binance has migrated stop orders to Algo Order system (error -4120 STOP_ORDER_SWITCH_ALGO)
 func (t *FuturesTrader) SetStopLoss(symbol string, positionSide string, quantity, stopPrice float64) error {
 	var side futures.SideType
 	var posSide futures.PositionSideType
@@ -1987,43 +1970,41 @@ func (t *FuturesTrader) SetStopLoss(symbol string, positionSide string, quantity
 		logger.Infof("✅ Successfully formatted quantity after cache clear: %s", qtyStr)
 	}
 
-	// First, try the traditional stop market order (this should work for most cases)
+	// Generate a new client algo ID for the algo order
+	algoID := getBrOrderID()
+
+	// First, try the algo order as primary method (Binance has migrated to Algo Orders)
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 
-	// Try traditional order first
-	order := t.client.NewCreateOrderService().
+	_, err = t.client.NewCreateAlgoOrderService().
 		Symbol(symbol).
 		Side(side).
 		PositionSide(posSide).
-		Type("STOP_MARKET"). // Use string constant for stop market order
-		StopPrice(priceStr). // Use StopPrice for traditional API
-		Quantity(qtyStr).    // Use quantity for traditional API
-		WorkingType(futures.WorkingTypeContractPrice)
+		Type(futures.AlgoOrderTypeStopMarket).
+		TriggerPrice(priceStr). // Use TriggerPrice for algo API
+		WorkingType(futures.WorkingTypeContractPrice).
+		ClosePosition(true). // Close entire position for stop loss
 		// Remove ReduceOnly parameter to avoid -1106 error
-
-	_, err = order.Do(ctx)
+		ClientAlgoId(algoID).
+		Do(ctx)
 
 	if err != nil {
-		// If traditional order fails, try the algo order as fallback
-		logger.Infof("  ℹ️ Traditional stop-market order failed: %v, trying algo order", err)
-
-		// Generate a new client algo ID for the algo order
-		algoID := getBrOrderID()
-
-		_, algoErr := t.client.NewCreateAlgoOrderService().
+		logger.Infof("  ℹ️ Algo stop-market order failed: %v, trying traditional order as fallback", err)
+		// If algo order fails, try traditional order as fallback
+		order := t.client.NewCreateOrderService().
 			Symbol(symbol).
 			Side(side).
 			PositionSide(posSide).
-			Type(futures.AlgoOrderTypeStopMarket).
-			TriggerPrice(priceStr). // Use TriggerPrice for algo API
-			WorkingType(futures.WorkingTypeContractPrice).
-			ClosePosition(true). // Close entire position for stop loss
+			Type("STOP_MARKET"). // Use string constant for stop market order
+			StopPrice(priceStr). // Use StopPrice for traditional API
+			Quantity(qtyStr).    // Use quantity for traditional API
+			WorkingType(futures.WorkingTypeContractPrice)
 			// Remove ReduceOnly parameter to avoid -1106 error
-			ClientAlgoId(algoID).
-			Do(ctx)
 
-		if algoErr != nil {
+		_, tradErr := order.Do(ctx)
+
+		if tradErr != nil {
 			// 🔍 详细错误信息输出
 			logger.Errorf("❌ 止损设置完全失败:")
 			logger.Errorf("   交易对: %s", symbol)
@@ -2033,24 +2014,22 @@ func (t *FuturesTrader) SetStopLoss(symbol string, positionSide string, quantity
 				logger.Errorf("   当前价格: %.4f", currentPrice)
 				logger.Errorf("   价格差异: %.4f (%.2f%%)", math.Abs(stopPrice-currentPrice), (math.Abs(stopPrice-currentPrice)/currentPrice)*100)
 			}
-			logger.Errorf("   传统订单错误: %v", err)
-			logger.Errorf("   算法订单错误: %v", algoErr)
+			logger.Errorf("   算法订单错误: %v", err)
+			logger.Errorf("   传统订单错误: %v", tradErr)
 
-			return fmt.Errorf("failed to set stop-loss with both traditional (%v) and algo (%v) orders - check price settings", err, algoErr)
+			return fmt.Errorf("failed to set stop-loss with both algo (%v) and traditional (%v) orders - check price settings", err, tradErr)
 		}
 
-		logger.Infof("  Stop-loss price set (Algo Order): %s", priceStr)
+		logger.Infof("  Stop-loss price set (Traditional Order): %s", priceStr)
 		return nil
 	}
 
-	logger.Infof("  Stop-loss price set (Traditional Order): %s", priceStr)
+	logger.Infof("  Stop-loss price set (Algo Order): %s", priceStr)
 	return nil
 }
 
 // SetTakeProfit sets take-profit order using new Algo Order API
 // Binance has migrated stop orders to Algo Order system (error -4120 STOP_ORDER_SWITCH_ALGO)
-// SetTakeProfit sets take-profit order using traditional order API
-// If algo order fails, fallback to traditional take-profit market order
 func (t *FuturesTrader) SetTakeProfit(symbol string, positionSide string, quantity, takeProfitPrice float64) error {
 	var side futures.SideType
 	var posSide futures.PositionSideType
@@ -2083,47 +2062,47 @@ func (t *FuturesTrader) SetTakeProfit(symbol string, positionSide string, quanti
 	}
 	logger.Infof("✅ [DEBUG] 价格格式化完成: %.8f -> %s", takeProfitPrice, priceStr)
 
-	// First, try the traditional take-profit market order
+	// Generate a new client algo ID for the algo order
+	algoID := getBrOrderID()
+
+	// First, try the algo order as primary method (Binance has migrated to Algo Orders)
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 
-	_, err = t.client.NewCreateOrderService().
+	_, err = t.client.NewCreateAlgoOrderService().
 		Symbol(symbol).
 		Side(side).
 		PositionSide(posSide).
-		Type("TAKE_PROFIT_MARKET"). // Use string constant for take-profit market order
-		StopPrice(priceStr).        // Use StopPrice for traditional API
-		Quantity(quantityStr).      // Use quantity for traditional API
+		Type(futures.AlgoOrderTypeTakeProfitMarket).
+		TriggerPrice(priceStr). // Use TriggerPrice for algo API
 		WorkingType(futures.WorkingTypeContractPrice).
+		Quantity(quantityStr). // Use quantity instead of ClosePosition
+		ClientAlgoId(algoID).
 		Do(ctx)
 
 	if err != nil {
-		// If traditional order fails, try the algo order as fallback
-		logger.Infof("  ℹ️ Traditional take-profit-market order failed: %v, trying algo order", err)
+		// If algo order fails, try traditional order as fallback
+		logger.Infof("  ℹ️ Algo take-profit-market order failed: %v, trying traditional order as fallback", err)
 
-		// Generate a new client algo ID for the algo order
-		algoID := getBrOrderID()
-
-		_, algoErr := t.client.NewCreateAlgoOrderService().
+		_, tradErr := t.client.NewCreateOrderService().
 			Symbol(symbol).
 			Side(side).
 			PositionSide(posSide).
-			Type(futures.AlgoOrderTypeTakeProfitMarket).
-			TriggerPrice(priceStr). // Use TriggerPrice for algo API
+			Type("TAKE_PROFIT_MARKET"). // Use string constant for take-profit market order
+			StopPrice(priceStr).        // Use StopPrice for traditional API
+			Quantity(quantityStr).      // Use quantity for traditional API
 			WorkingType(futures.WorkingTypeContractPrice).
-			Quantity(quantityStr). // Use quantity instead of ClosePosition
-			ClientAlgoId(algoID).
 			Do(ctx)
 
-		if algoErr != nil {
-			return fmt.Errorf("failed to set take-profit with both traditional (%v) and algo (%v) orders", err, algoErr)
+		if tradErr != nil {
+			return fmt.Errorf("failed to set take-profit with both algo (%v) and traditional (%v) orders", err, tradErr)
 		}
 
-		logger.Infof("  Take-profit price set (Algo Order): %s, quantity: %s", priceStr, quantityStr)
+		logger.Infof("  Take-profit price set (Traditional Order): %s, quantity: %s", priceStr, quantityStr)
 		return nil
 	}
 
-	logger.Infof("  Take-profit price set (Traditional Order): %s, quantity: %s", priceStr, quantityStr)
+	logger.Infof("  Take-profit price set (Algo Order): %s, quantity: %s", priceStr, quantityStr)
 	return nil
 }
 
