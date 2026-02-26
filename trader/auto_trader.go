@@ -1819,6 +1819,11 @@ func (at *AutoTrader) TriggerDecision() (map[string]interface{}, error) {
 		return nil, err
 	}
 
+	// 🔥 重置倒计时：手动触发后将最后执行时间设为当前时间
+	// 这样下次获取状态时倒计时会显示为0，表示可以立即执行
+	at.lastExecutionTime = time.Now()
+	logger.Infof("✅ 重置倒计时：手动触发后将最后执行时间更新为当前时间")
+
 	logger.Infof("✅ Preparing result for %s after successful runCycle (took %v)", at.name, executionTime)
 
 	// Return success status and some info

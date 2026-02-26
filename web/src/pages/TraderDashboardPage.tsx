@@ -159,6 +159,7 @@ export function TraderDashboardPage({
   const [isManualDecisionLoading, setIsManualDecisionLoading] =
     useState<boolean>(false)
   const [manualScanCooldown, setManualScanCooldown] = useState<boolean>(false)
+  const [isAutoScanRunning, setIsAutoScanRunning] = useState<boolean>(false) // 自动扫盘执行状态
   const [startButtonCooldown, setStartButtonCooldown] = useState<boolean>(false)
   const [nextScanCountdown, setNextScanCountdown] = useState<number>(0) // 倒计时（秒）
   
@@ -431,6 +432,7 @@ export function TraderDashboardPage({
   useEffect(() => {
     if (!selectedTraderId) {
       setNextScanCountdown(0)
+      setIsAutoScanRunning(false)
       return
     }
     
@@ -443,19 +445,24 @@ export function TraderDashboardPage({
         // 仅更新UI显示的倒计时
         if (currentStatus && 'seconds_until_next_scan' in currentStatus && currentStatus.is_running) {
           setNextScanCountdown(currentStatus.seconds_until_next_scan || 0)
+          // 🔥 新增：判断自动扫盘执行状态
+          setIsAutoScanRunning(currentStatus.is_executing || false)
           // console.debug('🔄倒时显示更新:', currentStatus.seconds_until_next_scan) // 可选调试
         } else {
           // 如果交易员未运行，将倒计时设为0
           setNextScanCountdown(0)
+          setIsAutoScanRunning(false)
         }
       } catch (error) {
         // 静默处理，不影响主功能
         // console.debug('Display poll failed:', error) // 可选调试
+        setNextScanCountdown(0)
+        setIsAutoScanRunning(false)
       }
     }, 3000) // 降低到每3秒轮询一次，减少对后端压力
   
     return () => clearInterval(pollInterval)
-  }, [selectedTraderId])
+  }, [selectedTraderId, api])
 
   // Get current exchange info for perp-dex wallet display
   const currentExchange = exchanges?.find(
@@ -1496,13 +1503,12 @@ ${promptPreview.user_prompt}`
                     return
                   }
 
-                  // 移除AI分析中检查逻辑
-
-                  if (manualScanCooldown) {
+                  // 检查自动扫盘是否正在执行
+                  if (isAutoScanRunning) {
                     notify.error(
                       language === 'zh'
-                        ? '操作过于频繁，请稍后再试'
-                        : 'Action too frequent, please try again later'
+                        ? '自动扫盘正在执行中，请稍后再试'
+                        : 'Automatic scan is running, please try again later'
                     )
                     return
                   }
@@ -1511,8 +1517,8 @@ ${promptPreview.user_prompt}`
                   if (status && !status.is_running) {
                     notify.error(
                       language === 'zh'
-                        ? '交易员未运行，无法手动触发扫盘'
-                        : 'Trader is not running, cannot trigger manual scan'
+                        ? '交易员未运行，无法触发扫盘'
+                        : 'Trader is not running, cannot trigger scan'
                     )
                     return
                   }
@@ -1523,8 +1529,8 @@ ${promptPreview.user_prompt}`
                   const startTime = Date.now()
                   notify.info(
                     language === 'zh'
-                      ? '正在触发手动扫盘...'
-                      : 'Triggering manual scan...'
+                      ? '正在触发立即扫盘...'
+                      : 'Triggering immediate scan...'
                   )
 
                   try {
@@ -1546,14 +1552,14 @@ ${promptPreview.user_prompt}`
                       if (result.execution_time_formatted) {
                         notify.success(
                           language === 'zh'
-                            ? `✅ 手动扫盘已完成！耗时: ${result.execution_time_formatted}\n⏰ ${delayMessage}`
-                            : `✅ Manual scan completed! Duration: ${result.execution_time_formatted}\n⏰ ${delayMessage}`
+                            ? `✅ 立即扫盘已完成！耗时: ${result.execution_time_formatted}\n⏰ ${delayMessage}`
+                            : `✅ Immediate scan completed! Duration: ${result.execution_time_formatted}\n⏰ ${delayMessage}`
                         )
                       } else {
                         notify.success(
                           language === 'zh'
-                            ? `✅ 手动扫盘已成功触发！客户端耗时: ${executionTime}ms\n⏰ ${delayMessage}`
-                            : `✅ Manual scan triggered successfully! Client duration: ${executionTime}ms\n⏰ ${delayMessage}`
+                            ? `✅ 立即扫盘已成功触发！客户端耗时: ${executionTime}ms\n⏰ ${delayMessage}`
+                            : `✅ Immediate scan triggered successfully! Client duration: ${executionTime}ms\n⏰ ${delayMessage}`
                         )
                       }
                     }
@@ -1596,8 +1602,8 @@ ${promptPreview.user_prompt}`
                     } else if (error.message?.includes('not running')) {
                       notify.error(
                         language === 'zh'
-                          ? '交易员未运行，无法执行手动扫盘'
-                          : 'Trader is not running, cannot execute manual scan'
+                          ? '交易员未运行，无法执行立即扫盘'
+                          : 'Trader is not running, cannot execute immediate scan'
                       )
                     } else if (error.message?.includes('Network error')) {
                       // 在开发模式下显示更详细的错误信息
@@ -1669,8 +1675,8 @@ ${promptPreview.user_prompt}`
                       } else {
                         notify.error(
                           language === 'zh'
-                            ? `手动扫盘失败: ${errorMessage} (耗时: ${executionTime}ms)`
-                            : `Manual scan failed: ${errorMessage} (duration: ${executionTime}ms)`
+                            ? `立即扫盘失败: ${errorMessage} (耗时: ${executionTime}ms)`
+                            : `Immediate scan failed: ${errorMessage} (duration: ${executionTime}ms)`
                         )
                       }
                     }
@@ -1681,19 +1687,24 @@ ${promptPreview.user_prompt}`
                 disabled={
                   !selectedTraderId ||
                   isManualDecisionLoading ||
-                  manualScanCooldown
+                  isAutoScanRunning ||
+                  !status?.is_running
                 }
                 className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-all hover:scale-105 active:scale-95 nofx-glass border text-sm ${
-                  !selectedTraderId
+                  !selectedTraderId || !status?.is_running
                     ? 'border-nofx-gray/30 text-nofx-gray/50 cursor-not-allowed'
-                    : 'border-nofx-blue/30 text-nofx-blue hover:bg-nofx-blue/10'
+                    : isAutoScanRunning
+                      ? 'border-nofx-red/30 text-nofx-red cursor-not-allowed'
+                      : 'border-nofx-blue/30 text-nofx-blue hover:bg-nofx-blue/10'
                 } flex items-center gap-1 mr-2`}
                 title={
                   !selectedTraderId
                     ? '请先选择交易员'
-                    : manualScanCooldown
-                      ? '冷却中，请稍后再试'
-                      : '手动触发AI扫盘决策'
+                    : !status?.is_running
+                      ? '交易员未运行，无法触发扫盘'
+                      : isAutoScanRunning
+                        ? '自动扫盘正在执行中，无法触发立即扫盘'
+                        : '立即触发AI扫盘决策（可跳过倒计时）'
                 }
               >
                 {isManualDecisionLoading ? (
@@ -1701,15 +1712,15 @@ ${promptPreview.user_prompt}`
                     <Loader2 className="w-4 h-4 animate-spin" />
                     {language === 'zh' ? '扫盘中...' : 'Scanning...'}
                   </>
-                ) : manualScanCooldown ? (
+                ) : isAutoScanRunning ? (
                   <>
-                    <span>⏳</span>
-                    {language === 'zh' ? '冷却中...' : 'Cooldown...'}
+                    <span>🔄</span>
+                    {language === 'zh' ? '执行中...' : 'Running...'}
                   </>
                 ) : (
                   <>
-                    <span>🔍</span>
-                    {language === 'zh' ? '手动扫盘' : 'Manual Scan'}
+                    <span>⚡</span>
+                    {language === 'zh' ? '立即扫盘' : 'Immediate Scan'}
                   </>
                 )}
               </button>
