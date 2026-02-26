@@ -450,11 +450,12 @@ func extractDecisions(response string) ([]Decision, error) {
 
 	jsonContent := strings.TrimSpace(response[arrayStart : arrayEnd+1])
 
+	// 🔧 注释掉reasoning字段修复，保持AI输出的原始状态
 	// 🔧 修复常见的JSON格式错误：缺少引号的字段值
 	// 匹配: "reasoning": 内容"}  或  "reasoning": 内容}  (没有引号)
 	// 修复为: "reasoning": "内容"}
 	// 使用简单的字符串扫描而不是正则表达式
-	jsonContent = fixMissingQuotes(jsonContent)
+	// jsonContent = fixMissingQuotes(jsonContent)
 
 	// 解析JSON
 	var decisions []Decision

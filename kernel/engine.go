@@ -11,6 +11,7 @@ import (
 	"nofx/provider/nofxos"
 	"nofx/security"
 	"nofx/store"
+	"nofx/utils"
 	"regexp"
 	"strings"
 	"sync"
@@ -1107,7 +1108,7 @@ func (e *StrategyEngine) BuildSystemPrompt(accountEquity float64, variant string
 	sb.WriteString("- Required when trailing_stop: trail_percentage, activation_price, callback_rate, confidence, reasoning\n")
 	sb.WriteString("- Required when dynamic_take_profit: target_roi, max_roi, time_limit_hours, confidence, reasoning\n")
 	sb.WriteString("- **IMPORTANT**: All numeric values must be calculated numbers, NOT formulas/expressions (e.g., use `27.76` not `3000 * 0.01`)\n")
-	sb.WriteString("- **重要规则**: `reasoning`字段字数不能超过10个字符，在`reasoning`字段中，严格禁止使用ASCII双引号(\").请使用以下替代方案:\n   1. 中文双引号:" + `""` + "  2. 单引号:'  3. 不使用引号的表达方式   请确保reasoning字段完全符合此格式要求.\n\n")
+	sb.WriteString("- **重要规则**: `reasoning`字段字数不能超过10个字符，在`reasoning`字段中，只做简短文字描述，严格禁止使用任何符号，尤其是中英文的双引号要严格禁止.\n\n")
 
 	// 8. Custom Prompt
 	if e.config.CustomPrompt != "" {
@@ -1856,8 +1857,29 @@ func fixMissingQuotes(jsonStr string) string {
 	jsonStr = strings.ReplaceAll(jsonStr, "、", ",")
 
 	jsonStr = strings.ReplaceAll(jsonStr, "　", " ")
-	jsonStr = strings.ReplaceAll(jsonStr, "reasoning': '", "reasoning\":\"")
-	jsonStr = strings.ReplaceAll(jsonStr, "',", "\",")
+
+	// 注释掉reasoning字段修复，保持AI输出的原始状态
+	// 修复reasoning字段中的单引号问题（专门针对您的问题）
+	// 只修复明确的reasoning字段模式，避免误伤其他内容
+	// reReasoningSingleQuote := regexp.MustCompile(`"reasoning"\s*:\s*'([^']*)'`)
+	// jsonStr = reReasoningSingleQuote.ReplaceAllString(jsonStr, `"reasoning": "$1"`)
+
+	// 修复字段名缺失引号的问题（专门处理未加引号的字段名）
+	// 匹配如：reasoning":"value" 格式，其中字段名reasoning未加引号
+	// 使用字符串替换修复常见的字段名缺失引号问题
+	// 注释掉reasoning字段修复，保持AI输出的原始状态
+	// jsonStr = strings.ReplaceAll(jsonStr, `reasoning":"`, `"reasoning": "`)
+	jsonStr = strings.ReplaceAll(jsonStr, `symbol":"`, `"symbol": "`)
+	jsonStr = strings.ReplaceAll(jsonStr, `action":"`, `"action": "`)
+	jsonStr = strings.ReplaceAll(jsonStr, `leverage":"`, `"leverage": "`)
+	jsonStr = strings.ReplaceAll(jsonStr, `position_size_usd":"`, `"position_size_usd": "`)
+	jsonStr = strings.ReplaceAll(jsonStr, `stop_loss":"`, `"stop_loss": "`)
+	jsonStr = strings.ReplaceAll(jsonStr, `take_profit":"`, `"take_profit": "`)
+	jsonStr = strings.ReplaceAll(jsonStr, `confidence":"`, `"confidence": "`)
+	jsonStr = strings.ReplaceAll(jsonStr, `risk_usd":"`, `"risk_usd": "`)
+	jsonStr = strings.ReplaceAll(jsonStr, `position_direction":"`, `"position_direction": "`)
+	jsonStr = strings.ReplaceAll(jsonStr, `new_take_profit":"`, `"new_take_profit": "`)
+
 	return jsonStr
 }
 
@@ -1871,8 +1893,9 @@ func fixCommonJSONIssues(jsonStr string) string {
 	reTrailingComma := regexp.MustCompile(`,\s*([}\]])`)
 	jsonStr = reTrailingComma.ReplaceAllString(jsonStr, "$1")
 
+	// 注释掉reasoning字段修复，保持AI输出的原始状态
 	// 先处理reasoning字段中的嵌套引号问题，避免它们干扰JSON解析
-	jsonStr = fixNestedQuotesInReasoning(jsonStr)
+	// jsonStr = fixNestedQuotesInReasoning(jsonStr)
 
 	// 修复可能的引号问题：确保所有字符串值都有正确的引号
 	// 处理reasoning等字段中可能存在的特殊字符
@@ -1896,8 +1919,9 @@ func fixCommonJSONIssues(jsonStr string) string {
 				// 只处理ASCII范围内的值，避免误处理中文等Unicode字符
 				// 如果值包含非ASCII字符，则跳过处理
 				if isASCII(value) {
+					// 注释掉reasoning字段修复，保持AI输出的原始状态
 					// 正确转义内部的双引号（只转义未被转义的引号）
-					value = escapeUnescapedQuotesInString(value)
+					// value = escapeUnescapedQuotesInString(value)
 					return keyValSep + `"` + value + `"` + endChar
 				} else {
 					// 包含非ASCII字符（如中文），跳过处理以避免编码问题
@@ -1908,68 +1932,98 @@ func fixCommonJSONIssues(jsonStr string) string {
 		return match
 	})
 
-	// 确保所有字段名都有引号
-	reUnquotedKeys := regexp.MustCompile(`([{,]\s*)([a-zA-Z_][a-zA-Z0-9_]*)\s*:([^"'])`)
-	jsonStr = reUnquotedKeys.ReplaceAllString(jsonStr, `$1"$2":$3`)
+	// 注释掉reasoning字段修复，保持AI输出的原始状态
+	// 专门修复reasoning字段缺失引号的问题（最优先处理）
+	// reReasoningFix := regexp.MustCompile(`([{,]\s*)(reasoning)\s*:\s*([^"}]+)"`)
+	// jsonStr = reReasoningFix.ReplaceAllString(jsonStr, `$1"$2": "$3"`)
+
+	// 修复其他字段缺失引号的问题
+	reOtherFields := regexp.MustCompile(`([{,]\s*)(symbol|action|leverage|position_size_usd|stop_loss|take_profit|confidence|risk_usd|position_direction|new_stop_loss|target_roi|max_roi|time_limit_hours)\s*:\s*([^"]+)"`)
+	jsonStr = reOtherFields.ReplaceAllString(jsonStr, `$1"$2": "$3"`)
+
+	// 通用字段名修复（处理所有未匹配的字段）
+	reGenericField := regexp.MustCompile(`([{,]\s*)([a-zA-Z_][a-zA-Z0-9_]*)\s*:\s*"`)
+	jsonStr = reGenericField.ReplaceAllString(jsonStr, `$1"$2": "`)
+
+	// 通用值修复（处理剩余的无引号值）
+	reGenericValue := regexp.MustCompile(`([{,]\s*"[a-zA-Z_][a-zA-Z0-9_]*"\s*:\s*)([^"{}\[\],]+)(\s*[,}])`)
+	jsonStr = reGenericValue.ReplaceAllString(jsonStr, `$1"$2"$3`)
 
 	return jsonStr
 }
 
+// 注释掉reasoning字段修复，保持AI输出的原始状态
 // fixNestedQuotesInReasoning 修复reasoning字段中嵌套引号的问题
-func fixNestedQuotesInReasoning(jsonStr string) string {
-	// 根据用户要求，不对reasoning字段的值做任何改动
-	// 直接返回原始JSON字符串
-	return jsonStr
-}
+// func fixNestedQuotesInReasoning(jsonStr string) string {
+// 	// 修复reasoning字段中嵌套引号的问题（周期专用）
+// 	// 使用正则表达式匹配并修复reasoning字段中的引号问题
+// 	reReasoning := regexp.MustCompile(`"reasoning"\s*:\s*"([^"]*)"`)
+//
+// 	fixed := reReasoning.ReplaceAllStringFunc(jsonStr, func(match string) string {
+// 		// 提取reasoning字段的值
+// 		submatches := reReasoning.FindStringSubmatch(match)
+// 		if len(submatches) > 1 {
+// 			reasoningValue := submatches[1]
+// 			// 修复值中的引号问题
+// 			fixedValue := strings.ReplaceAll(reasoningValue, "\"", "\\\"")
+// 			fixedValue = strings.ReplaceAll(fixedValue, "'", "\\'")
+// 			return fmt.Sprintf("reasoning\":\"%s\"", fixedValue)
+// 		}
+// 		return match
+// 	})
+//
+// 	return fixed
+// }
 
+// 注释掉reasoning字段修复，保持AI输出的原始状态
 // escapeUnescapedQuotesInString 处理reasoning字段值中的所有可能导致JSON错误的特殊字符
-func escapeUnescapedQuotesInString(s string) string {
-	var result strings.Builder
-	for i := 0; i < len(s); i++ {
-		// 检查是否是各种类型的引号
-		if s[i] == '"' {
-			// 英文双引号 " -> \"
-			result.WriteString("\\\"")
-		} else if i+2 < len(s) && s[i] == '\xE2' && s[i+1] == '\x80' && s[i+2] == '\x9C' {
-			// 中文左双引号 " -> 英文双引号并转义
-			result.WriteString("\\\"")
-			i += 2 // 跳过接下来的两个字节
-		} else if i+2 < len(s) && s[i] == '\xE2' && s[i+1] == '\x80' && s[i+2] == '\x9D' {
-			// 中文右双引号 " -> 英文双引号并转义
-			result.WriteString("\\\"")
-			i += 2 // 跳过接下来的两个字节
-		} else if i+2 < len(s) && s[i] == '\xE2' && s[i+1] == '\x80' && s[i+2] == '\x98' {
-			// 中文左单引号 ' -> 保持原样，避免影响JSON解析
-			// result.WriteString("\\'")
-			i += 2 //跳过接下来的两个字节
-		} else if i+2 < len(s) && s[i] == '\xE2' && s[i+1] == '\x80' && s[i+2] == '\x99' {
-			// 中文右单引号 ' -> 保持原样，避免影响JSON解析
-			// result.WriteString("\\'")
-			i += 2 // 跳过接下来的两个字节
-		} else if s[i] == '\n' {
-			// 换行符替换为空格，避免JSON格式错误
-			result.WriteByte(' ')
-		} else if s[i] == '\r' {
-			// 回车符替换为空格
-			result.WriteByte(' ')
-		} else if s[i] == '\t' {
-			// 制表符替换为空格
-			result.WriteByte(' ')
-		} else if s[i] == '\\' {
-			// 检查是否已经是转义字符的一部分，如果是则保留
-			if i+1 < len(s) && (s[i+1] == '"' || s[i+1] == '\'' || s[i+1] == '\\') {
-				// 已经是转义序列，保留反斜杠
-				result.WriteByte(s[i])
-			} else {
-				// 独立反斜杠，转义它
-				result.WriteString("\\\\")
-			}
-		} else {
-			result.WriteByte(s[i])
-		}
-	}
-	return result.String()
-}
+// func escapeUnescapedQuotesInString(s string) string {
+// 	var result strings.Builder
+// 	for i := 0; i < len(s); i++ {
+// 		// 检查是否是各种类型的引号
+// 		if s[i] == '"' {
+// 			// 英文双引号 " -> \"
+// 			result.WriteString("\\\"")
+// 		} else if i+2 < len(s) && s[i] == '\xE2' && s[i+1] == '\x80' && s[i+2] == '\x9C' {
+// 			// 中文左双引号 " -> 英文双引号并转义
+// 			result.WriteString("\\\"")
+// 			i += 2 // 跳过接下来的两个字节
+// 		} else if i+2 < len(s) && s[i] == '\xE2' && s[i+1] == '\x80' && s[i+2] == '\x9D' {
+// 			// 中文右双引号 " -> 英文双引号并转义
+// 			result.WriteString("\\\"")
+// 			i += 2 // 跳过接下来的两个字节
+// 		} else if i+2 < len(s) && s[i] == '\xE2' && s[i+1] == '\x80' && s[i+2] == '\x98' {
+// 			// 中文左单引号 ' -> 保持原样，避免影响JSON解析
+// 			// result.WriteString("\\'")
+// 			i += 2 //跳过接下来的两个字节
+// 		} else if i+2 < len(s) && s[i] == '\xE2' && s[i+1] == '\x80' && s[i+2] == '\x99' {
+// 			// 中文右单引号 ' -> 保持原样，避免影响JSON解析
+// 			// result.WriteString("\\'")
+// 			i += 2 // 跳过接下来的两个字节
+// 		} else if s[i] == '\n' {
+// 			// 换行符替换为空格，避免JSON格式错误
+// 			result.WriteByte(' ')
+// 		} else if s[i] == '\r' {
+// 			// 回车符替换为空格
+// 			result.WriteByte(' ')
+// 		} else if s[i] == '\t' {
+// 			// 制表符替换为空格
+// 			result.WriteByte(' ')
+// 		} else if s[i] == '\\' {
+// 			// 检查是否已经是转义字符的一部分，如果是则保留
+// 			if i+1 < len(s) && (s[i+1] == '"' || s[i+1] == '\'' || s[i+1] == '\\') {
+// 				// 已经是转义序列，保留反斜杠
+// 				result.WriteByte(s[i])
+// 			} else {
+// 				// 独立反斜杠，转义它
+// 				result.WriteString("\\\\")
+// 			}
+// 		} else {
+// 			result.WriteByte(s[i])
+// 		}
+// 	}
+// 	return result.String()
+// }
 
 // decodeUnicodeEscapes 解码Unicode转义序列
 func decodeUnicodeEscapes(s string) string {
@@ -1990,7 +2044,18 @@ func decodeUnicodeEscapes(s string) string {
 	return result
 }
 
-// preprocessJSONContent 预处理JSON内容，自动修复常见问题
+// convertStringFieldsToNumbers将JSON中字符串格式的数字字段转换为真正的数字
+func convertStringFieldsToNumbers(jsonStr string) string {
+	//使用utils包中的新函数
+	result, err := utils.ConvertStringNumbersToJSONNumbers(jsonStr)
+	if err != nil {
+		logger.Warnf("⚠️ 字符串数字转换失败: %v，保持原始JSON", err)
+		return jsonStr
+	}
+	return result
+}
+
+// preprocessJSONContent预处理JSON内容，自动修复常见问题
 func preprocessJSONContent(jsonStr string) string {
 	// 1. 解码Unicode转义序列
 	jsonStr = decodeUnicodeEscapes(jsonStr)
@@ -2007,12 +2072,16 @@ func preprocessJSONContent(jsonStr string) string {
 	// 5. 压缩数组开头
 	jsonStr = compactArrayOpen(jsonStr)
 
-	// 6. 移除不可见字符
+	// 6.移除不可见字符
 	jsonStr = removeInvisibleRunes(jsonStr)
 
+	// 7.字符串格式的数字字段为真正的数字
+	jsonStr = convertStringFieldsToNumbers(jsonStr)
+
+	// 注释掉reasoning字段修复，保持AI输出的原始状态
 	// 7. 修复reasoning字段中的引号问题
-	jsonStr = strings.ReplaceAll(jsonStr, "reasoning': '", "reasoning\":\"")
-	jsonStr = strings.ReplaceAll(jsonStr, "',", "\",")
+	// jsonStr = strings.ReplaceAll(jsonStr, "reasoning': '", "reasoning":\"")
+	// jsonStr = strings.ReplaceAll(jsonStr, "',", \"\",")
 	logger.Debugf("🔧 JSON预处理完成，修复后长度: %d -> %d", len(jsonStr), len(jsonStr))
 	return jsonStr
 }
@@ -2028,6 +2097,33 @@ func removeRangeSymbols(jsonStr string) string {
 	fixed = strings.ReplaceAll(fixed, "~ ", "")
 
 	return fixed
+}
+
+// validatePeriodDecisionJSON 周期专用决策JSON验证
+func validatePeriodDecisionJSON(jsonStr string) error {
+	// 首先进行基本JSON格式验证
+	if err := validateJSONFormat(jsonStr); err != nil {
+		return err
+	}
+
+	// 检查周期决策特有的要求
+	if !strings.Contains(jsonStr, "symbol") {
+		return fmt.Errorf("周期决策JSON必须包含symbol字段")
+	}
+	if !strings.Contains(jsonStr, "action") {
+		return fmt.Errorf("周期决策JSON必须包含action字段")
+	}
+	if !strings.Contains(jsonStr, "reasoning") {
+		return fmt.Errorf("周期决策JSON必须包含reasoning字段")
+	}
+
+	// 注释掉reasoning字段的特殊检查，保持AI输出的原始状态
+	// 检查reasoning字段的引号格式
+	// if strings.Contains(jsonStr, "reasoning'") && !strings.Contains(jsonStr, "reasoning\"") {
+	// 	return fmt.Errorf("reasoning字段引号格式不正确，应使用双引号")
+	// }
+
+	return nil
 }
 
 func validateJSONFormat(jsonStr string) error {
