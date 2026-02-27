@@ -38,7 +38,7 @@ interface ExchangeConfigModalProps {
     apiKey: string,
     secretKey?: string,
     passphrase?: string, // OKX专用
-    testnet?: boolean,
+    // Testnet field removed - use ExchangeType to determine network
     customApiUrl?: string,
     hyperliquidWalletAddr?: string,
     asterUser?: string,
@@ -284,13 +284,13 @@ export function ExchangeConfigModal({
       // 根据交易所类型验证不同字段
       if (currentExchangeType === 'binance' || currentExchangeType === 'binance_demo') {
         if (!apiKey.trim() || !secretKey.trim()) return
-        await onSave(exchangeId, exchangeType, trimmedAccountName, apiKey.trim(), secretKey.trim(), '', false, customApiUrl)
+        await onSave(exchangeId, exchangeType, trimmedAccountName, apiKey.trim(), secretKey.trim(), '', customApiUrl)
       } else if (currentExchangeType === 'okx') {
         if (!apiKey.trim() || !secretKey.trim() || !passphrase.trim()) return
-        await onSave(exchangeId, exchangeType, trimmedAccountName, apiKey.trim(), secretKey.trim(), passphrase.trim(), testnet, '')
+        await onSave(exchangeId, exchangeType, trimmedAccountName, apiKey.trim(), secretKey.trim(), passphrase.trim(), '')
       } else if (currentExchangeType === 'bitget') {
         if (!apiKey.trim() || !secretKey.trim() || !passphrase.trim()) return
-        await onSave(exchangeId, exchangeType, trimmedAccountName, apiKey.trim(), secretKey.trim(), passphrase.trim(), testnet, '')
+        await onSave(exchangeId, exchangeType, trimmedAccountName, apiKey.trim(), secretKey.trim(), passphrase.trim(), '')
       } else if (currentExchangeType === 'hyperliquid') {
         if (!apiKey.trim() || !hyperliquidWalletAddr.trim()) return // 验证私钥和钱包地址
         await onSave(
@@ -300,10 +300,8 @@ export function ExchangeConfigModal({
           apiKey.trim(),
           '',
           '',
-          false,
           '',
           hyperliquidWalletAddr.trim(),
-          undefined,
           undefined,
           undefined,
           undefined,
@@ -321,13 +319,11 @@ export function ExchangeConfigModal({
           '',
           '',
           '',
-          false,
           '',
           undefined,
           asterUser.trim(),
           asterSigner.trim(),
           asterPrivateKey.trim(),
-          undefined,
           undefined,
           undefined,
           undefined
@@ -341,7 +337,6 @@ export function ExchangeConfigModal({
           '', // apiKey not used for Lighter
           '',
           '',
-          false,
           '',
           undefined, // hyperliquidWalletAddr
           undefined, // asterUser
@@ -355,7 +350,7 @@ export function ExchangeConfigModal({
       } else {
         // 默认情况（其他CEX交易所）
         if (!apiKey.trim() || !secretKey.trim()) return
-        await onSave(exchangeId, exchangeType, trimmedAccountName, apiKey.trim(), secretKey.trim(), '', testnet, '')
+        await onSave(exchangeId, exchangeType, trimmedAccountName, apiKey.trim(), secretKey.trim(), '', '')
       }
     } finally {
       setIsSaving(false)
