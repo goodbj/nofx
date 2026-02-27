@@ -468,20 +468,47 @@ func fetchMarketDataWithStrategy(ctx *Context, engine *StrategyEngine) error {
 		isOITopCoin := isCoinFromOITopSource(coin)
 		logger.Debugf("📊 Processing coin %s - Static: %t, OI Top: %t", coin.Symbol, isStaticCoin, isOITopCoin)
 
-		// 【临时移除OI过滤以测试数据源获取问题】
-		// 原OI过滤逻辑：对不同来源的币种应用不同阈值（静态列表豁免，OI Top 5M，其他15M）
-		// 现在全部移除OI过滤以验证是否是OI过滤导致从数据源无法获取技术指标
 		isExistingPosition := positionSymbols[coin.Symbol]
 		isXyzAsset := market.IsXyzDexAsset(coin.Symbol)
 
-		logger.Debugf("📊 Bypassing OI check for %s (existingPos=%t, xyzAsset=%t, oiNil=%t, zeroPrice=%t, static=%t, oi_top=%t)",
-			coin.Symbol, isExistingPosition, isXyzAsset, data.OpenInterest == nil, data.CurrentPrice <= 0, isStaticCoin, isOITopCoin)
-
-		// 直接处理数据，不再进行OI过滤
+		// 原OI过滤逻辑：对不同来源的币种应用不同阈值（静态列表豁免，OI Top 5M，其他15M）
+		// 现在由于VPN已更换，OI数据可以正常获取，恢复OI过滤逻辑
 		if data.OpenInterest != nil && data.CurrentPrice > 0 {
+			// 计算OI值（单位：百万美元）
 			oiValue := data.OpenInterest.Latest * data.CurrentPrice
 			oiValueInMillions := oiValue / 1_000_000
-			logger.Debugf("📊 %s OI value: %.2fM (bypassed filter)", coin.Symbol, oiValueInMillions)
+
+			// 根据币种来源应用不同的OI阈值
+			var minOI float64
+			if isStaticCoin {
+				// 静态列表中的币种豁免OI过滤
+				logger.Debugf("📊 %s OI value: %.2fM (static coin - exempt from filter)", coin.Symbol, oiValueInMillions)
+			} else if isOITopCoin {
+				// OI Top来源的币种：最低5M阈值
+				minOI = 5.0
+				if oiValueInMillions < minOI {
+					logger.Debugf("❌ %s OI value: %.2fM < %.1fM threshold (OI Top coin), skipping", coin.Symbol, oiValueInMillions, minOI)
+					continue // 跳过OI值低于阈值的币种
+				}
+				logger.Debugf("📊 %s OI value: %.2fM (OI Top coin - passed filter)", coin.Symbol, oiValueInMillions)
+			} else {
+				// 其他来源的币种：最低15M阈值
+				minOI = 15.0
+				if oiValueInMillions < minOI {
+					logger.Debugf("❌ %s OI value: %.2fM < %.1fM threshold (other coin), skipping", coin.Symbol, oiValueInMillions, minOI)
+					continue // 跳过OI值低于阈值的币种
+				}
+				logger.Debugf("📊 %s OI value: %.2fM (other coin - passed filter)", coin.Symbol, oiValueInMillions)
+			}
+		} else {
+			// 如果OI数据不可用，对于非静态和非OI Top来源的币种跳过
+			if !isStaticCoin && !isOITopCoin {
+				logger.Debugf("❌ Skipping %s due to missing OI data (existingPos=%t, xyzAsset=%t, oiNil=%t, zeroPrice=%t, static=%t, oi_top=%t)",
+					coin.Symbol, isExistingPosition, isXyzAsset, data.OpenInterest == nil, data.CurrentPrice <= 0, isStaticCoin, isOITopCoin)
+				continue
+			} else {
+				logger.Debugf("⚠️  %s OI data not available but allowed due to source type (static=%t, oi_top=%t)", coin.Symbol, isStaticCoin, isOITopCoin)
+			}
 		}
 
 		ctx.MarketDataMap[coin.Symbol] = data
