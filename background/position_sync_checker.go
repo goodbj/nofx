@@ -115,13 +115,13 @@ func (psc *PositionSyncChecker) syncPositions() (int, error) {
 	return processedCount, nil
 }
 
-// checkTraderPositions 检查单个交易员的持仓一致性
+// checkTraderPositions检查单个交易员的持仓一致性
 func (psc *PositionSyncChecker) checkTraderPositions(traderID string, dbPositions []*store.TraderPosition) error {
 	// 获取实际的交易所持仓
 	actualPositions, err := psc.getActualExchangePositions(traderID)
 	if err != nil {
-		psc.logger.Errorf("获取交易员 %s 实际持仓失败: %v", traderID, err)
-		return err
+		psc.logger.Warnf("获取交易员 %s 实际持仓失败，跳过此交易员的检查: %v", traderID, err)
+		return nil // 返回nil而不是错误，避免影响其他交易员
 	}
 
 	// 创建实际持仓的映射以便快速查找
@@ -131,19 +131,19 @@ func (psc *PositionSyncChecker) checkTraderPositions(traderID string, dbPosition
 		actualPosMap[key] = pos.Side
 	}
 
-	// 检查数据库中的每个持仓是否在实际持仓中存在
+	//检查数据库中的每个持仓是否在实际持仓中存在
 	for _, dbPos := range dbPositions {
 		dbKey := fmt.Sprintf("%s_%s", dbPos.Symbol, dbPos.Side)
 
 		// 如果数据库中的持仓在实际持仓中不存在，则需要清理
 		if _, exists := actualPosMap[dbKey]; !exists {
-			psc.logger.Infof("发现不一致持仓: 交易员=%s, 币种=%s, 方向=%s, 数据库状态=OPEN",
+			psc.logger.Infof("发现不一致持仓: 交易员=%s,币=%s, 方向=%s, 数据库状态=OPEN",
 				traderID, dbPos.Symbol, dbPos.Side)
 
-			// 调用原生平仓功能来清理这个不一致的持仓
+			//调用原生平仓功能来清理这个不一致的持仓
 			err := psc.cleanupOrphanedPosition(traderID, dbPos)
 			if err != nil {
-				psc.logger.Errorf("清理孤儿持仓失败: %s, 错误: %v", dbKey, err)
+				psc.logger.Errorf("清理孤儿持仓失败: %s,错误: %v", dbKey, err)
 				continue
 			}
 		}
@@ -164,9 +164,21 @@ func (psc *PositionSyncChecker) getActualExchangePositions(traderID string) ([]*
 	actualPositions := []*store.TraderPosition{}
 
 	// 通过交易员接口获取实际持仓
-	actualPosData, err := t.GetPositions()
-	if err != nil {
-		return nil, fmt.Errorf("获取实际持仓数据失败: %w", err)
+	// 添加重试机制，避免单次失败影响整个检查过程
+	var actualPosData []map[string]interface{}
+	var retryErr error
+	for i := 0; i < 3; i++ { // 最多重试3次
+		actualPosData, retryErr = t.GetPositions()
+		if retryErr == nil {
+			break // 成功则跳出重试循环
+		}
+		psc.logger.Warnf("获取交易员 %s持仓数据失败 (尝试 %d/3): %v", traderID, i+1, retryErr)
+		if i < 2 { // 不是最后一次尝试，则等待后重试
+			time.Sleep(time.Duration(i+1) * time.Second) // 递增延迟
+		}
+	}
+	if retryErr != nil {
+		return nil, fmt.Errorf("获取实际持仓数据失败，已重试3次: %w", retryErr)
 	}
 
 	// 将实际持仓数据转换为TraderPosition格式
