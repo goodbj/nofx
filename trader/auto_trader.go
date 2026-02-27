@@ -861,6 +861,14 @@ func (at *AutoTrader) Stop() {
 	logger.Info("⏹ Automatic trading system stopped")
 }
 
+// ResetExecutionState resets the execution state of the trader to prevent state conflicts between trader instances
+func (at *AutoTrader) ResetExecutionState() {
+	at.executionMutex.Lock()
+	at.isExecuting = false
+	at.executionMutex.Unlock()
+	logger.Debugf("🔄 [AutoTrader.ResetExecutionState] Execution state reset for trader %s", at.name)
+}
+
 // runCycle runs one trading cycle (using AI full decision-making)
 // validateDecisionCoins validates that all decision symbols are in the allowed candidate list or are current positions
 func (at *AutoTrader) validateDecisionCoins(decisions []kernel.Decision) error {
