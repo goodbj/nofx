@@ -560,13 +560,13 @@ type ExchangeConfig struct {
 
 // SafeExchangeConfig Safe exchange configuration structure (does not contain sensitive information)
 type SafeExchangeConfig struct {
-	ID                    string `json:"id"`            // UUID
-	ExchangeType          string `json:"exchange_type"` // "binance", "bybit", "okx", "hyperliquid", "aster", "lighter"
-	AccountName           string `json:"account_name"`  // User-defined account name
-	Name                  string `json:"name"`          // Display name
-	Type                  string `json:"type"`          // "cex" or "dex"
-	Enabled               bool   `json:"enabled"`
-	Testnet               bool   `json:"testnet,omitempty"`
+	ID           string `json:"id"`            // UUID
+	ExchangeType string `json:"exchange_type"` // "binance", "bybit", "okx", "hyperliquid", "aster", "lighter"
+	AccountName  string `json:"account_name"`  // User-defined account name
+	Name         string `json:"name"`          // Display name
+	Type         string `json:"type"`          // "cex" or "dex"
+	Enabled      bool   `json:"enabled"`
+	// Testnet field removed - use ExchangeType to determine network
 	CustomAPIURL          string `json:"customApiUrl,omitempty"` // Custom API URL for exchange
 	HyperliquidWalletAddr string `json:"hyperliquidWalletAddr"`  // Hyperliquid wallet address (not sensitive)
 	AsterUser             string `json:"asterUser"`              // Aster username (not sensitive)
@@ -586,12 +586,12 @@ type UpdateModelConfigRequest struct {
 
 type UpdateExchangeConfigRequest struct {
 	Exchanges map[string]struct {
-		Enabled                 bool   `json:"enabled"`
-		AccountName             string `json:"account_name"` // User-defined account name
-		APIKey                  string `json:"api_key"`
-		SecretKey               string `json:"secret_key"`
-		Passphrase              string `json:"passphrase"` // OKX specific
-		Testnet                 bool   `json:"testnet"`
+		Enabled     bool   `json:"enabled"`
+		AccountName string `json:"account_name"` // User-defined account name
+		APIKey      string `json:"api_key"`
+		SecretKey   string `json:"secret_key"`
+		Passphrase  string `json:"passphrase"` // OKX specific
+		// Testnet field removed - use ExchangeType to determine network
 		CustomAPIURL            string `json:"custom_api_url"`
 		HyperliquidWalletAddr   string `json:"hyperliquid_wallet_addr"`
 		AsterUser               string `json:"aster_user"`
@@ -2265,13 +2265,13 @@ func (s *Server) handleGetExchangeConfigs(c *gin.Context) {
 	safeExchanges := make([]SafeExchangeConfig, len(exchanges))
 	for i, exchange := range exchanges {
 		safeExchanges[i] = SafeExchangeConfig{
-			ID:                    exchange.ID,
-			ExchangeType:          exchange.ExchangeType,
-			AccountName:           exchange.AccountName,
-			Name:                  exchange.Name,
-			Type:                  exchange.Type,
-			Enabled:               exchange.Enabled,
-			Testnet:               false, // Testnet field removed
+			ID:           exchange.ID,
+			ExchangeType: exchange.ExchangeType,
+			AccountName:  exchange.AccountName,
+			Name:         exchange.Name,
+			Type:         exchange.Type,
+			Enabled:      exchange.Enabled,
+			// Testnet field removed - use ExchangeType to determine network
 			CustomAPIURL:          exchange.CustomAPIURL,
 			HyperliquidWalletAddr: exchange.HyperliquidWalletAddr,
 			AsterUser:             exchange.AsterUser,
@@ -2365,13 +2365,13 @@ func (s *Server) handleUpdateExchangeConfigs(c *gin.Context) {
 
 // CreateExchangeRequest request structure for creating a new exchange account
 type CreateExchangeRequest struct {
-	ExchangeType            string `json:"exchange_type" binding:"required"` // "binance", "bybit", "okx", "hyperliquid", "aster", "lighter"
-	AccountName             string `json:"account_name"`                     // User-defined account name
-	Enabled                 bool   `json:"enabled"`
-	APIKey                  string `json:"api_key"`
-	SecretKey               string `json:"secret_key"`
-	Passphrase              string `json:"passphrase"`
-	Testnet                 bool   `json:"testnet"`
+	ExchangeType string `json:"exchange_type" binding:"required"` // "binance", "bybit", "okx", "hyperliquid", "aster", "lighter"
+	AccountName  string `json:"account_name"`                     // User-defined account name
+	Enabled      bool   `json:"enabled"`
+	APIKey       string `json:"api_key"`
+	SecretKey    string `json:"secret_key"`
+	Passphrase   string `json:"passphrase"`
+	// Testnet field removed - use ExchangeType to determine network
 	CustomAPIURL            string `json:"custom_api_url"`
 	HyperliquidWalletAddr   string `json:"hyperliquid_wallet_addr"`
 	AsterUser               string `json:"aster_user"`
@@ -2751,8 +2751,9 @@ func (s *Server) handleAccount(c *gin.Context) {
 			return
 		}
 
-		// If the error is related to API key format or proxy issues, try to force refresh the trader
+		// If the error is related to API key format, permissions, or proxy issues, try to force refresh the trader
 		if strings.Contains(errMsg, "API-key format invalid") || strings.Contains(errMsg, "401") ||
+			strings.Contains(errMsg, "Invalid API-key, IP, or permissions") || strings.Contains(errMsg, "code=-2015") ||
 			strings.Contains(errMsg, "dial tcp") || strings.Contains(errMsg, "connection refused") ||
 			strings.Contains(errMsg, "timeout") || strings.Contains(errMsg, "no such host") {
 			logger.Infof("⚠️ Detected API key, proxy or network issue, checking if trader %s is executing manual scan...", traderID)
@@ -3135,7 +3136,43 @@ func (s *Server) handlePositions(c *gin.Context) {
 		// 记录详细错误信息，但返回通用错误消息给前端
 		logger.Errorf("Failed to get positions for trader %s: %v", traderID, err)
 
-		// 避免强制刷新交易者以防止中断正常操作
+		// 检查是否是API认证错误
+		errMsg := err.Error()
+		if strings.Contains(errMsg, "Invalid API-key, IP, or permissions") || strings.Contains(errMsg, "code=-2015") {
+			logger.Infof("🔒 Critical API credential error detected for trader [%s], forcing trader refresh to reset authentication context", traderID)
+
+			// 检查交易员是否正在执行以避免中断
+			if traderInstance, getErr := s.traderManager.GetTrader(traderID); getErr == nil {
+				status := traderInstance.GetStatus()
+				if isExecuting, ok := status["is_executing"].(bool); ok && isExecuting {
+					logger.Infof("⚠️ Trader %s is currently executing, skipping force refresh to avoid interruption", traderID)
+				} else {
+					logger.Infof("🔄 Force refreshing trader %s to reset authentication context", traderID)
+					refreshErr := s.traderManager.ForceRefreshTrader(traderID, s.store)
+					if refreshErr != nil {
+						logger.Warnf("⚠️ Failed to force refresh trader %s: %v", traderID, refreshErr)
+					} else {
+						// 获取新刷新的交易员实例
+						refreshedTrader, refreshGetErr := s.traderManager.GetTrader(traderID)
+						if refreshGetErr == nil {
+							trader = refreshedTrader
+							logger.Infof("✅ Successfully refreshed trader %s with new authentication context", traderID)
+							// 使用刷新后的交易员重试获取持仓
+							positions, err = refreshedTrader.GetPositions()
+							if err == nil {
+								logger.Infof("✅ Successfully retrieved positions after refresh for trader %s, count: %d", traderID, len(positions))
+								c.JSON(http.StatusOK, positions)
+								return
+							} else {
+								logger.Warnf("⚠️ Still failed to get positions after refresh: %v", err)
+							}
+						}
+					}
+				}
+			}
+		}
+
+		// 避免强制刷新交易者以防止中断正常操作（除非是认证错误，上面已处理）
 		// refreshErr := s.traderManager.ForceRefreshTrader(traderID, s.store)
 		var refreshErr error // Define the variable to maintain code structure
 		if refreshErr != nil {
@@ -5254,54 +5291,27 @@ func (s *Server) handleOpenGuardianBrowser(c *gin.Context) {
 func createBinanceTraderWithProxy(userID string, exchangeCfg *store.Exchange) trader.Trader {
 	logger.Debugf("🔗 [createBinanceTraderWithProxy] Creating binance trader with proxy for user: %s, exchange type: %s", userID, exchangeCfg.ExchangeType)
 
-	// 使用统一的EndpointSelector来确定真实的交易所API URL
-	endpointSelector := trader.NewEndpointSelector()
+	//确定真实的交易所API URL（用于代理转发）
+	// 首先尝试使用配置中预设的API URL
+	realExchangeEndpoint := exchangeCfg.CustomAPIURL
+	trimmedURL := strings.TrimSpace(realExchangeEndpoint)
 
-	// 确定真实的交易所API URL（用于代理转发）
-	// 根据新规则：完全忽略Testnet开关，只看CustomAPIURL内容
-	// 但本地代理地址仍需特殊处理，因为它们通常不应该作为最终目标
-	realExchangeEndpoint := ""
-	if exchangeCfg.CustomAPIURL != "" && strings.TrimSpace(exchangeCfg.CustomAPIURL) != "" {
-		// 检查是否为本地代理地址
-		isLocalhost := strings.Contains(exchangeCfg.CustomAPIURL, "://localhost:") ||
-			strings.Contains(exchangeCfg.CustomAPIURL, "://127.0.0.1:")
-
-		logger.Debugf("🔗 [createBinanceTraderWithProxy] CustomAPIURL is not empty, isLocalhost: %t", isLocalhost)
-
-		if isLocalhost {
-			// 如果是本地代理地址，使用相应的EndpointSelector来决定目标端点
-			// 这是因为本地代理通常是中间节点，不是最终目标
-			// 我们根据CustomAPIURL中的内容来决定真正的目标端点
-			if exchangeCfg.ExchangeType == "binance_demo" {
-				// 虚拟盘使用专门的端点选择器
-				logger.Debugf("🔗 [createBinanceTraderWithProxy] Using Demo EndpointSelector for localhost URL: %s", exchangeCfg.CustomAPIURL)
-				realExchangeEndpoint = endpointSelector.GetBinanceDemoEndpoint(exchangeCfg.CustomAPIURL)
-			} else {
-				// 实盘使用专门的端点选择器
-				logger.Debugf("🔗 [createBinanceTraderWithProxy] Using Mainnet EndpointSelector for localhost URL: %s", exchangeCfg.CustomAPIURL)
-				realExchangeEndpoint = endpointSelector.GetBinanceMainnetEndpoint(exchangeCfg.CustomAPIURL)
-			}
-		} else {
-			// 如果是有效的非本地地址，使用相应的EndpointSelector来规范化端点
-			if exchangeCfg.ExchangeType == "binance_demo" {
-				// 虚拟盘使用专门的端点选择器
-				logger.Debugf("🔗 [createBinanceTraderWithProxy] Using Demo EndpointSelector for non-localhost URL: %s", exchangeCfg.CustomAPIURL)
-				realExchangeEndpoint = endpointSelector.GetBinanceDemoEndpoint(exchangeCfg.CustomAPIURL)
-			} else {
-				// 实盘使用专门的端点选择器
-				logger.Debugf("🔗 [createBinanceTraderWithProxy] Using Mainnet EndpointSelector for non-localhost URL: %s", exchangeCfg.CustomAPIURL)
-				realExchangeEndpoint = endpointSelector.GetBinanceMainnetEndpoint(exchangeCfg.CustomAPIURL)
-			}
-		}
-		logger.Debugf("🔗 [createBinanceTraderWithProxy] EndpointSelector returned: %s", realExchangeEndpoint)
+	if trimmedURL != "" {
+		logger.Debugf("🔗 [createBinanceTraderWithProxy] Using pre-configured endpoint: '%s'", trimmedURL)
+		realExchangeEndpoint = trimmedURL
 	} else {
-		// 如果CustomAPIURL为空，则使用对应类型的默认API
-		if exchangeCfg.ExchangeType == "binance_demo" {
-			logger.Debugf("🔗 [createBinanceTraderWithProxy] Demo CustomAPIURL is empty, using default testnet API")
-			realExchangeEndpoint = "https://testnet.binancefuture.com" // 虚拟盘默认测试网API URL
-		} else {
-			logger.Debugf("🔗 [createBinanceTraderWithProxy] CustomAPIURL is empty, using default mainnet API")
-			realExchangeEndpoint = "https://fapi.binance.com" // 默认主网API URL
+		// 如果没有预设端点，则根据交易所类型返回默认端点
+		// 这是为了兼容旧配置，新配置应该在保存时就设置好默认值
+		switch exchangeCfg.ExchangeType {
+		case "binance_demo":
+			logger.Debugf("🔗 [createBinanceTraderWithProxy] No custom endpoint configured, using default testnet endpoint for demo")
+			realExchangeEndpoint = "https://testnet.binancefuture.com"
+		case "binance":
+			logger.Debugf("🔗 [createBinanceTraderWithProxy] No custom endpoint configured, using default mainnet endpoint for real trading")
+			realExchangeEndpoint = "https://fapi.binance.com"
+		default:
+			logger.Debugf("🔗 [createBinanceTraderWithProxy] No custom endpoint configured, using default mainnet endpoint")
+			realExchangeEndpoint = "https://fapi.binance.com"
 		}
 	}
 
@@ -5330,17 +5340,10 @@ func createBinanceTraderWithProxy(userID string, exchangeCfg *store.Exchange) tr
 		logger.Debugf("🔗 [createBinanceTraderWithProxy] Using proxy mode: connecting to proxyURL='%s', realExchangeEndpoint='%s'", proxyURL, realExchangeEndpoint)
 		logger.Debugf("🔗 [createBinanceTraderWithProxy] Calling NewFuturesTraderViaProxy with proxyURL: %s, targetEndpoint: %s", proxyURL, realExchangeEndpoint)
 
-		// 根据交易类型使用不同的交易者创建函数
-		var originalTrader trader.Trader
-		if exchangeCfg.ExchangeType == "binance_demo" {
-			// 虚拟盘使用专门的函数
-			logger.Debugf("🔄 Creating NewDemoFuturesTraderViaProxy for DEMO account: proxyURL=%s, targetEndpoint=%s", proxyURL, realExchangeEndpoint)
-			originalTrader = trader.NewDemoFuturesTraderViaProxy(string(exchangeCfg.APIKey), string(exchangeCfg.SecretKey), userID, proxyURL, realExchangeEndpoint)
-		} else {
-			// 实盘使用标准函数
-			logger.Debugf("🔄 Creating NewFuturesTraderViaProxy for REAL account: proxyURL=%s, targetEndpoint=%s", proxyURL, realExchangeEndpoint)
-			originalTrader = trader.NewFuturesTraderViaProxy(string(exchangeCfg.APIKey), string(exchangeCfg.SecretKey), userID, proxyURL, realExchangeEndpoint)
-		}
+		// 创建交易者实例 - 使用统一的代理函数，不区分实盘/虚拟盘
+		// 真正的路由逻辑由代理服务和目标端点决定
+		logger.Debugf("🔄 Creating NewFuturesTraderViaProxy for account: proxyURL=%s, targetEndpoint=%s", proxyURL, realExchangeEndpoint)
+		originalTrader := trader.NewFuturesTraderViaProxy(string(exchangeCfg.APIKey), string(exchangeCfg.SecretKey), userID, proxyURL, realExchangeEndpoint)
 
 		logger.Debugf("🔗 [createBinanceTraderWithProxy] NewFuturesTraderViaProxy returned, wrapping with ProxyTraderWrapper")
 		return trader.NewProxyTraderWrapperWithAuth(originalTrader, "proxy", proxyURL, string(exchangeCfg.APIKey), string(exchangeCfg.SecretKey), realExchangeEndpoint)
