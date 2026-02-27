@@ -700,11 +700,7 @@ func ValidateDecisionFormat(decisions []Decision) error {
 				return fmt.Errorf("决策#%d: UPDATE_STOP_LOSS动作需要提供new_stop_loss", i+1)
 			}
 			// 价格合理性验证
-			newStopLossValue, err := d.GetNewStopLoss()
-			if err != nil {
-				return fmt.Errorf("决策#%d: new_stop_loss格式错误: %w", i+1, err)
-			}
-			if newStopLossValue <= 0 {
+			if d.NewStopLoss <= 0 {
 				return fmt.Errorf("决策#%d: new_stop_loss价格必须大于0", i+1)
 			}
 			// 仓位方向验证
