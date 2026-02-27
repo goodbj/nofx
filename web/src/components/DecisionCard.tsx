@@ -17,11 +17,6 @@ interface DecisionCardProps {
     enabled: boolean;
     testnet?: boolean;  // 添加testnet标识
   }>;
-  traders?: Array<{
-    trader_id: string;
-    exchange_id: string;
-  }>;
-  traderId?: string;
   expandedState?: {
     showSystemPrompt: boolean;
     showInputPrompt: boolean;
@@ -51,7 +46,7 @@ const ACTION_CONFIG = (language: Language): Record<string, { color: string; bg: 
 // Format price with proper decimals
 function formatPrice(price: number | undefined): string {
   if (price === undefined || Number.isNaN(price)) return '-'
-  if (price === 0) return '0.00'
+  if (price === 0) return '0'
   if (price >= 1000) return price.toFixed(2)
   if (price >= 1) return price.toFixed(4)
   return price.toFixed(6)
@@ -80,14 +75,14 @@ function openExchangeLink(symbol: string, exchangeType?: string, customUrl?: str
   // Determine language code for URL (default to 'en' if not specified or unsupported)
   const langCode = language === 'zh' ? 'zh-CN' : 'en';
   
-  // Debug logging to verify parameters are correctly passed
-  console.log('openExchangeLink debug:', { symbol, exchangeType, customUrl, language, langCode });
-  
-  // Determine if this is a testnet/demo environment based on exchange type
-  const isTestnet = exchangeType?.toLowerCase().includes('binance_demo');
-  
   // If a custom URL is provided, use it as the base URL
   if (customUrl) {
+    // Check if the custom URL is a testnet URL by looking for testnet indicators
+    const isTestnet = customUrl.toLowerCase().includes('test') || 
+                      customUrl.toLowerCase().includes('sandbox') || 
+                      customUrl.toLowerCase().includes('demo') ||
+                      customUrl.toLowerCase().includes('futures-test') ||
+                      customUrl.toLowerCase().includes('testnet');
     
     if (customUrl.includes('{symbol}')) {
       // Replace placeholder in custom URL if present
@@ -102,67 +97,40 @@ function openExchangeLink(symbol: string, exchangeType?: string, customUrl?: str
         if (customUrl.includes('binance')) {
           // If it's clearly a binance testnet URL
           if (customUrl.includes('testnet.binancefuture.com')) {
-            // Use demo.binance.com directly since testnet.binancefuture.com gets redirected anyway
-            exchangeUrl = `https://demo.binance.com/${langCode}/futures/${symbol}`;
+            // Append language parameter to binance testnet URL
+            exchangeUrl = customUrl.endsWith('/') ? `${customUrl}${symbol}` : `${customUrl}/${symbol}`;
+            // Add language parameter if not already present
+            exchangeUrl = exchangeUrl.includes('?') ? `${exchangeUrl}&lang=${langCode}` : `${exchangeUrl}?lang=${langCode}`;
           } else {
-            // If it's a custom testnet URL that looks like binance, use demo.binance.com
-            exchangeUrl = `https://demo.binance.com/${langCode}/futures/${symbol}`;
+            // If it's a custom testnet URL that looks like binance, append to the standard testnet URL
+            exchangeUrl = `https://testnet.binancefuture.com/${langCode}/futures/${symbol}`;
           }
-        } else if (customUrl.includes('bybit')) {
-          // Handle Bybit testnet URL
-          exchangeUrl = customUrl.includes('testnet') 
-            ? `https://testnet.bybit.com/trade/futures/${symbol.replace('USDT', '')}-USDT`
-            : `https://testnet.bybit.com/trade/futures/${symbol.replace('USDT', '')}-USDT`;
-          // Add language parameter
-          exchangeUrl = exchangeUrl.includes('?') ? `${exchangeUrl}&l=${langCode}` : `${exchangeUrl}?l=${langCode}`;
-        } else if (customUrl.includes('okx')) {
-          // Handle OKX testnet URL
-          exchangeUrl = `https://www.okx.com/${langCode}/trade-futures-demo/${symbol.toLowerCase()}`;
-        } else if (customUrl.includes('bitget')) {
-          // Handle Bitget testnet URL
-          exchangeUrl = `https://www.bitget.com/futures/${symbol.replace('USDT', '')}_USDT?lng=${langCode}`;
         } else {
           // For other exchange testnets, append symbol to custom URL
           exchangeUrl = customUrl.endsWith('/') ? `${customUrl}${symbol}` : `${customUrl}/${symbol}`;
         }
       } else {
-        // For non-testnet, we should NOT use the custom API URL for frontend navigation
-        // Custom API URLs are for backend API calls, not for frontend navigation
-        // So we use the standard exchange website URL based on exchange type
-        if (exchangeType?.toLowerCase().includes('binance')) {
-          exchangeUrl = `https://www.binance.com/${langCode}/futures/${symbol}`;
-        } else {
-          // For other exchanges, append symbol to custom URL as fallback
-          exchangeUrl = customUrl.endsWith('/') ? `${customUrl}${symbol}` : `${customUrl}/${symbol}`;
-        }
+        // For non-testnet, append symbol to custom URL
+        exchangeUrl = customUrl.endsWith('/') ? `${customUrl}${symbol}` : `${customUrl}/${symbol}`;
       }
     }
   } else {
     // Determine exchange URL based on exchange type
-    // Determine if this is a testnet/demo environment based on exchange type
-    const isLikelyTestnet = exchangeType?.toLowerCase() === 'binance_demo';
+    // Check if we can infer testnet from other contextual clues
+    const isLikelyTestnet = false; // We can't determine this without explicit config
     
     switch (exchangeType?.toLowerCase()) {
       case 'binance':
-        // Binance mainnet (real trading)
-        exchangeUrl = `https://www.binance.com/${langCode}/futures/${symbol}`;
-        break;
-      case 'binance_demo':
-        // Binance testnet (demo/virtual trading)
-        // Use demo.binance.com directly since testnet.binancefuture.com gets redirected anyway
-        // Ensure symbol is properly formatted for Binance testnet
-        const formattedSymbol = symbol && symbol !== '' ? symbol.toUpperCase() : 'BTCUSDT';
-        exchangeUrl = `https://demo.binance.com/${langCode}/futures/${formattedSymbol}`;
+        // Use appropriate URL based on whether it's likely testnet
+        exchangeUrl = isLikelyTestnet 
+          ? `https://testnet.binancefuture.com/${langCode}/futures/${symbol}` 
+          : `https://www.binance.com/${langCode}/futures/${symbol}`;
         break;
       case 'bybit':
         // Bybit uses language in URL path or query parameter
         exchangeUrl = isLikelyTestnet 
-          ? `https://testnet.bybit.com/trade/futures/${symbol.replace('USDT', '')}-USDT`
+          ? `https://testnet.bybit.com/trade/futures/${symbol.replace('USDT', '')}-USDT?l=${langCode}`
           : `https://www.bybit.com/${langCode}/trade/futures/${symbol.replace('USDT', '')}-USDT`;
-        // Add language parameter for testnet
-        if (isLikelyTestnet) {
-          exchangeUrl = exchangeUrl.includes('?') ? `${exchangeUrl}&l=${langCode}` : `${exchangeUrl}?l=${langCode}`;
-        }
         break;
       case 'okx':
         // OKX uses language in subdomain or path
@@ -173,20 +141,14 @@ function openExchangeLink(symbol: string, exchangeType?: string, customUrl?: str
       case 'bitget':
         // Bitget uses language in query parameter
         exchangeUrl = isLikelyTestnet 
-          ? `https://www.bitget.com/futures/${symbol.replace('USDT', '')}_USDT`
-          : `https://www.bitget.com/futures/${symbol.replace('USDT', '')}_USDT`;
-        // Add language parameter for testnet
-        if (isLikelyTestnet) {
-          exchangeUrl = exchangeUrl.includes('?') ? `${exchangeUrl}?lng=${langCode}` : `${exchangeUrl}?lng=${langCode}`;
-        }
+          ? `https://www.bitget.com/futures/${symbol.replace('USDT', '')}_USDT?lng=${langCode}`
+          : `https://www.bitget.com/futures/${symbol.replace('USDT', '')}_USDT?lng=${langCode}`;
         break;
       case 'hyperliquid':
         // Hyperliquid doesn't typically use language codes in URL, but we can add it as a parameter
         exchangeUrl = isLikelyTestnet 
-          ? `https://app.hyperliquid.xyz/demo#/${symbol.replace('USDT', '')}`
-          : `https://app.hyperliquid.xyz/trade#${symbol.replace('USDT', '')}`;
-        // Add language parameter for both
-        exchangeUrl = exchangeUrl.includes('?') ? `${exchangeUrl}&lang=${langCode}` : `${exchangeUrl}?lang=${langCode}`;
+          ? `https://app.hyperliquid.xyz/demo#/${symbol.replace('USDT', '')}?lang=${langCode}`
+          : `https://app.hyperliquid.xyz/trade#${symbol.replace('USDT', '')}?lang=${langCode}`;
         break;
       case 'aster':
         exchangeUrl = isLikelyTestnet 
@@ -216,39 +178,32 @@ function getExchangeInfoByTraderId(
     customApiUrl?: string;
     name: string;
     enabled: boolean;
-  }> | undefined,
-  traders: Array<{
-    trader_id: string;
-    exchange_id: string;
   }> | undefined
 ): { exchangeType?: string; customUrl?: string } {
-  if (!exchanges || !traders) {
+  if (!exchanges) {
     return {};
   }
 
-  // First, find the trader by traderId
-  const trader = traders.find(t => t.trader_id === traderId);
-  if (!trader) {
-    return {};
+  // Find the exchange associated with the trader
+  // In the system, traderId might match exchange.id or there might be a mapping
+  const exchange = exchanges.find(ex => ex.id === traderId);
+  
+  if (exchange) {
+    return {
+      exchangeType: exchange.exchange_type,
+      customUrl: exchange.customApiUrl
+    };
   }
 
-  // Then find the exchange by exchange_id
-  const exchange = exchanges.find(e => e.id === trader.exchange_id);
-  if (!exchange) {
-    return {};
-  }
-
-  return {
-    exchangeType: exchange.exchange_type,
-    customUrl: exchange.customApiUrl
-  };
+  // If direct match not found, return empty object
+  return {};
 }
 
 // 移除：渲染数值变化信息（阶段1）
 // 此函数已被弃用，所有数值变化信息现在都在Trading Details Grid中统一显示
 
 // Single Action Card Component
-function ActionCard({ action, language, onSymbolClick, positions, exchangeType, exchangeCustomUrl, exchanges, traderId, traders }: { action: DecisionAction; language: Language; onSymbolClick?: (symbol: string) => void; positions?: any[]; exchangeType?: string; exchangeCustomUrl?: string; exchanges?: Array<{ id: string; exchange_type: string; customApiUrl?: string; name: string; enabled: boolean; }>; traderId?: string; traders?: Array<{ trader_id: string; exchange_id: string; }> }) {
+function ActionCard({ action, language, onSymbolClick, positions, exchangeType, exchangeCustomUrl, exchanges, traderId }: { action: DecisionAction; language: Language; onSymbolClick?: (symbol: string) => void; positions?: any[]; exchangeType?: string; exchangeCustomUrl?: string; exchanges?: Array<{ id: string; exchange_type: string; customApiUrl?: string; name: string; enabled: boolean; }>; traderId?: string }) {
   const actionConfigs = ACTION_CONFIG(language);
   const config = actionConfigs[action.action] || actionConfigs.wait
   const isLong = action.action.includes('long')
@@ -278,9 +233,9 @@ function ActionCard({ action, language, onSymbolClick, positions, exchangeType, 
               // If exchange info is passed directly, use it
               if (exchangeType || exchangeCustomUrl) {
                 openExchangeLink(action.symbol, exchangeType, exchangeCustomUrl, language);
-              } else if (exchanges && traders && traderId) {
+              } else if (exchanges && traderId) {
                 // Otherwise, get exchange info based on traderId
-                const exchangeInfo = getExchangeInfoByTraderId(traderId, exchanges, traders);
+                const exchangeInfo = getExchangeInfoByTraderId(traderId, exchanges);
                 openExchangeLink(action.symbol, exchangeInfo.exchangeType, exchangeInfo.customUrl, language);
               } else {
                 // Fallback to default behavior
@@ -331,21 +286,14 @@ function ActionCard({ action, language, onSymbolClick, positions, exchangeType, 
       {/* Trading Details Grid */}
       {(isOpen || isClose || isPartialClose || isTrailingStop || isUpdateStopLoss || isHold || isWait) && (
         <div className="grid grid-cols-4 gap-3 mt-3 pt-3" style={{ borderTop: '1px solid #2B3139' }}>
-          {/* Entry Price or Current Price or P&L Amount */}
+          {/* Entry Price or Current Price */}
           <div className="text-center">
             <div className="text-xs mb-1" style={{ color: '#848E9C' }}>
-              {isOpen ? t('entryPrice', language) : isClose ? t('profitAmount', language) : isHold || isWait ? t('currentPrice', language) : t('currentPrice', language)}
+              {isOpen ? t('entryPrice', language) : isHold || isWait ? t('currentPrice', language) : t('currentPrice', language)}
             </div>
-            <div className="font-mono font-semibold" style={{ color: isClose && action.realized_pnl !== undefined ? (action.realized_pnl >= 0 ? '#0ECB81' : '#F6465D') : '#EAECEF' }}>
-              {isClose ? 
-                (action.realized_pnl !== undefined ? `${action.realized_pnl >= 0 ? '+' : ''}${action.realized_pnl.toFixed(2)} USDT` : '-') : 
-                formatPrice(action.price)}
+            <div className="font-mono font-semibold" style={{ color: '#EAECEF' }}>
+              {formatPrice(action.price)}
             </div>
-            {isClose && action.realized_pnl !== undefined && action.realized_pnl !== null && (
-              <div className="text-xs mt-0.5" style={{ color: action.realized_pnl >= 0 ? '#0ECB81' : '#F6465D' }}>
-                {action.realized_pnl >= 0 ? t('profit', language) : t('loss', language)}
-              </div>
-            )}
           </div>
 
           {/* Stop Loss or Profit/Loss or Close Percentage or Wait Time */}
@@ -353,15 +301,14 @@ function ActionCard({ action, language, onSymbolClick, positions, exchangeType, 
             {isClose ? (
               <>
                 <div className="text-xs mb-1" style={{ color: '#0ECB81' }}>
-                  {t('profitLossRatio', language)}
+                  {t('profitAmount', language)}
                 </div>
-                <div className="font-mono font-semibold" style={{ color: action.realized_pnl_percentage !== undefined && action.realized_pnl_percentage >= 0 ? '#0ECB81' : '#F6465D' }}>
-                  {action.realized_pnl_percentage !== undefined ? 
-                    `${action.realized_pnl_percentage >= 0 ? '+' : ''}${action.realized_pnl_percentage.toFixed(2)}%` : '-'}
+                <div className="font-mono font-semibold" style={{ color: action.pnl && action.pnl >= 0 ? '#0ECB81' : '#F6465D' }}>
+                  {action.pnl !== undefined ? `${action.pnl >= 0 ? '+' : ''}${action.pnl.toFixed(2)} USDT` : '-'}
                 </div>
-                {action.realized_pnl_percentage !== undefined && action.realized_pnl_percentage !== null && (
+                {action.pnl && action.quantity && (
                   <div className="text-xs mt-0.5" style={{ color: '#848E9C' }}>
-                    {Math.abs(action.realized_pnl_percentage).toFixed(2)}%{t('yieldRatio', language)}
+                    {action.pnl >= 0 ? t('profit', language) : t('loss', language)}
                   </div>
                 )}
               </>
@@ -423,14 +370,15 @@ function ActionCard({ action, language, onSymbolClick, positions, exchangeType, 
             {isClose ? (
               <>
                 <div className="text-xs mb-1" style={{ color: '#0ECB81' }}>
-                  {t('entryPrice', language)}
+                  {t('profitLossRatio', language)}
                 </div>
-                <div className="font-mono font-semibold" style={{ color: '#EAECEF' }}>
-                  {formatPrice(action.entry_price)}
+                <div className="font-mono font-semibold" style={{ color: action.pnl && action.pnl >= 0 ? '#0ECB81' : '#F6465D' }}>
+                  {action.pnl !== undefined && action.price && action.quantity ? 
+                    `${action.pnl >= 0 ? '+' : ''}${((action.pnl / (action.price * action.quantity)) * 100).toFixed(2)}%` : '-'}
                 </div>
-                {action.exit_price && action.entry_price && (
-                  <div className="text-xs mt-0.5" style={{ color: action.realized_pnl !== undefined && action.realized_pnl >= 0 ? '#0ECB81' : '#F6465D' }}>
-                    {calcPctChange(action.entry_price, action.exit_price, isLong)}
+                {action.pnl && action.price && action.quantity && (
+                  <div className="text-xs mt-0.5" style={{ color: '#848E9C' }}>
+                    {Math.abs((action.pnl / (action.price * action.quantity)) * 100).toFixed(2)}%{t('yieldRatio', language)}
                   </div>
                 )}
               </>
@@ -469,13 +417,13 @@ function ActionCard({ action, language, onSymbolClick, positions, exchangeType, 
             )}
           </div>
 
-          {/* Leverage or Quantity or Confidence or Exit Price */}
+          {/* Leverage or Quantity or Confidence */}
           <div className="text-center">
             <div className="text-xs mb-1" style={{ color: '#848E9C' }}>
-              {isOpen ? t('leverage', language) : isClose ? t('exitPrice', language) : isHold || isWait ? t('confidence', language) : isUpdateStopLoss ? t('adjustment', language) : t('quantity', language)}
+              {isOpen ? t('leverage', language) : isHold || isWait ? t('confidence', language) : isUpdateStopLoss ? t('adjustment', language) : t('quantity', language)}
             </div>
-            <div className="font-mono font-semibold" style={{ color: isOpen ? '#F0B90B' : isClose ? '#EAECEF' : isHold || isWait ? getConfidenceColor(action.confidence) : isUpdateStopLoss ? '#FF9800' : '#EAECEF' }}>
-              {isOpen ? `${action.leverage}x` : isClose ? formatPrice(action.exit_price) : isHold || isWait ? `${action.confidence || 0}%` : isUpdateStopLoss ? 
+            <div className="font-mono font-semibold" style={{ color: isOpen ? '#F0B90B' : isHold || isWait ? getConfidenceColor(action.confidence) : isUpdateStopLoss ? '#FF9800' : '#EAECEF' }}>
+              {isOpen ? `${action.leverage}x` : isHold || isWait ? `${action.confidence || 0}%` : isUpdateStopLoss ? 
                 (action.stop_loss && action.new_stop_loss ? 
                   `${action.new_stop_loss > action.stop_loss ? '↑' : '↓'}${Math.abs(((action.new_stop_loss - action.stop_loss) / action.stop_loss) * 100).toFixed(1)}%` : '-') : 
                 (action.quantity !== undefined && action.quantity !== null && action.quantity > 0 ? formatPrice(action.quantity) : '-')}
@@ -551,7 +499,7 @@ function ActionCard({ action, language, onSymbolClick, positions, exchangeType, 
   )
 }
 
-export function DecisionCard({ decision, language, onSymbolClick, onDelete, exchangeType, exchangeCustomUrl, exchanges, traders, traderId, expandedState, onUpdateExpansion }: DecisionCardProps) {
+export function DecisionCard({ decision, language, onSymbolClick, onDelete, exchangeType, exchangeCustomUrl, exchanges, expandedState, onUpdateExpansion }: DecisionCardProps) {
   // 使用传入的状态，如果没有则使用默认值
   const showSystemPrompt = expandedState?.showSystemPrompt || false;
   const showInputPrompt = expandedState?.showInputPrompt || false;
@@ -655,7 +603,6 @@ export function DecisionCard({ decision, language, onSymbolClick, onDelete, exch
               exchangeCustomUrl={exchangeCustomUrl}
               exchanges={exchanges}
               traderId={decision.trader_id}
-              traders={traders}
             />
           ))}
         </div>
