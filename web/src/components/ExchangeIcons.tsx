@@ -38,7 +38,7 @@ const ExchangeImage: React.FC<IconProps & { src: string; alt: string; exchangeTy
       
       if (lowerType.includes('binance_demo')) {
         //币安虚拟盘
-        exchangeUrl = 'https://testnet.binancefuture.com';
+        exchangeUrl = 'https://demo.binance.com';
       } else if (lowerType.includes('binance')) {
         //币安实盘
         exchangeUrl = 'https://www.binance.com';
