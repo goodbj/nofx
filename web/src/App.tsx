@@ -300,23 +300,15 @@ function App() {
     }
   )
 
-  const { data: decisions, mutate: mutateDecisions } = useSWR<DecisionRecord[]>(
+  const { data: decisions } = useSWR<DecisionRecord[]>(
     currentPage === 'trader' && selectedTraderId
       ? `decisions/latest-${selectedTraderId}-${decisionsLimit}`
       : null,
     () => api.getLatestDecisions(selectedTraderId, decisionsLimit),
     {
-      refreshInterval: 15000, // 15秒刷新（配合后端缓存）
-      revalidateOnFocus: true, // 聚焦时重新验证
-      dedupingInterval: 3000, // 3秒去重
-      onSuccess: (data) => {
-        // 数据更新成功时的回调
-        console.log('✅ 决策数据已更新，最新周期号:', data?.[0]?.cycle_number);
-      },
-      onError: (error) => {
-        // 数据更新失败时的回调
-        console.error('❌ 决策数据更新失败:', error);
-      }
+      refreshInterval: 30000, // 30秒刷新（降低请求频率，减少服务器压力）
+      revalidateOnFocus: false,
+      dedupingInterval: 5000, // 5秒去重，允许更频繁的更新
     }
   )
 
@@ -482,7 +474,7 @@ function App() {
     >
       <HeaderBar
         isLoggedIn={!!user}
-        currentPage={currentPage as Page}
+        currentPage={currentPage}
         language={language}
         onLanguageChange={setLanguage}
         user={user}
