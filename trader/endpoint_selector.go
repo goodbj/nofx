@@ -16,45 +16,18 @@ func NewEndpointSelector() *EndpointSelector {
 
 // GetBinanceMainnetEndpoint 为实盘Binance获取正确的API端点
 func (es *EndpointSelector) GetBinanceMainnetEndpoint(customAPIURL string) string {
-	logger.Debugf("🔗 [EndpointSelector.GetBinanceMainnetEndpoint] Input customAPIURL: '%s'", customAPIURL)
+	logger.Debugf("🔗 [EndpointSelector.GetBinanceMainnetEndpoint] Binance mainnet endpoint request with custom URL: '%s'", customAPIURL)
 
-	// 检查是否为代理URL（不包含testnet相关关键词，避免误判）
-	isProxyURL := (strings.Contains(customAPIURL, "localhost") ||
-		strings.Contains(customAPIURL, "127.0.0.1")) &&
-		!strings.Contains(strings.ToLower(customAPIURL), "testnet") &&
-		!strings.Contains(strings.ToLower(customAPIURL), "test")
-
-	logger.Debugf("🔗 [EndpointSelector.GetBinanceMainnetEndpoint] isProxyURL (excluding testnet URLs): %t", isProxyURL)
-
-	if isProxyURL {
-		logger.Debugf("🔗 [EndpointSelector.GetBinanceMainnetEndpoint] URL is proxy (but not testnet), for real account: %s", customAPIURL)
-		logger.Debugf("🔗 [EndpointSelector.GetBinanceMainnetEndpoint] Real account proxy URL does not contain testnet/test, returning mainnet endpoint")
-		return "https://fapi.binance.com"
+	// 实盘账户的URL应在trader_manager中已验证，直接使用即可
+	trimmedURL := strings.TrimSpace(customAPIURL)
+	if trimmedURL == "" {
+		logger.Errorf("❌ CRITICAL ERROR: Empty CustomAPIURL for real account after validation")
+		logger.Errorf("❌ SYSTEM CONFIGURATION ERROR: Real account must have valid CustomAPIURL")
+		panic("Real account configuration error: missing required CustomAPIURL after validation")
 	}
 
-	// 如果有自定义URL，需要根据内容进行标准化
-	logger.Debugf("🔗 [EndpointSelector.GetBinanceMainnetEndpoint] Processing custom URL for real account: %s", customAPIURL)
-	if customAPIURL != "" {
-		// 检查URL是否包含testnet相关字样 - 对于实盘账户，即使包含也应返回主网
-		containsTestnet := strings.Contains(strings.ToLower(customAPIURL), "testnet") ||
-			strings.Contains(strings.ToLower(customAPIURL), "test")
-
-		logger.Debugf("🔗 [EndpointSelector.GetBinanceMainnetEndpoint] Real account URL contains testnet/test: %t", containsTestnet)
-
-		if containsTestnet {
-			// 对于实盘账户，即使URL包含testnet也返回主网
-			logger.Warnf("⚠️ Real account URL contains testnet-like string: %s, but returning mainnet endpoint for safety", customAPIURL)
-			return "https://fapi.binance.com"
-		} else {
-			// 对于非testnet的自定义URL，直接返回
-			logger.Debugf("🔗 [EndpointSelector.GetBinanceMainnetEndpoint] Real account non-testnet custom URL, returning as-is: %s", customAPIURL)
-			return customAPIURL
-		}
-	}
-
-	// 默认返回主网API
-	logger.Debugf("🔗 [EndpointSelector.GetBinanceMainnetEndpoint] Real account CustomAPIURL is empty, returning default mainnet endpoint")
-	return "https://fapi.binance.com"
+	logger.Debugf("🔗 [EndpointSelector.GetBinanceMainnetEndpoint] Using validated URL: %s", trimmedURL)
+	return trimmedURL
 }
 
 // GetBinanceDemoEndpoint 为虚拟盘Binance获取正确的API端点
@@ -67,54 +40,24 @@ func (es *EndpointSelector) GetBinanceDemoEndpoint(customAPIURL string) string {
 		!strings.Contains(strings.ToLower(customAPIURL), "testnet") &&
 		!strings.Contains(strings.ToLower(customAPIURL), "test")
 
-	logger.Debugf("🔗 [EndpointSelector.GetBinanceDemoEndpoint] Demo isProxyURL (excluding testnet URLs): %t", isProxyURL)
+	logger.Debugf("🔗 [EndpointSelector.GetBinanceDemoEndpoint] isProxyURL (excluding testnet URLs): %t", isProxyURL)
 
 	if isProxyURL {
-		logger.Debugf("🔗 [EndpointSelector.GetBinanceDemoEndpoint] Demo URL is proxy (but not testnet), checking for testnet keywords in: %s", customAPIURL)
-		// 如果是代理URL，根据实际的CustomAPIURL来决定目标端点
-		// 如果CustomAPIURL本身包含testnet相关字样，则使用测试网，否则使用默认测试网
-		if customAPIURL != "" && (strings.Contains(strings.ToLower(customAPIURL), "testnet") ||
-			strings.Contains(strings.ToLower(customAPIURL), "test")) {
-			logger.Debugf("🔗 [EndpointSelector.GetBinanceDemoEndpoint] Demo Proxy URL contains testnet/test, returning testnet endpoint")
-			return "https://testnet.binancefuture.com"
-		}
-		logger.Debugf("🔗 [EndpointSelector.GetBinanceDemoEndpoint] Demo Proxy URL does not contain testnet/test, returning default testnet endpoint")
+		logger.Debugf("🔗 [EndpointSelector.GetBinanceDemoEndpoint] URL is proxy (but not testnet), for demo account: %s", customAPIURL)
+		logger.Debugf("🔗 [EndpointSelector.GetBinanceDemoEndpoint] Demo account proxy URL does not contain testnet/test, returning default testnet endpoint")
 		return "https://testnet.binancefuture.com"
 	}
 
-	// 如果有自定义URL，需要根据内容进行标准化
-	logger.Debugf("🔗 [EndpointSelector.GetBinanceDemoEndpoint] Processing custom URL for demo account: %s", customAPIURL)
-	if customAPIURL != "" {
-		// 检查URL是否包含testnet相关字样
-		containsTestnet := strings.Contains(strings.ToLower(customAPIURL), "testnet") ||
-			strings.Contains(strings.ToLower(customAPIURL), "test")
-
-		logger.Debugf("🔗 [EndpointSelector.GetBinanceDemoEndpoint] Demo URL contains testnet/test: %t", containsTestnet)
-
-		// 明确区分是否为官方测试网URL
-		isOfficialTestnet := containsTestnet &&
-			(strings.Contains(customAPIURL, "binancefuture.com") ||
-				strings.Contains(customAPIURL, "binanceus.com"))
-
-		logger.Debugf("🔗 [EndpointSelector.GetBinanceDemoEndpoint] Is official demo testnet URL: %t", isOfficialTestnet)
-
-		if isOfficialTestnet {
-			logger.Debugf("🔗 [EndpointSelector.GetBinanceDemoEndpoint] Official demo testnet URL detected, returning testnet endpoint")
-			return "https://testnet.binancefuture.com"
-		} else if containsTestnet {
-			// 如果URL包含testnet但不是官方测试网URL，返回默认测试网
-			logger.Warnf("⚠️ Non-official demo testnet-like URL detected: %s, returning default testnet endpoint", customAPIURL)
-			return "https://testnet.binancefuture.com"
-		} else {
-			// 对于非testnet的自定义URL，返回默认测试网（因为这是demo账户）
-			logger.Debugf("🔗 [EndpointSelector.GetBinanceDemoEndpoint] Demo account non-testnet custom URL, returning default testnet endpoint")
-			return "https://testnet.binancefuture.com"
-		}
+	// 虚拟盘账户的URL应在trader_manager中已验证，直接使用即可
+	trimmedURL := strings.TrimSpace(customAPIURL)
+	if trimmedURL == "" {
+		logger.Errorf("❌ CRITICAL ERROR: Empty CustomAPIURL for demo account after validation")
+		logger.Errorf("❌ SYSTEM CONFIGURATION ERROR: Demo account must have valid CustomAPIURL")
+		panic("Demo account configuration error: missing required CustomAPIURL after validation")
 	}
 
-	// 默认返回测试网API
-	logger.Debugf("🔗 [EndpointSelector.GetBinanceDemoEndpoint] Demo account CustomAPIURL is empty, returning default testnet endpoint")
-	return "https://testnet.binancefuture.com"
+	logger.Debugf("🔗 [EndpointSelector.GetBinanceDemoEndpoint] Using validated URL: %s", trimmedURL)
+	return trimmedURL
 }
 
 // GetBinanceEndpoint 为Binance获取正确的API端点
@@ -144,40 +87,9 @@ func (es *EndpointSelector) GetBinanceEndpoint(customAPIURL string, isTestnet bo
 		logger.Debugf("🔗 [EndpointSelector.GetBinanceEndpoint] Proxy URL does not contain testnet/test, returning mainnet endpoint")
 		return "https://fapi.binance.com"
 	}
-
-	// 如果有自定义URL，需要根据内容进行标准化
-	logger.Debugf("🔗 [EndpointSelector.GetBinanceEndpoint] Processing custom URL: %s", customAPIURL)
-	if customAPIURL != "" {
-		// 检查URL是否包含testnet相关字样
-		containsTestnet := strings.Contains(strings.ToLower(customAPIURL), "testnet") ||
-			strings.Contains(strings.ToLower(customAPIURL), "test")
-
-		logger.Debugf("🔗 [EndpointSelector.GetBinanceEndpoint] URL contains testnet/test: %t", containsTestnet)
-
-		// 明确区分是否为官方测试网URL
-		isOfficialTestnet := containsTestnet &&
-			(strings.Contains(customAPIURL, "binancefuture.com") ||
-				strings.Contains(customAPIURL, "binanceus.com"))
-
-		logger.Debugf("🔗 [EndpointSelector.GetBinanceEndpoint] Is official testnet URL: %t", isOfficialTestnet)
-
-		if isOfficialTestnet {
-			logger.Debugf("🔗 [EndpointSelector.GetBinanceEndpoint] Official testnet URL detected, returning testnet endpoint")
-			return "https://testnet.binancefuture.com"
-		} else if containsTestnet {
-			// 如果URL包含testnet但不是官方测试网URL，可能是误配，返回主网
-			logger.Warnf("⚠️ Non-official testnet-like URL detected: %s, returning mainnet endpoint", customAPIURL)
-			return "https://fapi.binance.com"
-		} else {
-			// 对于非testnet的自定义URL，直接返回
-			logger.Debugf("🔗 [EndpointSelector.GetBinanceEndpoint] Non-testnet custom URL, returning as-is: %s", customAPIURL)
-			return customAPIURL
-		}
-	}
-
-	// 默认返回主网API，不再考虑isTestnet参数
-	logger.Debugf("🔗 [EndpointSelector.GetBinanceEndpoint] CustomAPIURL is empty, returning default mainnet endpoint")
-	return "https://fapi.binance.com"
+	logger.Debugf("🔗 [EndpointSelector.GetBinanceEndpoint] DEPRECATED: This function should not be used")
+	logger.Errorf("❌ CRITICAL ERROR: GetBinanceEndpoint is deprecated, use GetBinanceMainnetEndpoint or GetBinanceDemoEndpoint instead")
+	panic("GetBinanceEndpoint is deprecated and should not be used")
 }
 
 // ShouldUseProxy检查是否应该使用代理

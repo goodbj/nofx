@@ -5300,19 +5300,11 @@ func createBinanceTraderWithProxy(userID string, exchangeCfg *store.Exchange) tr
 		logger.Debugf("🔗 [createBinanceTraderWithProxy] Using pre-configured endpoint: '%s'", trimmedURL)
 		realExchangeEndpoint = trimmedURL
 	} else {
-		// 如果没有预设端点，则根据交易所类型返回默认端点
-		// 这是为了兼容旧配置，新配置应该在保存时就设置好默认值
-		switch exchangeCfg.ExchangeType {
-		case "binance_demo":
-			logger.Debugf("🔗 [createBinanceTraderWithProxy] No custom endpoint configured, using default testnet endpoint for demo")
-			realExchangeEndpoint = "https://testnet.binancefuture.com"
-		case "binance":
-			logger.Debugf("🔗 [createBinanceTraderWithProxy] No custom endpoint configured, using default mainnet endpoint for real trading")
-			realExchangeEndpoint = "https://fapi.binance.com"
-		default:
-			logger.Debugf("🔗 [createBinanceTraderWithProxy] No custom endpoint configured, using default mainnet endpoint")
-			realExchangeEndpoint = "https://fapi.binance.com"
-		}
+		// 如果没有预设端点，这是配置错误
+		logger.Errorf("❌ CRITICAL CONFIGURATION ERROR: No custom endpoint configured for exchange type: %s", exchangeCfg.ExchangeType)
+		logger.Errorf("❌ All real trading accounts must have explicit CustomAPIURL configuration")
+		logger.Errorf("❌ SYSTEM HALT: Missing required CustomAPIURL for exchange type: %s", exchangeCfg.ExchangeType)
+		panic(fmt.Sprintf("Missing required CustomAPIURL configuration for exchange type: %s", exchangeCfg.ExchangeType))
 	}
 
 	// 调试日志：记录确定的交易所端点
@@ -5342,8 +5334,8 @@ func createBinanceTraderWithProxy(userID string, exchangeCfg *store.Exchange) tr
 
 		// 创建交易者实例 - 使用统一的代理函数，不区分实盘/虚拟盘
 		// 真正的路由逻辑由代理服务和目标端点决定
-		logger.Debugf("🔄 Creating NewFuturesTraderViaProxy for account: proxyURL=%s, targetEndpoint=%s", proxyURL, realExchangeEndpoint)
-		originalTrader := trader.NewFuturesTraderViaProxy(string(exchangeCfg.APIKey), string(exchangeCfg.SecretKey), userID, proxyURL, realExchangeEndpoint)
+		logger.Debugf("🔄 Creating NewRealFuturesTraderViaProxy for account: proxyURL=%s, targetEndpoint=%s", proxyURL, realExchangeEndpoint)
+		originalTrader := trader.NewRealFuturesTraderViaProxy(string(exchangeCfg.APIKey), string(exchangeCfg.SecretKey), userID, proxyURL, realExchangeEndpoint)
 
 		logger.Debugf("🔗 [createBinanceTraderWithProxy] NewFuturesTraderViaProxy returned, wrapping with ProxyTraderWrapper")
 		return trader.NewProxyTraderWrapperWithAuth(originalTrader, "proxy", proxyURL, string(exchangeCfg.APIKey), string(exchangeCfg.SecretKey), realExchangeEndpoint)

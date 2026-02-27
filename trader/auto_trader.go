@@ -401,13 +401,15 @@ func NewAutoTrader(config AutoTraderConfig, st *store.Store, userID string) (*Au
 			logger.Infof("🔧 [DEBUG] BinanceCustomAPIURL from config: '%s', targetEndpoint after getBinanceCustomEndpointForAutoTrader: '%s'",
 				config.BinanceCustomAPIURL, targetEndpoint)
 			if targetEndpoint == "" {
-				targetEndpoint = "https://fapi.binance.com" // Always default to mainnet
+				logger.Errorf("❌ CRITICAL ERROR: Empty targetEndpoint after getBinanceCustomEndpointForAutoTrader for real account")
+				logger.Errorf("❌ SYSTEM CONFIGURATION ERROR: Real account must have valid CustomAPIURL")
+				panic("Real account configuration error: empty targetEndpoint after validation")
 			}
 			logger.Infof("🔧 [DEBUG] Final targetEndpoint: '%s'", targetEndpoint)
 
 			// 在代理模式下，创建一个连接到代理服务的交易者实例
-			logger.Infof("🔄 Creating NewFuturesTraderViaProxy for REAL account: proxyURL=%s, targetEndpoint=%s", endpoint, targetEndpoint)
-			originalTrader := NewFuturesTraderViaProxy(config.BinanceAPIKey, config.BinanceSecretKey, userID, endpoint, targetEndpoint)
+			logger.Infof("🔄 Creating NewRealFuturesTraderViaProxy for REAL account: proxyURL=%s, targetEndpoint=%s", endpoint, targetEndpoint)
+			originalTrader := NewRealFuturesTraderViaProxy(config.BinanceAPIKey, config.BinanceSecretKey, userID, endpoint, targetEndpoint)
 			trader = NewProxyTraderWrapperWithAuth(originalTrader, "proxy", os.Getenv("BINANCE_PROXY_URL"), config.BinanceAPIKey, config.BinanceSecretKey, targetEndpoint)
 		} else {
 			endpoint = getBinanceCustomEndpointForAutoTrader(&config)
@@ -420,9 +422,15 @@ func NewAutoTrader(config AutoTraderConfig, st *store.Store, userID string) (*Au
 		}
 	case "binance_demo":
 		logger.Infof("🏦 [%s] Using Binance Futures Demo trading", config.Name)
-		// 对于demo模式，始终使用测试网端点
-		endpoint := validateBinanceDemoEndpoint(config.BinanceCustomAPIURL)
+		// 直接使用已验证的自定义API URL
+		if config.BinanceCustomAPIURL == "" {
+			logger.Errorf("❌ CRITICAL ERROR: Empty BinanceCustomAPIURL for demo account after validation")
+			logger.Errorf("❌ SYSTEM CONFIGURATION ERROR: Demo account must have valid CustomAPIURL")
+			panic("Demo account configuration error: missing required CustomAPIURL after validation")
+		}
+		endpoint := config.BinanceCustomAPIURL
 		targetEndpoint := endpoint
+		logger.Infof("✅ CONFIRMED: Demo account endpoint set to: %s", targetEndpoint)
 
 		// 检查全局代理开关
 		useProxyGlobal := os.Getenv("USE_BINANCE_PROXY") == "true"
@@ -753,13 +761,15 @@ func (at *AutoTrader) RecreateInternalTrader(st *store.Store, userID string) err
 			logger.Infof("🔧 [DEBUG] BinanceCustomAPIURL from config: '%s', targetEndpoint after getBinanceCustomEndpointForAutoTrader: '%s'",
 				at.config.BinanceCustomAPIURL, targetEndpoint)
 			if targetEndpoint == "" {
-				targetEndpoint = "https://fapi.binance.com" // Always default to mainnet
+				logger.Errorf("❌ CRITICAL ERROR: Empty targetEndpoint after getBinanceCustomEndpointForAutoTrader for real account")
+				logger.Errorf("❌ SYSTEM CONFIGURATION ERROR: Real account must have valid CustomAPIURL")
+				panic("Real account configuration error: empty targetEndpoint after validation")
 			}
 			logger.Infof("🔧 [DEBUG] Final targetEndpoint: '%s'", targetEndpoint)
 
 			// 在代理模式下，创建一个连接到代理服务的交易者实例
-			logger.Infof("🔄 Creating NewFuturesTraderViaProxy for REAL account: proxyURL=%s, targetEndpoint=%s", endpoint, targetEndpoint)
-			originalTrader := NewFuturesTraderViaProxy(at.config.BinanceAPIKey, at.config.BinanceSecretKey, userID, endpoint, targetEndpoint)
+			logger.Infof("🔄 Creating NewRealFuturesTraderViaProxy for REAL account: proxyURL=%s, targetEndpoint=%s", endpoint, targetEndpoint)
+			originalTrader := NewRealFuturesTraderViaProxy(at.config.BinanceAPIKey, at.config.BinanceSecretKey, userID, endpoint, targetEndpoint)
 			newTrader = NewProxyTraderWrapperWithAuth(originalTrader, "proxy", os.Getenv("BINANCE_PROXY_URL"), at.config.BinanceAPIKey, at.config.BinanceSecretKey, targetEndpoint)
 		} else {
 			endpoint = getBinanceCustomEndpointForAutoTrader(&at.config)
@@ -772,8 +782,13 @@ func (at *AutoTrader) RecreateInternalTrader(st *store.Store, userID string) err
 		}
 	case "binance_demo":
 		logger.Infof("🏦 [%s] Using Binance Futures Demo trading", at.name)
-		// 对于demo模式，始终使用测试网端点
-		endpoint := validateBinanceDemoEndpoint(at.config.BinanceCustomAPIURL)
+		// 直接使用已验证的自定义API URL
+		if at.config.BinanceCustomAPIURL == "" {
+			logger.Errorf("❌ CRITICAL ERROR: Empty BinanceCustomAPIURL for demo account after validation")
+			logger.Errorf("❌ SYSTEM CONFIGURATION ERROR: Demo account must have valid CustomAPIURL")
+			panic("Demo account configuration error: missing required CustomAPIURL after validation")
+		}
+		endpoint := at.config.BinanceCustomAPIURL
 		targetEndpoint := endpoint
 
 		// 检查全局代理开关
@@ -3885,70 +3900,43 @@ func (at *AutoTrader) GetOpenOrders(symbol string) ([]OpenOrder, error) {
 // getBinanceCustomEndpointForAutoTrader extracts the custom API endpoint for Binance from auto trader config
 func getBinanceCustomEndpointForAutoTrader(config *AutoTraderConfig) string {
 	logger.Debugf("🔗 [getBinanceCustomEndpointForAutoTrader] Input BinanceCustomAPIURL: '%s', Input Config Exchange: '%s'", config.BinanceCustomAPIURL, config.Exchange)
-
-	// 使用统一的EndpointSelector来确定正确的端点
-	endpointSelector := NewEndpointSelector()
-
 	// 对于不同类型的交易所，使用不同的处理逻辑
 	if config.Exchange == "binance_demo" {
-		// 对于虚拟盘交易，使用专门的端点选择器
-		logger.Debugf("🔗 [getBinanceCustomEndpointForAutoTrader] Binance Demo exchange detected, using demo endpoint selector")
+		// 对于虚拟盘交易，使用已验证的端点
+		logger.Debugf("🔗 [getBinanceCustomEndpointForAutoTrader] Binance Demo exchange detected, using validated endpoint")
+
+		// 直接使用已验证的CustomAPIURL，不应出现空值
 		trimmedURL := strings.TrimSpace(config.BinanceCustomAPIURL)
 		if trimmedURL == "" {
-			logger.Debugf("🔗 [getBinanceCustomEndpointForAutoTrader] Demo BinanceCustomAPIURL is empty, using default testnet endpoint")
-			return "https://testnet.binancefuture.com"
+			// 这种情况不应该发生，因为已在trader_manager中验证
+			logger.Errorf("❌ CRITICAL ERROR: Empty BinanceCustomAPIURL for demo account after validation")
+			logger.Errorf("❌ SYSTEM CONFIGURATION ERROR: Demo account must have valid CustomAPIURL")
+			panic("Demo account configuration error: missing required CustomAPIURL after validation")
 		}
-		logger.Debugf("🔗 [getBinanceCustomEndpointForAutoTrader] Calling EndpointSelector.GetBinanceDemoEndpoint with URL: %s", trimmedURL)
-		result := endpointSelector.GetBinanceDemoEndpoint(trimmedURL)
-		logger.Debugf("🔗 [getBinanceCustomEndpointForAutoTrader] Demo EndpointSelector returned: %s", result)
-		return result
+
+		logger.Debugf("🔗 [getBinanceCustomEndpointForAutoTrader] Using validated URL: %s", trimmedURL)
+		return trimmedURL
 	} else if config.Exchange == "binance" {
-		// 对于实盘交易，使用专门的端点选择器
-		logger.Debugf("🔗 [getBinanceCustomEndpointForAutoTrader] Binance Real exchange detected, using mainnet endpoint selector")
-		// 判断条件a：如果CustomAPIURL为空，使用默认主网API
-		if config.BinanceCustomAPIURL == "" {
-			logger.Debugf("🔗 [getBinanceCustomEndpointForAutoTrader] Real BinanceCustomAPIURL is empty, returning default mainnet API")
-			return "https://fapi.binance.com" // 默认主网API URL
-		}
+		// 对于实盘交易，使用已验证的端点
+		logger.Debugf("🔗 [getBinanceCustomEndpointForAutoTrader] Binance Real exchange detected, using validated endpoint")
 
-		// 判断条件b：如果CustomAPIURL不为空且不是空白字符，使用EndpointSelector处理
+		// 直接使用已验证的CustomAPIURL，不应出现空值
 		trimmedURL := strings.TrimSpace(config.BinanceCustomAPIURL)
-		logger.Debugf("🔗 [getBinanceCustomEndpointForAutoTrader] Trimmed URL for real account: '%s'", trimmedURL)
 		if trimmedURL == "" {
-			logger.Debugf("🔗 [getBinanceCustomEndpointForAutoTrader] Trimmed URL is empty, returning default mainnet API")
-			return "https://fapi.binance.com" // 默认主网API URL
+			// 这种情况不应该发生，因为已在trader_manager中验证
+			logger.Errorf("❌ CRITICAL ERROR: Empty BinanceCustomAPIURL for real account after validation")
+			logger.Errorf("❌ SYSTEM CONFIGURATION ERROR: Real account must have valid CustomAPIURL")
+			panic("Real account configuration error: missing required CustomAPIURL")
 		}
 
-		// 判断条件c：检查是否为本地代理地址（localhost或127.0.0.1）
-		isLocalhost := strings.Contains(trimmedURL, "://localhost:") ||
-			strings.Contains(trimmedURL, "://127.0.0.1:")
-		logger.Debugf("🔗 [getBinanceCustomEndpointForAutoTrader] Is localhost URL for real account: %t", isLocalhost)
-
-		// 判断条件d：如果是本地代理地址，使用默认主网API
-		if isLocalhost {
-			logger.Debugf("🔗 [getBinanceCustomEndpointForAutoTrader] Real account URL is localhost, returning default mainnet API")
-			return "https://fapi.binance.com" // 默认主网API URL
-		} else {
-			// 如果不是本地代理地址，使用专门的主网端点选择器
-			logger.Debugf("🔗 [getBinanceCustomEndpointForAutoTrader] Calling EndpointSelector.GetBinanceMainnetEndpoint with URL: %s", trimmedURL)
-			result := endpointSelector.GetBinanceMainnetEndpoint(trimmedURL)
-			logger.Debugf("🔗 [getBinanceCustomEndpointForAutoTrader] Mainnet EndpointSelector returned: %s", result)
-			return result
-		}
+		logger.Debugf("🔗 [getBinanceCustomEndpointForAutoTrader] Using validated URL: %s", trimmedURL)
+		return trimmedURL
 	} else {
-		// 对于其他类型的交易所，返回默认主网API
-		logger.Debugf("🔗 [getBinanceCustomEndpointForAutoTrader] Other exchange type, returning default mainnet API")
-		return "https://fapi.binance.com"
+		// 对于其他类型的交易所，必须提供有效的CustomAPIURL
+		logger.Errorf("❌ CRITICAL ERROR: Unsupported exchange type for real trading: %s", config.Exchange)
+		logger.Errorf("❌ SYSTEM CONFIGURATION ERROR: Exchange type must be properly configured")
+		panic(fmt.Sprintf("Unsupported exchange type for real trading: %s", config.Exchange))
 	}
-}
-
-// validateBinanceDemoEndpoint 确保币安虚拟盘使用正确的测试网端点
-func validateBinanceDemoEndpoint(url string) string {
-	// 如果URL为空或不是测试网URL，则返回正确的测试网URL
-	if url == "" || !strings.Contains(url, "testnet.binancefuture.com") {
-		return "https://testnet.binancefuture.com"
-	}
-	return url
 }
 
 // executeUpdateStopLossWithRecord executes update stop loss and records detailed information

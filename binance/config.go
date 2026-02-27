@@ -41,14 +41,6 @@ func NewConfig(apiKey, secretKey string, opts ...ConfigOption) *Config {
 		opt(config)
 	}
 
-	// Auto-detect testnet based on URL
-	isTestnet := strings.Contains(config.BaseURL, "testnet")
-
-	// Set testnet URL if needed
-	if isTestnet && !strings.Contains(config.BaseURL, "testnet") {
-		config.BaseURL = "https://testnet.binancefuture.com"
-	}
-
 	return config
 }
 

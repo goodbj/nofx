@@ -10,6 +10,7 @@ import (
 	"nofx/trader"
 	"os"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 )
@@ -554,6 +555,59 @@ func (tm *TraderManager) verifyEnvironmentVariables() error {
 	return nil
 }
 
+// validateAndCorrectRealAPIURL 验证并修正实盘交易员的API URL
+func validateAndCorrectRealAPIURL(url string) string {
+	trimmedURL := strings.TrimSpace(url)
+
+	// 如果URL为空，使用默认主网地址
+	if trimmedURL == "" {
+		logger.Infof("✅ [URL VALIDATION] Empty URL provided, using default mainnet URL")
+		return "https://fapi.binance.com"
+	}
+
+	// 检查是否为本地代理地址
+	isLocalhost := strings.Contains(trimmedURL, "://localhost:") ||
+		strings.Contains(trimmedURL, "://127.0.0.1:")
+
+	if isLocalhost {
+		logger.Infof("✅ [URL VALIDATION] Localhost proxy URL detected, using default mainnet URL")
+		return "https://fapi.binance.com"
+	}
+
+	// 检查是否包含testnet，如果是则强制修正为主网
+	if strings.Contains(strings.ToLower(trimmedURL), "testnet") {
+		logger.Errorf("❌ [URL VALIDATION] CRITICAL ERROR: Real account cannot use testnet URL: %s", trimmedURL)
+		logger.Errorf("❌ [URL VALIDATION] FORCING mainnet URL: https://fapi.binance.com")
+		return "https://fapi.binance.com"
+	}
+
+	// URL有效，直接返回
+	logger.Infof("✅ [URL VALIDATION] Valid mainnet URL confirmed: %s", trimmedURL)
+	return trimmedURL
+}
+
+// validateAndCorrectDemoAPIURL 验证并修正虚拟盘交易员的API URL
+func validateAndCorrectDemoAPIURL(url string) string {
+	trimmedURL := strings.TrimSpace(url)
+
+	// 如果URL为空，使用默认测试网地址
+	if trimmedURL == "" {
+		logger.Infof("✅ [DEMO URL VALIDATION] Empty URL provided, using default testnet URL")
+		return "https://testnet.binancefuture.com"
+	}
+
+	// 检查是否包含testnet，如果不是则强制修正为测试网
+	if !strings.Contains(strings.ToLower(trimmedURL), "testnet") {
+		logger.Errorf("❌ [DEMO URL VALIDATION] CRITICAL ERROR: Demo account must use testnet URL, got: %s", trimmedURL)
+		logger.Errorf("❌ [DEMO URL VALIDATION] FORCING testnet URL: https://testnet.binancefuture.com")
+		return "https://testnet.binancefuture.com"
+	}
+
+	// URL有效，直接返回
+	logger.Infof("✅ [DEMO URL VALIDATION] Valid testnet URL confirmed: %s", trimmedURL)
+	return trimmedURL
+}
+
 // LoadTradersFromStore loads all traders from store to memory (new API)
 func (tm *TraderManager) LoadTradersFromStore(st *store.Store) error {
 	tm.mu.Lock()
@@ -729,16 +783,31 @@ func (tm *TraderManager) addTraderFromStore(traderCfg *store.Trader, aiModelCfg 
 	case "binance":
 		traderConfig.BinanceAPIKey = string(exchangeCfg.APIKey)
 		traderConfig.BinanceSecretKey = string(exchangeCfg.SecretKey)
-		traderConfig.BinanceCustomAPIURL = exchangeCfg.CustomAPIURL
+
+		// 实盘交易员必须确保使用正确的主网地址
+		originalURL := exchangeCfg.CustomAPIURL
+		finalURL := validateAndCorrectRealAPIURL(originalURL)
+		traderConfig.BinanceCustomAPIURL = finalURL
+
 		traderConfig.Exchange = "binance" // Explicitly set exchange type
-		logger.Infof("🔧 [TRADER MANAGER DEBUG] Setting BinanceCustomAPIURL to: '%s' (from exchangeCfg.CustomAPIURL: '%s') for trader: %s (ExchangeType: %s)",
-			traderConfig.BinanceCustomAPIURL, exchangeCfg.CustomAPIURL, traderCfg.Name, exchangeCfg.ExchangeType)
+		logger.Infof("🔧 [TRADER MANAGER DEBUG] Setting BinanceCustomAPIURL for REAL account:")
+		logger.Infof("   Original URL: '%s'", originalURL)
+		logger.Infof("   Final URL: '%s'", finalURL)
+		logger.Infof("   Trader: %s (ExchangeType: %s)", traderCfg.Name, exchangeCfg.ExchangeType)
 	case "binance_demo":
 		traderConfig.BinanceAPIKey = string(exchangeCfg.APIKey)
 		traderConfig.BinanceSecretKey = string(exchangeCfg.SecretKey)
-		traderConfig.BinanceCustomAPIURL = exchangeCfg.CustomAPIURL // Now this will be used by validation function
-		traderConfig.Exchange = "binance_demo"                      // Explicitly set exchange type
-		logger.Infof("🔧 [TRADER MANAGER DEBUG] Setting Binance Demo with API keys and CustomAPIURL: '%s' for trader: %s (ExchangeType: %s)", exchangeCfg.CustomAPIURL, traderCfg.Name, exchangeCfg.ExchangeType)
+
+		// 虚拟盘交易员必须确保使用正确的测试网地址
+		originalURL := exchangeCfg.CustomAPIURL
+		finalURL := validateAndCorrectDemoAPIURL(originalURL)
+		traderConfig.BinanceCustomAPIURL = finalURL
+
+		traderConfig.Exchange = "binance_demo" // Explicitly set exchange type
+		logger.Infof("🔧 [TRADER MANAGER DEBUG] Setting BinanceCustomAPIURL for DEMO account:")
+		logger.Infof("   Original URL: '%s'", originalURL)
+		logger.Infof("   Final URL: '%s'", finalURL)
+		logger.Infof("   Trader: %s (ExchangeType: %s)", traderCfg.Name, exchangeCfg.ExchangeType)
 	case "bybit":
 		traderConfig.BybitAPIKey = string(exchangeCfg.APIKey)
 		traderConfig.BybitSecretKey = string(exchangeCfg.SecretKey)

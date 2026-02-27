@@ -252,6 +252,13 @@ func NewFuturesTraderViaProxy(apiKey, secretKey, userId, proxyURL, targetEndpoin
 
 	// 创建CustomTransport，将真正的目标端点传递给代理
 	logger.Debugf("🔍 NewFuturesTraderViaProxy - proxyURL: %s, targetEndpoint: %s", proxyURL, targetEndpoint)
+
+	// 验证targetEndpoint是否有效（非空）
+	if targetEndpoint == "" {
+		logger.Errorf("❌ CRITICAL ERROR: Empty targetEndpoint provided to NewFuturesTraderViaProxy")
+		panic("targetEndpoint cannot be empty")
+	}
+
 	logger.Debugf("🔗 [NewFuturesTraderViaProxy] Creating CustomTransport with TargetEndpoint: %s", targetEndpoint)
 	customTransport := &CustomTransport{
 		Transport:      transport,
@@ -296,17 +303,99 @@ func NewFuturesTraderViaProxy(apiKey, secretKey, userId, proxyURL, targetEndpoin
 	return trader
 }
 
-// NewDemoFuturesTraderViaProxy 创建通过代理的期货模拟交易者实例 (专门为虚拟盘设计)
-// proxyURL: 代理服务的URL
-// targetEndpoint: 真正的目标端点 (应为测试网)
-// 已废弃：现在统一使用 NewFuturesTraderViaProxy，不区分实盘/虚拟盘
+// NewDemoFuturesTraderViaProxy 创建虚拟盘交易员通过代理的专用函数
 func NewDemoFuturesTraderViaProxy(apiKey, secretKey, userId, proxyURL, targetEndpoint string) *FuturesTrader {
-	logger.Warnf("⚠️ [NewDemoFuturesTraderViaProxy] Deprecated function called - redirecting to NewFuturesTraderViaProxy")
-	// 为了向后兼容，调用统一的代理函数
-	return NewFuturesTraderViaProxy(apiKey, secretKey, userId, proxyURL, targetEndpoint)
+	logger.Infof("🔄 [NewDemoFuturesTraderViaProxy] Creating DEMO account trader via proxy")
+	logger.Infof("   Proxy URL: %s", proxyURL)
+	logger.Infof("   Target Endpoint: %s", targetEndpoint)
+
+	// 使用已在trader_manager中验证的targetEndpoint，无需额外验证
+	logger.Infof("✅ CONFIRMED: Using validated testnet URL: %s", targetEndpoint)
+
+	// 调用基础的期货交易者创建函数
+	return newFuturesTraderBase(apiKey, secretKey, userId, proxyURL, targetEndpoint)
 }
 
-// Helper function to get API key prefix for debugging
+// newFuturesTraderBase 基础的期货交易者创建函数（内部使用）
+func newFuturesTraderBase(apiKey, secretKey, userId, proxyURL, targetEndpoint string) *FuturesTrader {
+	logger.Debugf("🔗 [newFuturesTraderBase] proxyURL: %s", proxyURL)
+	logger.Debugf("🔗 [newFuturesTraderBase] targetEndpoint: %s", targetEndpoint)
+	logger.Debugf("🔗 [newFuturesTraderBase] Called by UserID: %s, API Key prefix: %s", userId, getAPIKeyPrefix(apiKey))
+
+	var client *futures.Client
+	// 连接到代理URL
+	client = futures.NewClient(apiKey, secretKey)
+	client.BaseURL = proxyURL // 连接到代理
+
+	// Enhance HTTP client with robust network configuration to handle network instability, especially for testnet and restricted networks
+	// Use similar configuration as proxy service for better connectivity
+	transport := &http.Transport{
+		DialContext: (&net.Dialer{
+			Timeout:   30 * time.Second,
+			KeepAlive: 30 * time.Second,
+		}).DialContext,
+		TLSHandshakeTimeout:   30 * time.Second,
+		ResponseHeaderTimeout: 60 * time.Second,
+		ExpectContinueTimeout: 1 * time.Second,
+		MaxIdleConns:          100,
+		MaxIdleConnsPerHost:   10,
+		IdleConnTimeout:       90 * time.Second,
+	}
+
+	// 创建CustomTransport，将真正的目标端点传递给代理
+	logger.Debugf("🔍 newFuturesTraderBase - proxyURL: %s, targetEndpoint: %s", proxyURL, targetEndpoint)
+
+	logger.Debugf("🔗 [newFuturesTraderBase] Creating CustomTransport with TargetEndpoint: %s", targetEndpoint)
+	customTransport := &CustomTransport{
+		Transport:      transport,
+		TargetEndpoint: targetEndpoint, // 真正的目标URL
+	}
+
+	if client.HTTPClient == nil {
+		client.HTTPClient = &http.Client{
+			Transport: customTransport,
+			Timeout:   120 * time.Second, // Increased timeout
+		}
+	} else {
+		client.HTTPClient.Transport = customTransport
+		client.HTTPClient.Timeout = 120 * time.Second // Increased timeout
+	}
+
+	// Sync time to avoid "Timestamp ahead" error
+	syncBinanceServerTime(client)
+
+	// Create precision manager with file-based cache
+	precisionManager := NewFileBasedPrecisionManager(client, filepath.Join("data", "jingdu.json"))
+
+	trader := &FuturesTrader{
+		client:           client,
+		cacheDuration:    30 * time.Second, // 30-second cache for better performance
+		precisionManager: precisionManager,
+	}
+
+	// Set dual-side position mode (Hedge Mode)
+	// This is required because the code uses PositionSide (LONG/SHORT)
+	if err := trader.setDualSidePosition(); err != nil {
+		logger.Infof("⚠️ Failed to set dual-side position mode: %v (ignore this warning if already in dual-side mode)", err)
+	}
+
+	logger.Debugf("🔗 [newFuturesTraderBase] COMPLETED, trader created with TargetEndpoint: %s", targetEndpoint)
+
+	return trader
+}
+
+// NewRealFuturesTraderViaProxy 创建实盘交易员通过代理的专用函数
+func NewRealFuturesTraderViaProxy(apiKey, secretKey, userId, proxyURL, targetEndpoint string) *FuturesTrader {
+	logger.Infof("🔄 [NewRealFuturesTraderViaProxy] Creating REAL account trader via proxy")
+	logger.Infof("   Proxy URL: %s", proxyURL)
+	logger.Infof("   Target Endpoint: %s", targetEndpoint)
+
+	// 使用已在trader_manager中验证的targetEndpoint，无需额外验证
+	logger.Infof("✅ CONFIRMED: Using validated mainnet URL: %s", targetEndpoint)
+
+	// 调用基础的期货交易者创建函数
+	return newFuturesTraderBase(apiKey, secretKey, userId, proxyURL, targetEndpoint)
+}
 func getAPIKeyPrefix(apiKey string) string {
 	if len(apiKey) > 8 {
 		return apiKey[:8] + "..."
