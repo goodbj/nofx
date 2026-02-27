@@ -896,6 +896,18 @@ func (tm *TraderManager) ForceRefreshTrader(traderID string, st *store.Store) er
 			// 如果内部重建失败，仍然继续删除并重新创建整个实例
 		}
 
+		// 重置原交易员的执行状态，防止状态残留影响新交易员
+		// 这对于防止交易员间的执行状态冲突非常重要
+		existingTrader.ResetExecutionState()
+		logger.Debugf("🔄 [ForceRefreshTrader] Reset execution state for old trader %s", traderID)
+
+		// 重置原交易员的连接状态，防止连接池污染
+		// 这对于防止实盘和虚拟盘之间切换时的连接状态污染非常重要
+		// existingTrader.ResetConnectionState() // COMMENTED OUT: Causing disconnection issues
+		// logger.Debugf("🔄 [ForceRefreshTrader] Reset connection state for old trader %s", traderID) // COMMENTED OUT: Causing disconnection issues
+
+		// 删除旧的交易员实例，不需要在此处调用RecreateInternalTrader
+		// 因为我们将在后面重新从数据库加载最新配置创建新实例
 		delete(tm.traders, traderID)
 		logger.Infof("🗑 Removed old trader %s from memory", traderID)
 	}
