@@ -197,3 +197,63 @@ func (es *EndpointSelector) GetProxyURL() string {
 	}
 	return proxyURL
 }
+
+// GetUnifiedBinanceEndpoint 统一的端点选择器，智能判断URL类型并返回合适的端点
+// 不需要知道是实盘还是虚拟盘，只根据URL内容进行处理
+func (es *EndpointSelector) GetUnifiedBinanceEndpoint(customAPIURL string) string {
+	logger.Debugf("🔗 [EndpointSelector.GetUnifiedBinanceEndpoint] Input customAPIURL: '%s'", customAPIURL)
+
+	// 检查是否为代理URL（不包含testnet相关关键词，避免误判）
+	isProxyURL := (strings.Contains(customAPIURL, "localhost") ||
+		strings.Contains(customAPIURL, "127.0.0.1")) &&
+		!strings.Contains(strings.ToLower(customAPIURL), "testnet") &&
+		!strings.Contains(strings.ToLower(customAPIURL), "test")
+
+	logger.Debugf("🔗 [EndpointSelector.GetUnifiedBinanceEndpoint] isProxyURL (excluding testnet URLs): %t", isProxyURL)
+
+	if isProxyURL {
+		logger.Debugf("🔗 [EndpointSelector.GetUnifiedBinanceEndpoint] URL is proxy, determining target based on URL content: %s", customAPIURL)
+		// 如果是代理URL，根据实际的CustomAPIURL来决定目标端点
+		if customAPIURL != "" && (strings.Contains(strings.ToLower(customAPIURL), "testnet") ||
+			strings.Contains(strings.ToLower(customAPIURL), "test")) {
+			logger.Debugf("🔗 [EndpointSelector.GetUnifiedBinanceEndpoint] Proxy URL contains testnet/test, returning testnet endpoint")
+			return "https://testnet.binancefuture.com"
+		}
+		logger.Debugf("🔗 [EndpointSelector.GetUnifiedBinanceEndpoint] Proxy URL does not contain testnet/test, returning mainnet endpoint")
+		return "https://fapi.binance.com"
+	}
+
+	// 如果是直接URL，根据URL内容智能判断
+	logger.Debugf("🔗 [EndpointSelector.GetUnifiedBinanceEndpoint] Processing direct URL: %s", customAPIURL)
+	if customAPIURL != "" {
+		// 检查URL是否包含testnet相关字样
+		containsTestnet := strings.Contains(strings.ToLower(customAPIURL), "testnet") ||
+			strings.Contains(strings.ToLower(customAPIURL), "test")
+
+		logger.Debugf("🔗 [EndpointSelector.GetUnifiedBinanceEndpoint] URL contains testnet/test: %t", containsTestnet)
+
+		// 明确区分是否为官方测试网URL
+		isOfficialTestnet := containsTestnet &&
+			(strings.Contains(customAPIURL, "binancefuture.com") ||
+				strings.Contains(customAPIURL, "binanceus.com"))
+
+		logger.Debugf("🔗 [EndpointSelector.GetUnifiedBinanceEndpoint] Is official testnet URL: %t", isOfficialTestnet)
+
+		if isOfficialTestnet {
+			logger.Debugf("🔗 [EndpointSelector.GetUnifiedBinanceEndpoint] Official testnet URL detected, returning testnet endpoint")
+			return "https://testnet.binancefuture.com"
+		} else if containsTestnet {
+			// 如果URL包含testnet但不是官方测试网URL，返回默认测试网
+			logger.Warnf("⚠️ Non-official testnet-like URL detected: %s, returning default testnet endpoint", customAPIURL)
+			return "https://testnet.binancefuture.com"
+		} else {
+			// 对于非testnet的自定义URL，直接返回
+			logger.Debugf("🔗 [EndpointSelector.GetUnifiedBinanceEndpoint] Non-testnet custom URL, returning as-is: %s", customAPIURL)
+			return customAPIURL
+		}
+	}
+
+	// 默认返回主网API
+	logger.Debugf("🔗 [EndpointSelector.GetUnifiedBinanceEndpoint] CustomAPIURL is empty, returning default mainnet endpoint")
+	return "https://fapi.binance.com"
+}
