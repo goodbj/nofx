@@ -270,9 +270,9 @@ func main() {
 	// Start position sync checker service
 	logger.Info("🔄 启动持仓状态一致性检查服务...")
 	go func() {
-		positionSyncChecker := background.NewPositionSyncChecker(st, traderManager, time.Hour, logger.Log)
+		positionSyncChecker := background.NewPositionSyncChecker(st, traderManager, 6*time.Hour, logger.Log) //改为每6小时检查一次，减少系统压力
 		go positionSyncChecker.Start()
-		logger.Info("✅ 持仓状态检查服务已启动，将每小时自动检查一次")
+		logger.Info("✅ 持仓状态检查服务已启动，将每6小时自动检查一次")
 	}()
 
 	// Start API server
