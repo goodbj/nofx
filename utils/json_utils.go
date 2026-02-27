@@ -198,7 +198,32 @@ func ConvertStringNumbersToJSONNumbers(jsonStr string) (string, error) {
 	}
 
 	//定义需要转换的数字字段
-	numberFields := []string{"leverage", "position_size_usd", "stop_loss", "take_profit", "confidence", "risk_usd", "close_percentage"}
+	numberFields := []string{
+		"leverage",
+		"position_size_usd",
+		"stop_loss",
+		"take_profit",
+		"confidence",
+		"risk_usd",
+		"close_percentage",
+		// 新增的止损止盈字段
+		"new_stop_loss",
+		"new_take_profit",
+		//动态交易参数
+		"trail_percentage",
+		"callback_rate",
+		"target_roi",
+		"max_roi",
+		"time_limit_hours",
+		"max_drawdown",
+		"min_target_profit",
+		"max_position_usd",
+		"max_daily_loss",
+		// 加仓参数
+		"additional_position_size_usd",
+		//价格
+		"activation_price",
+	}
 
 	//处理每个决策对象
 	for _, decision := range decisions {
