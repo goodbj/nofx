@@ -1135,7 +1135,7 @@ func (at *AutoTrader) runCycle() error {
 			Success:    false,
 
 			// Additional parameters for advanced action types
-			NewStopLoss:               func() float64 { val, _ := d.GetNewStopLoss(); return val }(),
+			NewStopLoss:               d.NewStopLoss,
 			NewTakeProfit:             d.NewTakeProfit,
 			ClosePercentage:           d.ClosePercentage,
 			TrailPercentage:           d.TrailPercentage,
@@ -1627,7 +1627,7 @@ func (at *AutoTrader) ExecuteDecision(d *kernel.Decision) error {
 		Reasoning:  d.Reasoning,
 
 		// Additional parameters for advanced action types
-		NewStopLoss:               func() float64 { val, _ := d.GetNewStopLoss(); return val }(),
+		NewStopLoss:               d.NewStopLoss,
 		NewTakeProfit:             d.NewTakeProfit,
 		ClosePercentage:           d.ClosePercentage,
 		TrailPercentage:           d.TrailPercentage,
@@ -4036,12 +4036,6 @@ func (at *AutoTrader) executeUpdateStopLossWithRecord(decision *kernel.Decision,
 
 	logger.Debugf("🔍 使用AI指定的仓位方向: side=%s", side)
 
-	//🔧型转换：处理new_stop_loss可能为字符串的情况
-	newStopLossPrice, err := decision.GetNewStopLoss()
-	if err != nil {
-		return fmt.Errorf("failed to parse new_stop_loss: %w", err)
-	}
-
 	// Get current market price for reference
 	marketData, err := market.Get(decision.Symbol)
 	if err != nil {
@@ -4049,6 +4043,7 @@ func (at *AutoTrader) executeUpdateStopLossWithRecord(decision *kernel.Decision,
 	}
 
 	// Use current market price if new stop loss price is 0
+	newStopLossPrice := decision.NewStopLoss
 	if newStopLossPrice == 0 && marketData != nil {
 		newStopLossPrice = marketData.CurrentPrice
 		logger.Infof("  💡 Using current market price as stop loss price: %.4f", newStopLossPrice)
@@ -4080,12 +4075,12 @@ func (at *AutoTrader) executeUpdateStopLossWithRecord(decision *kernel.Decision,
 			Type:            "STOP_MARKET", // Or STOP_LIMIT depending on implementation
 			Side:            "STOP_LOSS",
 			Quantity:        qtyFloat,
-			Price:           func() float64 { val, _ := decision.GetNewStopLoss(); return val }(), // Target stop loss price
-			Status:          "UPDATED",                                                            // Status indicating the stop loss was updated
-			FilledQuantity:  0,                                                                    // Not filled yet, just updated
-			AvgFillPrice:    0,                                                                    // Will be filled when triggered
-			Commission:      0,                                                                    // No commission for stop loss updates
-			FilledAt:        0,                                                                    // Will be set when triggered
+			Price:           decision.NewStopLoss, // Target stop loss price
+			Status:          "UPDATED",            // Status indicating the stop loss was updated
+			FilledQuantity:  0,                    // Not filled yet, just updated
+			AvgFillPrice:    0,                    // Will be filled when triggered
+			Commission:      0,                    // No commission for stop loss updates
+			FilledAt:        0,                    // Will be set when triggered
 			CreatedAt:       time.Now().UTC().UnixMilli(),
 			UpdatedAt:       time.Now().UTC().UnixMilli(),
 		}
