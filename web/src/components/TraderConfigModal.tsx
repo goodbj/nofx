@@ -18,6 +18,7 @@ function getShortName(fullName: string): string {
 // 交易所注册链接配置
 const EXCHANGE_REGISTRATION_LINKS: Record<string, { url: string; hasReferral?: boolean }> = {
   binance: { url: 'https://www.binance.com/join?ref=NOFXENG', hasReferral: true },
+  binance_demo: { url: 'https://demo.binance.com/', hasReferral: false },
   okx: { url: 'https://www.okx.com/join/1865360', hasReferral: true },
   bybit: { url: 'https://partner.bybit.com/b/83856', hasReferral: true },
   hyperliquid: { url: 'https://app.hyperliquid.xyz/join/AITRADING', hasReferral: true },

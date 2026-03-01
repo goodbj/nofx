@@ -209,7 +209,7 @@ func NewFuturesTrader(apiKey, secretKey, userId, customEndpoint string) *Futures
 
 	trader := &FuturesTrader{
 		client:           client,
-		cacheDuration:    30 * time.Second, // 30-second cache for better performance
+		cacheDuration:    15 * time.Second, // 15-second cache (original design)
 		precisionManager: precisionManager,
 	}
 
@@ -288,7 +288,7 @@ func NewFuturesTraderViaProxy(apiKey, secretKey, userId, proxyURL, targetEndpoin
 
 	trader := &FuturesTrader{
 		client:           client,
-		cacheDuration:    30 * time.Second, // 30-second cache for better performance
+		cacheDuration:    15 * time.Second, // 15-second cache (original design)
 		precisionManager: precisionManager,
 	}
 
@@ -369,7 +369,7 @@ func newFuturesTraderBase(apiKey, secretKey, userId, proxyURL, targetEndpoint st
 
 	trader := &FuturesTrader{
 		client:           client,
-		cacheDuration:    30 * time.Second, // 30-second cache for better performance
+		cacheDuration:    15 * time.Second, // 15-second cache (original design)
 		precisionManager: precisionManager,
 	}
 

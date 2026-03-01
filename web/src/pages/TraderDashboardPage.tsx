@@ -445,7 +445,8 @@ export function TraderDashboardPage({
         // 仅更新UI显示的倒计时
         if (currentStatus && 'seconds_until_next_scan' in currentStatus && currentStatus.is_running) {
           setNextScanCountdown(currentStatus.seconds_until_next_scan || 0)
-          // 🔥 新增：判断自动扫盘执行状态
+          //🔥 修改：只在真正执行AI运算时才禁用按钮
+          //纯计时状态（nextScanCountdown > 0 且 !is_executing）时按钮应可点击
           setIsAutoScanRunning(currentStatus.is_executing || false)
           // console.debug('🔄倒时显示更新:', currentStatus.seconds_until_next_scan) // 可选调试
         } else {
@@ -536,6 +537,27 @@ export function TraderDashboardPage({
     } finally {
       setClosingPosition(null)
     }
+  }
+
+  // 如果traders还未加载完成，显示加载状态
+  if (traders === undefined) {
+    return (
+      <div className="flex items-center justify-center min-h-[60vh] relative z-10">
+        <div className="text-center max-w-md mx-auto px-6">
+          <div className="w-24 h-24 mx-auto mb-6 rounded-full flex items-center justify-center nofx-glass animate-pulse">
+            <Loader2 className="w-12 h-12 text-nofx-blue animate-spin" />
+          </div>
+          <h2 className="text-xl font-bold mb-2 text-nofx-text-main">
+            {language === 'zh' ? '正在加载交易员数据...' : 'Loading Trader Data...'}
+          </h2>
+          <p className="text-base text-nofx-text-muted">
+            {language === 'zh'
+              ? '请稍候，数据加载中...'
+              : 'Please wait, data is loading...'}
+          </p>
+        </div>
+      </div>
+    );
   }
 
   // If API failed with error, show empty state (likely backend not running)
@@ -1687,13 +1709,14 @@ ${promptPreview.user_prompt}`
                 disabled={
                   !selectedTraderId ||
                   isManualDecisionLoading ||
+                  manualScanCooldown ||
                   isAutoScanRunning ||
                   !status?.is_running
                 }
                 className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-all hover:scale-105 active:scale-95 nofx-glass border text-sm ${
                   !selectedTraderId || !status?.is_running
                     ? 'border-nofx-gray/30 text-nofx-gray/50 cursor-not-allowed'
-                    : isAutoScanRunning
+                    : manualScanCooldown || isAutoScanRunning
                       ? 'border-nofx-red/30 text-nofx-red cursor-not-allowed'
                       : 'border-nofx-blue/30 text-nofx-blue hover:bg-nofx-blue/10'
                 } flex items-center gap-1 mr-2`}
@@ -1702,9 +1725,11 @@ ${promptPreview.user_prompt}`
                     ? '请先选择交易员'
                     : !status?.is_running
                       ? '交易员未运行，无法触发扫盘'
-                      : isAutoScanRunning
-                        ? '自动扫盘正在执行中，无法触发立即扫盘'
-                        : '立即触发AI扫盘决策（可跳过倒计时）'
+                      : manualScanCooldown
+                        ? '手动扫描冷却中，请稍后再试'
+                        : isAutoScanRunning
+                          ? '自动扫盘正在执行中，无法触发立即扫盘'
+                          : '立即触发AI扫盘决策（可跳过倒计时）'
                 }
               >
                 {isManualDecisionLoading ? (
@@ -1858,6 +1883,39 @@ ${promptPreview.user_prompt}`
               {allDecisions && allDecisions.length > 0 ? (
                 allDecisions.map((decision) => {
                   const decisionKey = `${decision.trader_id}-${decision.cycle_number}-${decision.timestamp}`;
+                  //强输出调试信息到页面
+                  if (typeof window !== 'undefined') {
+                    console.log('=== TraderDashboardPage traders传递检查 ===');
+                    console.log('decision.trader_id:', decision.trader_id);
+                    console.log('当前traders变量:', traders);
+                    console.log('traders类型:', typeof traders);
+                    console.log('traders是否为数组:', Array.isArray(traders));
+                    console.log('traders长度:', traders?.length);
+                    console.log('traders内容预览:', traders?.slice(0, 2)); //只显示前2个元素
+                    
+                    //强制检查traders传递
+                    if (traders && traders.length > 0) {
+                      console.log('✅ traders数据正常，准备传递给DecisionCard');
+                    } else {
+                      console.error('❌ traders数据异常，无法传递');
+                    }
+                    
+                    //添加传递前的验证
+                    if (traders === undefined) {
+                      console.error('❌ 严重错误：traders变量为undefined，无法传递');
+                    } else if (!Array.isArray(traders)) {
+                      console.error('❌ 严重错误：traders不是数组类型');
+                    } else if (traders.length === 0) {
+                      console.warn('⚠️ traders数组为空');
+                    }
+                    
+                    //检查是否有同名变量覆盖
+                    if (typeof traders === 'undefined') {
+                      console.error('❌ traders变量在map函数中被覆盖或未定义');
+                      console.trace('traders变量追踪');
+                    }
+                  }
+                  
                   return (
                     <DecisionCard
                       key={`${decision.trader_id}-${decision.cycle_number}-${decision.timestamp}`}
@@ -1868,8 +1926,10 @@ ${promptPreview.user_prompt}`
                       expandedState={expandedStates[decisionKey]}
                       onUpdateExpansion={(newState) => updateDecisionExpansion(decisionKey, newState)}
                       exchanges={exchanges}
-                      traderId={selectedTraderId}
-                      traders={traders}
+                      traders={traders}  //保留traders传递（用于其他功能）
+                      traderId={decision.trader_id}  //使用决策记录中的trader_id
+                      exchangeType={undefined}  //让DecisionCard直接使用traders数据
+                      exchangeCustomUrl={undefined}  //让DecisionCard直接使用traders数据
                     />
                   );
                 })
@@ -1881,6 +1941,19 @@ ${promptPreview.user_prompt}`
                   </div>
                   <div className="text-sm">
                     {t('aiDecisionsWillAppear', language)}
+                  </div>
+                  {/*调试信息显示 */}
+                  <div className="mt-4 p-4 bg-yellow-900/20 border border-yellow-500/30 rounded text-left text-xs">
+                    <div className="font-bold text-yellow-300 mb-2">🔧 TraderDashboardPage调试信息:</div>
+                    <div>traders变量类型: {typeof traders}</div>
+                    <div>traders是否为数组: {Array.isArray(traders) ? '是' : '否'}</div>
+                    <div>traders长度: {traders?.length ?? 'undefined'}</div>
+                    <div>traders内容: {traders ? JSON.stringify(traders.slice(0, 2)) : 'undefined'}</div>
+                    <div className="mt-2 p-2 bg-red-900/20 border border-red-500/30 rounded">
+                      <div className="font-bold text-red-300">⚠️ 问题诊断:</div>
+                      <div>如果traders显示正常但DecisionCard中为undefined</div>
+                      <div>说明是React props传递机制问题</div>
+                    </div>
                   </div>
                 </div>
               )}

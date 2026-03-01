@@ -521,37 +521,47 @@ function App() {
             ) : currentPage === 'auto-login-test' ? (
               <AutoLoginTestPage />
             ) : (
-              <TraderDashboardPage
-                selectedTrader={selectedTrader}
-                status={status}
-                account={account}
-                positions={positions}
-                decisions={decisions}
-                decisionsLimit={decisionsLimit}
-                onDecisionsLimitChange={setDecisionsLimit}
-                stats={stats}
-                lastUpdate={lastUpdate}
-                language={language}
-                traders={traders}
-                tradersError={tradersError}
-                selectedTraderId={selectedTraderId}
-                onTraderSelect={(traderId) => {
-                  setSelectedTraderId(traderId)
-                  // 更新 URL 参数（使用 slug: name-id前4位）
-                  const trader = traders?.find(t => t.trader_id === traderId)
-                  if (trader) {
-                    const url = new URL(window.location.href)
-                    url.searchParams.set('trader', getTraderSlug(trader))
-                    window.history.replaceState({}, '', url.toString())
-                  }
-                }}
-                onNavigateToTraders={() => {
-                  window.history.pushState({}, '', '/traders')
-                  setRoute('/traders')
-                  setCurrentPage('traders')
-                }}
-                exchanges={exchanges}
-              />
+              <>
+                {/*调试信息 */}
+                {(() => {
+                  console.log('=== App.tsx调试信息 ===');
+                  console.log('traders:', traders);
+                  console.log('traders类型:', typeof traders);
+                  console.log('traders长度:', traders?.length);
+                  return null;
+                })()}
+                <TraderDashboardPage
+                  selectedTrader={selectedTrader}
+                  status={status}
+                  account={account}
+                  positions={positions}
+                  decisions={decisions}
+                  decisionsLimit={decisionsLimit}
+                  onDecisionsLimitChange={setDecisionsLimit}
+                  stats={stats}
+                  lastUpdate={lastUpdate}
+                  language={language}
+                  traders={traders}
+                  tradersError={tradersError}
+                  selectedTraderId={selectedTraderId}
+                  onTraderSelect={(traderId) => {
+                    setSelectedTraderId(traderId)
+                    // 更新 URL 参数（使用 slug: name-id前4位）
+                    const trader = traders?.find(t => t.trader_id === traderId)
+                    if (trader) {
+                      const url = new URL(window.location.href)
+                      url.searchParams.set('trader', getTraderSlug(trader))
+                      window.history.replaceState({}, '', url.toString())
+                    }
+                  }}
+                  onNavigateToTraders={() => {
+                    window.history.pushState({}, '', '/traders')
+                    setRoute('/traders')
+                    setCurrentPage('traders')
+                  }}
+                  exchanges={exchanges}
+                />
+              </>
             )}
           </motion.div>
         </AnimatePresence>

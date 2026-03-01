@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import type { DecisionRecord, DecisionAction } from '../types'
 import { t, type Language } from '../i18n/translations'
 
@@ -17,6 +17,12 @@ interface DecisionCardProps {
     enabled: boolean;
     testnet?: boolean;  // 添加testnet标识
   }>;
+  traders?: Array<{
+    trader_id: string;
+    exchange_id?: string;
+    [key: string]: any;
+  }>;
+  traderId?: string;
   expandedState?: {
     showSystemPrompt: boolean;
     showInputPrompt: boolean;
@@ -116,54 +122,67 @@ function openExchangeLink(symbol: string, exchangeType?: string, customUrl?: str
     }
   } else {
     // Determine exchange URL based on exchange type
+    console.log('🔍进默认分支处理');
+    console.log('exchangeType参数:', exchangeType);
+    console.log('exchangeType类型:', typeof exchangeType);
+    console.log('exchangeType.toLowerCase():', exchangeType?.toLowerCase());
+    
     // Check if we can infer testnet from other contextual clues
     const isLikelyTestnet = false; // We can't determine this without explicit config
     
+    console.log('🔍 开始switch判断...');
     switch (exchangeType?.toLowerCase()) {
+      case 'binance_demo':
+        console.log('✅匹到binance_demo分支');
+        exchangeUrl = `https://demo.binance.com/${langCode}/futures/${symbol}`;
+        break;
       case 'binance':
-        // Use appropriate URL based on whether it's likely testnet
-        exchangeUrl = isLikelyTestnet 
-          ? `https://testnet.binancefuture.com/${langCode}/futures/${symbol}` 
-          : `https://www.binance.com/${langCode}/futures/${symbol}`;
+        console.log('✅ 匹配到binance分支');
+        exchangeUrl = `https://www.binance.com/${langCode}/futures/${symbol}`;
         break;
       case 'bybit':
-        // Bybit uses language in URL path or query parameter
+        console.log('✅ 匹配到bybit分支');
         exchangeUrl = isLikelyTestnet 
           ? `https://testnet.bybit.com/trade/futures/${symbol.replace('USDT', '')}-USDT?l=${langCode}`
           : `https://www.bybit.com/${langCode}/trade/futures/${symbol.replace('USDT', '')}-USDT`;
         break;
       case 'okx':
-        // OKX uses language in subdomain or path
+        console.log('✅ 匹配到okx分支');
         exchangeUrl = isLikelyTestnet 
           ? `https://www.okx.com/${langCode}/trade-futures-demo/${symbol.toLowerCase()}`
           : `https://www.okx.com/${langCode}/trade-futures/${symbol.toLowerCase()}`;
         break;
       case 'bitget':
-        // Bitget uses language in query parameter
+        console.log('✅ 匹配到bitget分支');
         exchangeUrl = isLikelyTestnet 
           ? `https://www.bitget.com/futures/${symbol.replace('USDT', '')}_USDT?lng=${langCode}`
           : `https://www.bitget.com/futures/${symbol.replace('USDT', '')}_USDT?lng=${langCode}`;
         break;
       case 'hyperliquid':
-        // Hyperliquid doesn't typically use language codes in URL, but we can add it as a parameter
+        console.log('✅ 匹配到hyperliquid分支');
         exchangeUrl = isLikelyTestnet 
           ? `https://app.hyperliquid.xyz/demo#/${symbol.replace('USDT', '')}?lang=${langCode}`
           : `https://app.hyperliquid.xyz/trade#${symbol.replace('USDT', '')}?lang=${langCode}`;
         break;
       case 'aster':
+        console.log('✅ 匹配到aster分支');
         exchangeUrl = isLikelyTestnet 
           ? `https://test.aster-trade.com/${langCode}/market/${symbol}`
           : `https://aster-trade.com/${langCode}/market/${symbol}`;
         break;
       case 'lighter':
+        console.log('✅ 匹配到lighter分支');
         exchangeUrl = isLikelyTestnet 
           ? `https://test.lighter.trade/${langCode}/markets/${symbol}`
           : `https://lighter.trade/${langCode}/markets/${symbol}`;
         break;
       default:
+        console.log('❌ 未匹配到任何分支，执行默认处理');
+        console.log('交换类型为:', exchangeType);
         // Default to Binance futures mainnet as it's the most common exchange in the codebase
         exchangeUrl = `https://www.binance.com/${langCode}/futures/${symbol}`;
     }
+    console.log('最终生成的链接:', exchangeUrl);
   }
   
   window.open(exchangeUrl, '_blank', 'noopener,noreferrer');
@@ -178,24 +197,71 @@ function getExchangeInfoByTraderId(
     customApiUrl?: string;
     name: string;
     enabled: boolean;
+  }> | undefined,
+  traders: Array<{
+    trader_id: string;
+    exchange_id?: string;
+    [key: string]: any;
   }> | undefined
 ): { exchangeType?: string; customUrl?: string } {
+  console.log('🔄 getExchangeInfoByTraderId调用详情:');
+  console.log('traderId:', traderId);
+  console.log('exchanges参数:', exchanges);
+  console.log('traders参数:', traders);
+
+  //增强参数验证
   if (!exchanges) {
+    console.error('❌ exchanges参数为空');
+    return {};
+  }
+  
+  if (!traders) {
+    console.error('❌ traders参数为空');
+    return {};
+  }
+  
+  if (!Array.isArray(traders)) {
+    console.error('❌ traders不是数组类型:', typeof traders);
+    return {};
+  }
+  
+  if (traders.length === 0) {
+    console.warn('⚠️ traders数组为空');
     return {};
   }
 
-  // Find the exchange associated with the trader
-  // In the system, traderId might match exchange.id or there might be a mapping
-  const exchange = exchanges.find(ex => ex.id === traderId);
-  
+  // First, find the trader to get exchange_id
+  console.log('🔍 查找trader...');
+  const trader = traders.find(t => t.trader_id === traderId);
+  console.log('找到的trader:', trader);
+
+  if (!trader) {
+    console.log('❌ 未找到匹配的trader');
+    console.log('可用的trader_id列表:', traders.map(t => t.trader_id));
+    return {};
+  }
+
+  // Then find the exchange using exchange_id
+  console.log('🔍 查找exchange...');
+  console.log('要查找的exchange_id:', trader.exchange_id);
+  const exchange = exchanges.find(ex => ex.id === trader.exchange_id);
+  console.log('找到的exchange:', exchange);
+
   if (exchange) {
-    return {
+    console.log('✅ 成功找到exchange信息');
+    console.log('exchange_type:', exchange.exchange_type);
+    console.log('customApiUrl:', exchange.customApiUrl);
+    const result = {
       exchangeType: exchange.exchange_type,
       customUrl: exchange.customApiUrl
     };
+    console.log('返回结果:', result);
+    return result;
   }
 
   // If direct match not found, return empty object
+  console.log('❌ 未找到匹配的exchange');
+  console.log('可用的exchange id列表:', exchanges.map(e => ({id: e.id, type: e.exchange_type})));
   return {};
 }
 
@@ -203,7 +269,7 @@ function getExchangeInfoByTraderId(
 // 此函数已被弃用，所有数值变化信息现在都在Trading Details Grid中统一显示
 
 // Single Action Card Component
-function ActionCard({ action, language, onSymbolClick, positions, exchangeType, exchangeCustomUrl, exchanges, traderId }: { action: DecisionAction; language: Language; onSymbolClick?: (symbol: string) => void; positions?: any[]; exchangeType?: string; exchangeCustomUrl?: string; exchanges?: Array<{ id: string; exchange_type: string; customApiUrl?: string; name: string; enabled: boolean; }>; traderId?: string }) {
+function ActionCard({ action, language, onSymbolClick, positions, exchangeType, exchangeCustomUrl, exchanges, traderId, traders }: { action: DecisionAction; language: Language; onSymbolClick?: (symbol: string) => void; positions?: any[]; exchangeType?: string; exchangeCustomUrl?: string; exchanges?: Array<{ id: string; exchange_type: string; customApiUrl?: string; name: string; enabled: boolean; }>; traderId?: string; traders?: Array<{ trader_id: string; exchange_id?: string; [key: string]: any; }> }) {
   const actionConfigs = ACTION_CONFIG(language);
   const config = actionConfigs[action.action] || actionConfigs.wait
   const isLong = action.action.includes('long')
@@ -230,17 +296,55 @@ function ActionCard({ action, language, onSymbolClick, positions, exchangeType, 
           <span 
             className="text-xl cursor-pointer transition-all duration-200 hover:scale-110" 
             onClick={() => {
-              // If exchange info is passed directly, use it
+              //调试信息输出
+              console.log('=== 交易所链接调试信息 ===');
+              console.log('traderId:', traderId);
+              console.log('exchangeType:', exchangeType);
+              console.log('exchangeCustomUrl:', exchangeCustomUrl);
+              console.log('exchanges:', exchanges);
+              console.log('traders:', traders);
+              console.log('traders类型:', typeof traders);
+              console.log('traders是否为数组:', Array.isArray(traders));
+              console.log('traders长度:', traders?.length);
+              
+              //检查是否有直接传递的交易所信息
               if (exchangeType || exchangeCustomUrl) {
+                console.log('使用直接传递的交易所信息');
+                console.log('传递的参数:', { symbol: action.symbol, exchangeType, exchangeCustomUrl, language });
                 openExchangeLink(action.symbol, exchangeType, exchangeCustomUrl, language);
-              } else if (exchanges && traderId) {
-                // Otherwise, get exchange info based on traderId
-                const exchangeInfo = getExchangeInfoByTraderId(traderId, exchanges);
-                openExchangeLink(action.symbol, exchangeInfo.exchangeType, exchangeInfo.customUrl, language);
-              } else {
-                // Fallback to default behavior
-                openExchangeLink(action.symbol, exchangeType, exchangeCustomUrl, language);
+                return;
               }
+              
+              //检查是否有通过traderId获取交易所信息的必要数据
+              if (exchanges && traders && traderId && Array.isArray(traders) && traders.length > 0) {
+                console.log('🔍 开始获取交易所信息...');
+                console.log('traderId:', traderId);
+                console.log('exchanges数组:', exchanges);
+                console.log('traders数组:', traders);
+                
+                const exchangeInfo = getExchangeInfoByTraderId(traderId, exchanges, traders);
+                console.log('✅ 通过traderId获取的交易所信息:', exchangeInfo);
+                console.log('exchangeType:', exchangeInfo.exchangeType);
+                console.log('customUrl:', exchangeInfo.customUrl);
+                
+                console.log('传递给openExchangeLink的参数:', { 
+                  symbol: action.symbol, 
+                  exchangeType: exchangeInfo.exchangeType, 
+                  customUrl: exchangeInfo.customUrl, 
+                  language 
+                });
+                
+                openExchangeLink(action.symbol, exchangeInfo.exchangeType, exchangeInfo.customUrl, language);
+                return;
+              }
+              
+              // 最后的后备方案：使用traderId模式匹配
+              console.log('使用默认行为');
+              // Check if this is a demo trader based on traderId pattern
+              const isDemoTrader = traderId?.includes('demo') || traderId?.includes('test') || traderId?.includes('虚拟');
+              const fallbackExchangeType = isDemoTrader ? 'binance_demo' : 'binance';
+              console.log('根据traderId推断的交易所类型:', fallbackExchangeType);
+              openExchangeLink(action.symbol, fallbackExchangeType, undefined, language);
             }}
             title={`Click to open ${action.symbol} on exchange`}
             style={{ transformOrigin: 'center' }}
@@ -499,7 +603,21 @@ function ActionCard({ action, language, onSymbolClick, positions, exchangeType, 
   )
 }
 
-export function DecisionCard({ decision, language, onSymbolClick, onDelete, exchangeType, exchangeCustomUrl, exchanges, expandedState, onUpdateExpansion }: DecisionCardProps) {
+export function DecisionCard({ decision, language, onSymbolClick, onDelete, exchangeType, exchangeCustomUrl, exchanges, traders, expandedState, onUpdateExpansion }: DecisionCardProps) {
+  //调信息输出
+  console.log('=== DecisionCard组件接收的props ===');
+  console.log('decision.trader_id:', decision.trader_id);
+  console.log('traders prop:', traders);
+  console.log('traders类型:', typeof traders);
+  console.log('traders是否为数组:', Array.isArray(traders));
+  console.log('traders长度:', traders?.length);
+  
+  // 检查traders是否为undefined
+  if (typeof traders === 'undefined') {
+    console.error('❌ DecisionCard接收到的traders是undefined');
+    console.trace('traders prop追踪');
+  }
+  
   // 使用传入的状态，如果没有则使用默认值
   const showSystemPrompt = expandedState?.showSystemPrompt || false;
   const showInputPrompt = expandedState?.showInputPrompt || false;
