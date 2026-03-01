@@ -478,7 +478,14 @@ func fetchMarketDataWithStrategy(ctx *Context, engine *StrategyEngine) error {
 			oiValue := data.OpenInterest.Latest * data.CurrentPrice
 			oiValueInMillions := oiValue / 1_000_000
 
-			// 根据币种来源应用不同的OI阈值
+			// 检查是否启用OI功能
+			if !utils.IsOIFeatureEnabled() {
+				logger.Debugf("⏭️  OI功能已禁用，跳过OI过滤检查 for %s", coin.Symbol)
+				ctx.MarketDataMap[coin.Symbol] = data
+				continue
+			}
+
+			//根据币种来源应用不同的OI阈值
 			var minOI float64
 			if isStaticCoin {
 				// 静态列表中的币种豁免OI过滤
@@ -501,7 +508,14 @@ func fetchMarketDataWithStrategy(ctx *Context, engine *StrategyEngine) error {
 				logger.Debugf("📊 %s OI value: %.2fM (other coin - passed filter)", coin.Symbol, oiValueInMillions)
 			}
 		} else {
-			// 如果OI数据不可用，对于非静态和非OI Top来源的币种跳过
+			// 检查是否启用OI功能
+			if !utils.IsOIFeatureEnabled() {
+				logger.Debugf("⏭️  OI功能已禁用，即使数据缺失也继续处理 %s", coin.Symbol)
+				ctx.MarketDataMap[coin.Symbol] = data
+				continue
+			}
+
+			//如果OI数据不可用，对于非静态和非OI Top来源的币种跳过
 			if !isStaticCoin && !isOITopCoin {
 				logger.Debugf("❌ Skipping %s due to missing OI data (existingPos=%t, xyzAsset=%t, oiNil=%t, zeroPrice=%t, static=%t, oi_top=%t)",
 					coin.Symbol, isExistingPosition, isXyzAsset, data.OpenInterest == nil, data.CurrentPrice <= 0, isStaticCoin, isOITopCoin)
