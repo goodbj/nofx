@@ -390,14 +390,21 @@ function ActionCard({ action, language, onSymbolClick, positions, exchangeType, 
       {/* Trading Details Grid */}
       {(isOpen || isClose || isPartialClose || isTrailingStop || isUpdateStopLoss || isHold || isWait) && (
         <div className="grid grid-cols-4 gap-3 mt-3 pt-3" style={{ borderTop: '1px solid #2B3139' }}>
-          {/* Entry Price or Current Price */}
+          {/* Entry Price or Current Price or P&L Amount */}
           <div className="text-center">
             <div className="text-xs mb-1" style={{ color: '#848E9C' }}>
-              {isOpen ? t('entryPrice', language) : isHold || isWait ? t('currentPrice', language) : t('currentPrice', language)}
+              {isOpen ? t('entryPrice', language) : isClose ? t('profitAmount', language) : isHold || isWait ? t('currentPrice', language) : t('currentPrice', language)}
             </div>
-            <div className="font-mono font-semibold" style={{ color: '#EAECEF' }}>
-              {formatPrice(action.price)}
+            <div className="font-mono font-semibold" style={{ color: isClose && action.realized_pnl !== undefined ? (action.realized_pnl >= 0 ? '#0ECB81' : '#F6465D') : '#EAECEF' }}>
+              {isClose ? 
+                (action.realized_pnl !== undefined ? `${action.realized_pnl >= 0 ? '+' : ''}${action.realized_pnl.toFixed(2)} USDT` : '-') : 
+                formatPrice(action.price)}
             </div>
+            {isClose && action.realized_pnl !== undefined && action.quantity !== undefined && (
+              <div className="text-xs mt-0.5" style={{ color: action.realized_pnl >= 0 ? '#0ECB81' : '#F6465D' }}>
+                {action.realized_pnl >= 0 ? t('profit', language) : t('loss', language)}
+              </div>
+            )}
           </div>
 
           {/* Stop Loss or Profit/Loss or Close Percentage or Wait Time */}
@@ -405,14 +412,15 @@ function ActionCard({ action, language, onSymbolClick, positions, exchangeType, 
             {isClose ? (
               <>
                 <div className="text-xs mb-1" style={{ color: '#0ECB81' }}>
-                  {t('profitAmount', language)}
+                  {t('profitLossRatio', language)}
                 </div>
-                <div className="font-mono font-semibold" style={{ color: action.pnl && action.pnl >= 0 ? '#0ECB81' : '#F6465D' }}>
-                  {action.pnl !== undefined ? `${action.pnl >= 0 ? '+' : ''}${action.pnl.toFixed(2)} USDT` : '-'}
+                <div className="font-mono font-semibold" style={{ color: action.realized_pnl_percentage !== undefined && action.realized_pnl_percentage >= 0 ? '#0ECB81' : '#F6465D' }}>
+                  {action.realized_pnl_percentage !== undefined ? 
+                    `${action.realized_pnl_percentage >= 0 ? '+' : ''}${action.realized_pnl_percentage.toFixed(2)}%` : '-'}
                 </div>
-                {action.pnl && action.quantity && (
+                {action.realized_pnl_percentage !== undefined && (
                   <div className="text-xs mt-0.5" style={{ color: '#848E9C' }}>
-                    {action.pnl >= 0 ? t('profit', language) : t('loss', language)}
+                    {Math.abs(action.realized_pnl_percentage).toFixed(2)}%{t('yieldRatio', language)}
                   </div>
                 )}
               </>
@@ -469,20 +477,19 @@ function ActionCard({ action, language, onSymbolClick, positions, exchangeType, 
             )}
           </div>
 
-          {/* Take Profit or PnL Percentage or Callback Rate or Action Reason */}
+          {/* Take Profit or Entry Price or Callback Rate or Action Reason */}
           <div className="text-center">
             {isClose ? (
               <>
                 <div className="text-xs mb-1" style={{ color: '#0ECB81' }}>
-                  {t('profitLossRatio', language)}
+                  {t('entryPrice', language)}
                 </div>
-                <div className="font-mono font-semibold" style={{ color: action.pnl && action.pnl >= 0 ? '#0ECB81' : '#F6465D' }}>
-                  {action.pnl !== undefined && action.price && action.quantity ? 
-                    `${action.pnl >= 0 ? '+' : ''}${((action.pnl / (action.price * action.quantity)) * 100).toFixed(2)}%` : '-'}
+                <div className="font-mono font-semibold" style={{ color: '#EAECEF' }}>
+                  {formatPrice(action.entry_price)}
                 </div>
-                {action.pnl && action.price && action.quantity && (
-                  <div className="text-xs mt-0.5" style={{ color: '#848E9C' }}>
-                    {Math.abs((action.pnl / (action.price * action.quantity)) * 100).toFixed(2)}%{t('yieldRatio', language)}
+                {action.exit_price && action.entry_price && (
+                  <div className="text-xs mt-0.5" style={{ color: action.realized_pnl !== undefined && action.realized_pnl >= 0 ? '#0ECB81' : '#F6465D' }}>
+                    {calcPctChange(action.entry_price, action.exit_price, isLong)}
                   </div>
                 )}
               </>
@@ -521,13 +528,13 @@ function ActionCard({ action, language, onSymbolClick, positions, exchangeType, 
             )}
           </div>
 
-          {/* Leverage or Quantity or Confidence */}
+          {/* Leverage or Quantity or Confidence or Exit Price */}
           <div className="text-center">
             <div className="text-xs mb-1" style={{ color: '#848E9C' }}>
-              {isOpen ? t('leverage', language) : isHold || isWait ? t('confidence', language) : isUpdateStopLoss ? t('adjustment', language) : t('quantity', language)}
+              {isOpen ? t('leverage', language) : isClose ? t('exitPrice', language) : isHold || isWait ? t('confidence', language) : isUpdateStopLoss ? t('adjustment', language) : t('quantity', language)}
             </div>
-            <div className="font-mono font-semibold" style={{ color: isOpen ? '#F0B90B' : isHold || isWait ? getConfidenceColor(action.confidence) : isUpdateStopLoss ? '#FF9800' : '#EAECEF' }}>
-              {isOpen ? `${action.leverage}x` : isHold || isWait ? `${action.confidence || 0}%` : isUpdateStopLoss ? 
+            <div className="font-mono font-semibold" style={{ color: isOpen ? '#F0B90B' : isClose ? '#EAECEF' : isHold || isWait ? getConfidenceColor(action.confidence) : isUpdateStopLoss ? '#FF9800' : '#EAECEF' }}>
+              {isOpen ? `${action.leverage}x` : isClose ? formatPrice(action.exit_price) : isHold || isWait ? `${action.confidence || 0}%` : isUpdateStopLoss ? 
                 (action.stop_loss && action.new_stop_loss ? 
                   `${action.new_stop_loss > action.stop_loss ? '↑' : '↓'}${Math.abs(((action.new_stop_loss - action.stop_loss) / action.stop_loss) * 100).toFixed(1)}%` : '-') : 
                 (action.quantity !== undefined && action.quantity !== null && action.quantity > 0 ? formatPrice(action.quantity) : '-')}
