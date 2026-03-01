@@ -1795,15 +1795,9 @@ ${promptPreview.user_prompt}`
                           : 'Trader started successfully'
                       )
 
-                      // 立即触发一次轮询（延迟一小段时间确保交易员完全启动）
-                      setTimeout(async () => {
-                        try {
-                          await api.triggerDecision(selectedTraderId)
-                          console.log('✅ 立即轮询已触发')
-                        } catch (error) {
-                          console.error('❌ 立即轮询失败:', error)
-                        }
-                      }, 1000) // 延迟1秒执行
+                      // 立即触发一次轮询可能会与自动运行的周期产生竞争条件，因此注释掉
+                      // 因为startTrader已经启动了自动运行周期，交易员会按设定的时间间隔自动执行决策
+                      // 如果确实需要立即执行，可以等待一段时间让自动周期完成，或通过其他方式实现
                     }
 
                     // 刷新相关数据
