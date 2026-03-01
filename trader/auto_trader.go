@@ -884,6 +884,12 @@ func (at *AutoTrader) ResetExecutionState() {
 	logger.Debugf("🔄 [AutoTrader.ResetExecutionState] Execution state reset for trader %s", at.name)
 }
 
+// UpdateConfig updates the trader configuration without recreating the entire instance
+func (at *AutoTrader) UpdateConfig(newConfig AutoTraderConfig) {
+	at.config = newConfig
+	logger.Debugf("🔄 [AutoTrader.UpdateConfig] Configuration updated for trader %s", at.name)
+}
+
 // runCycle runs one trading cycle (using AI full decision-making)
 // validateDecisionCoins validates that all decision symbols are in the allowed candidate list or are current positions
 func (at *AutoTrader) validateDecisionCoins(decisions []kernel.Decision) error {

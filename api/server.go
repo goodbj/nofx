@@ -1122,10 +1122,67 @@ func (s *Server) handleStartTrader(c *gin.Context) {
 		if isRunning, ok := status["is_running"].(bool); ok && isRunning {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Trader is already running"})
 			return
+		} else {
+			// Trader exists but is stopped - reload latest config and restart the existing instance
+			// This prevents unnecessary recreation of the ticker and maintains proper timing
+			logger.Infof("🔄 Reloading config and restarting stopped trader %s in memory...", traderID)
+
+			// Reload latest config from database
+			fullCfg, err := s.store.Trader().GetFullConfig(userID, traderID)
+			if err != nil {
+				logger.Errorf("❌ Failed to reload trader config for %s: %v", traderID, err)
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to reload trader config"})
+				return
+			}
+
+			// Parse strategy config from the full config
+			var strategyConfig *store.StrategyConfig
+			if fullCfg.Strategy != nil {
+				parsedConfig, err := fullCfg.Strategy.ParseConfig()
+				if err != nil {
+					logger.Errorf("❌ Failed to parse strategy config for %s: %v", traderID, err)
+					c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to parse strategy config"})
+					return
+				}
+				strategyConfig = parsedConfig
+			}
+
+			// Update trader configuration
+			newConfig := trader.AutoTraderConfig{
+				ID:                    fullCfg.Trader.ID,
+				Name:                  fullCfg.Trader.Name,
+				AIModel:               fullCfg.AIModel.Provider,
+				Exchange:              fullCfg.Exchange.ExchangeType,
+				ExchangeID:            fullCfg.Exchange.ID,
+				BinanceAPIKey:         "",
+				BinanceSecretKey:      "",
+				HyperliquidPrivateKey: "",
+				UseQwen:               fullCfg.AIModel.Provider == "qwen",
+				DeepSeekKey:           "",
+				QwenKey:               "",
+				CustomAPIURL:          fullCfg.AIModel.CustomAPIURL,
+				CustomModelName:       fullCfg.AIModel.CustomModelName,
+				ScanInterval:          time.Duration(fullCfg.Trader.ScanIntervalMinutes) * time.Minute,
+				InitialBalance:        fullCfg.Trader.InitialBalance,
+				IsCrossMargin:         fullCfg.Trader.IsCrossMargin,
+				ShowInCompetition:     fullCfg.Trader.ShowInCompetition,
+				StrategyConfig:        strategyConfig,
+			}
+
+			// Update the existing trader's configuration
+			existingTrader.UpdateConfig(newConfig)
+
+			// Restart the trader with updated config
+			go func() {
+				if err := existingTrader.Run(); err != nil {
+					logger.Errorf("❌ Failed to restart trader %s: %v", existingTrader.GetName(), err)
+				}
+			}()
+
+			logger.Infof("▶️  Trader %s restarted successfully with updated config", existingTrader.GetName())
+			c.JSON(http.StatusOK, gin.H{"message": "Trader restarted successfully with updated config"})
+			return
 		}
-		// Trader exists but is stopped - remove from memory to reload fresh config
-		logger.Infof("🔄 Removing stopped trader %s from memory to reload config...", traderID)
-		s.traderManager.RemoveTrader(traderID)
 	}
 
 	// Load trader from database (always reload to get latest config)
