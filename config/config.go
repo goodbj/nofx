@@ -54,6 +54,12 @@ type Config struct {
 	// Set EXPERIENCE_IMPROVEMENT=false to disable
 	ExperienceImprovement bool
 
+	// OI (Open Interest) feature configuration
+	// Enable/disable OI functionality globally
+	EnableOIFeature bool
+	// Minimum OI threshold in millions USD (0 to disable filtering)
+	MinOIThresholdMillions float64
+
 	// Model token limits configuration
 	ModelMaxTokens map[string]int
 
@@ -170,6 +176,25 @@ func LoadConfig() *Config {
 	}
 	if v := os.Getenv("DB_SSLMODE"); v != "" {
 		cfg.DBSSLMode = v
+	}
+
+	// OI Feature Configuration
+	// Enable/disable OI feature globally
+	if v := os.Getenv("ENABLE_OI_FEATURE"); v != "" {
+		cfg.EnableOIFeature = strings.ToLower(v) == "true"
+	} else {
+		cfg.EnableOIFeature = true // Default: enabled
+	}
+
+	// Minimum OI threshold in millions USD
+	if v := os.Getenv("MIN_OI_THRESHOLD_MILLIONS"); v != "" {
+		if threshold, err := strconv.ParseFloat(v, 64); err == nil {
+			cfg.MinOIThresholdMillions = threshold
+		} else {
+			cfg.MinOIThresholdMillions = 15.0 // Default: 15M USD
+		}
+	} else {
+		cfg.MinOIThresholdMillions = 15.0 // Default: 15M USD
 	}
 
 	global = cfg
