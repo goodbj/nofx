@@ -87,6 +87,8 @@ func (s *Server) getAllEnvVariables() []EnvVariable {
 		"NOFX_BACKEND_PORT", "NOFX_FRONTEND_PORT", "NOFX_TIMEZONE",
 		"LOG_LEVEL", "API_SERVER_PORT", "WAIT_BEFORE_DETECTION",
 		"DETECTION_INTERVAL",
+		// OI Feature Configuration
+		"ENABLE_OI_FEATURE", "MIN_OI_THRESHOLD_MILLIONS",
 		// Authentication
 		"JWT_SECRET", "JWT_EXPIRATION_DAYS",
 		// Encryption Keys
@@ -171,6 +173,9 @@ func getEnvDescription(key string) string {
 		"API_SERVER_PORT":       "API server port",
 		"WAIT_BEFORE_DETECTION": "Initial wait time before detection",
 		"DETECTION_INTERVAL":    "Interval between detections",
+		// OI Feature Configuration
+		"ENABLE_OI_FEATURE":         "Enable/disable OI feature globally",
+		"MIN_OI_THRESHOLD_MILLIONS": "Minimum OI threshold in millions USD",
 
 		// Authentication
 		"JWT_SECRET":          "JWT signing secret",
@@ -264,6 +269,8 @@ func getDefaultEnvValue(key string) string {
 		"NOFX_FRONTEND_PORT":               "3300",
 		"NOFX_TIMEZONE":                    "Asia/Shanghai",
 		"LOG_LEVEL":                        "info",
+		"ENABLE_OI_FEATURE":                "true",
+		"MIN_OI_THRESHOLD_MILLIONS":        "15",
 		"JWT_EXPIRATION_DAYS":              "7",
 		"DB_TYPE":                          "sqlite",
 		"DB_PATH":                          "data/data.db",

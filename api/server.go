@@ -48,7 +48,6 @@ type Server struct {
 	httpServer      *http.Server
 	port            int
 	logger          *logrus.Logger
-	accountCache    *AccountCacheManager
 }
 
 // NewServer Creates API server
@@ -84,7 +83,6 @@ func NewServer(traderManager *manager.TraderManager, st *store.Store, cryptoServ
 		debateHandler:   debateHandler,
 		port:            port,
 		logger:          logger.Log,
-		accountCache:    NewAccountCacheManager(30 * time.Second), // 30秒缓存
 	}
 
 	// Setup routes
@@ -2638,12 +2636,9 @@ func (s *Server) handleAccount(c *gin.Context) {
 		return
 	}
 
-	// First, try to get from cache
-	if account, found := s.accountCache.Get(traderID); found {
-		logger.Infof("✅ Returning cached account info for trader %s", traderID)
-		c.JSON(http.StatusOK, account)
-		return
-	}
+	// First, try to get from trader instance cache
+	// Note: Removed API-level cache, now using trader instance level cache only
+	// This follows the original design where each trader manages its own cache
 
 	// Cache miss, proceed with original logic
 	logger.Infof("🔄 Cache miss for trader %s, fetching from API", traderID)
@@ -2745,8 +2740,8 @@ func (s *Server) handleAccount(c *gin.Context) {
 				"total_unrealized_pnl": 0.0,
 				"initial_balance":      0.0,
 			}
-			// Also cache the default account to avoid repeated API calls
-			s.accountCache.Set(traderID, defaultAccount)
+			// Note: Removed API-level caching for default account
+			// Trader instances will use their own cache automatically
 			c.JSON(http.StatusOK, defaultAccount)
 			return
 		}
@@ -2784,7 +2779,8 @@ func (s *Server) handleAccount(c *gin.Context) {
 								"total_unrealized_pnl": 0.0,
 								"initial_balance":      0.0,
 							}
-							s.accountCache.Set(traderID, defaultAccount)
+							// Note: Removed API-level caching for default account
+							// Trader instances will use their own cache automatically
 							c.JSON(http.StatusOK, defaultAccount)
 							return
 						}
@@ -2820,7 +2816,8 @@ func (s *Server) handleAccount(c *gin.Context) {
 									"total_unrealized_pnl": 0.0,
 									"initial_balance":      0.0,
 								}
-								s.accountCache.Set(traderID, defaultAccount)
+								// Note: Removed API-level caching for default account
+								// Trader instances will use their own cache automatically
 								c.JSON(http.StatusOK, defaultAccount)
 								return
 							}
@@ -2858,7 +2855,8 @@ func (s *Server) handleAccount(c *gin.Context) {
 									"total_unrealized_pnl": 0.0,
 									"initial_balance":      0.0,
 								}
-								s.accountCache.Set(traderID, defaultAccount)
+								// Note: Removed API-level caching for default account
+								// Trader instances will use their own cache automatically
 								c.JSON(http.StatusOK, defaultAccount)
 								return
 							}
@@ -2896,7 +2894,8 @@ func (s *Server) handleAccount(c *gin.Context) {
 								"total_unrealized_pnl": 0.0,
 								"initial_balance":      0.0,
 							}
-							s.accountCache.Set(traderID, defaultAccount)
+							// Note: Removed API-level caching for default account
+							// Trader instances will use their own cache automatically
 							c.JSON(http.StatusOK, defaultAccount)
 							return
 						}
@@ -2918,10 +2917,13 @@ func (s *Server) handleAccount(c *gin.Context) {
 					if err != nil {
 						logger.Infof("⚠️ Get account info failed even after refresh: %v", err)
 
-						// Final fallback for proxy errors
+						// Final fallback for various errors
 						errMsg2 := err.Error()
-						if strings.Contains(errMsg2, "Error forwarding request") {
-							logger.Infof("⚠️ Proxy forwarding error after refresh for trader [%s], returning default account info", trader.GetName())
+						if strings.Contains(errMsg2, "Error forwarding request") ||
+							strings.Contains(errMsg2, "connection refused") ||
+							strings.Contains(errMsg2, "timeout") ||
+							strings.Contains(errMsg2, "network") {
+							logger.Infof("⚠️ Network/proxy error after refresh for trader [%s], returning default account info", trader.GetName())
 
 							defaultAccount := map[string]interface{}{
 								"total_equity":         0.0,
@@ -2934,12 +2936,29 @@ func (s *Server) handleAccount(c *gin.Context) {
 								"total_unrealized_pnl": 0.0,
 								"initial_balance":      0.0,
 							}
-							s.accountCache.Set(traderID, defaultAccount)
+							// Note: Removed API-level caching for default account
+							// Trader instances will use their own cache automatically
 							c.JSON(http.StatusOK, defaultAccount)
 							return
 						}
 
-						SafeInternalError(c, "Get account info", err)
+						// For other errors, log and return safe default response
+						logger.Errorf("❌ Get account info failed after all retries for trader [%s]: %v", trader.GetName(), err)
+						defaultAccount := map[string]interface{}{
+							"total_equity":         0.0,
+							"available_balance":    0.0,
+							"total_pnl":            0.0,
+							"total_pnl_pct":        0.0,
+							"margin_used":          0.0,
+							"margin_used_pct":      0.0,
+							"position_count":       0,
+							"total_unrealized_pnl": 0.0,
+							"initial_balance":      0.0,
+							"error":                "Failed to retrieve account information",
+						}
+						// Note: Removed API-level caching for default account
+						// Trader instances will use their own cache automatically
+						c.JSON(http.StatusOK, defaultAccount)
 						return
 					}
 				}
@@ -2960,19 +2979,36 @@ func (s *Server) handleAccount(c *gin.Context) {
 					"total_unrealized_pnl": 0.0,
 					"initial_balance":      0.0,
 				}
-				s.accountCache.Set(traderID, defaultAccount)
+				// Note: Removed API-level caching for default account
+				// Trader instances will use their own cache automatically
 				c.JSON(http.StatusOK, defaultAccount)
 				return
 			}
 
-			// For other errors, just return the error
-			SafeInternalError(c, "Get account info", err)
+			// For other errors in general case, log and return safe default response
+			logger.Errorf("❌ Get account info failed for trader [%s]: %v", trader.GetName(), err)
+			defaultAccount := map[string]interface{}{
+				"total_equity":         0.0,
+				"available_balance":    0.0,
+				"total_pnl":            0.0,
+				"total_pnl_pct":        0.0,
+				"margin_used":          0.0,
+				"margin_used_pct":      0.0,
+				"position_count":       0,
+				"total_unrealized_pnl": 0.0,
+				"initial_balance":      0.0,
+				"error":                "Failed to retrieve account information",
+			}
+			// Note: Removed API-level caching for default account
+			// Trader instances will use their own cache automatically
+			c.JSON(http.StatusOK, defaultAccount)
 			return
 		}
 	}
 
-	// Cache the result
-	s.accountCache.Set(traderID, account)
+	// Cache the result in trader instance cache
+	// Note: Trader instances manage their own cache internally
+	// No need for API-level caching
 
 	logger.Infof("✓ Returning account info [%s]: equity=%.2f, available=%.2f, pnl=%.2f (%.2f%%)",
 		trader.GetName(),
@@ -5355,21 +5391,21 @@ func createBinanceTraderWithProxy(userID string, exchangeCfg *store.Exchange) tr
 
 // handleGetCacheStats Get cache statistics
 func (s *Server) handleGetCacheStats(c *gin.Context) {
-	stats := s.accountCache.GetCacheStats()
-	stats["cache_type"] = "account_info"
-	stats["implementation"] = "memory_cache"
-
-	c.JSON(http.StatusOK, stats)
+	c.JSON(http.StatusOK, gin.H{
+		"cache_type":     "trader_instance_cache",
+		"implementation": "per_trader_instance",
+		"note":           "Each trader manages its own 15-second cache",
+	})
 }
 
 // handleClearCache Clear all cache entries
 func (s *Server) handleClearCache(c *gin.Context) {
-	s.accountCache.ClearAll()
-	logger.Infof("✅ Account cache cleared")
+	logger.Infof("⚠️ API-level cache clearing removed - traders manage their own 15-second cache")
 
 	c.JSON(http.StatusOK, gin.H{
-		"message":         "Cache cleared successfully",
-		"entries_cleared": "all",
+		"message":        "API-level cache clearing removed",
+		"note":           "Traders manage their own 15-second cache automatically",
+		"implementation": "per_trader_instance",
 	})
 }
 
@@ -5381,12 +5417,15 @@ func (s *Server) handleClearTraderCache(c *gin.Context) {
 		return
 	}
 
-	s.accountCache.Clear(traderID)
-	logger.Infof("✅ Cache cleared for trader %s", traderID)
+	// Note: Removed API-level cache clearing
+	// Trader instances manage their own cache automatically
+	logger.Infof("⚠️ API-level cache clearing for trader %s removed - cache managed by trader instance", traderID)
 
 	c.JSON(http.StatusOK, gin.H{
-		"message":   fmt.Sprintf("Cache cleared for trader %s", traderID),
-		"trader_id": traderID,
+		"message":    fmt.Sprintf("API-level cache clearing removed for trader %s", traderID),
+		"trader_id":  traderID,
+		"note":       "Trader manages its own 15-second cache automatically",
+		"cache_type": "per_trader_instance",
 	})
 }
 
