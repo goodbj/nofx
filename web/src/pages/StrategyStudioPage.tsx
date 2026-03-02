@@ -796,6 +796,9 @@ export function StrategyStudioPage() {
         throw new Error(language === 'zh' ? '无效的策略文件' : 'Invalid strategy file')
       }
 
+      // Normalize and fill missing fields in imported config
+      const normalizedConfig = normalizeStrategyConfig(importData.config, language)
+
       // Create new strategy with imported config
       const response = await fetch(`${API_BASE}/api/strategies`, {
         method: 'POST',
@@ -806,7 +809,7 @@ export function StrategyStudioPage() {
         body: JSON.stringify({
           name: `${importData.name} (${language === 'zh' ? '导入' : 'Imported'})`,
           description: importData.description || '',
-          config: importData.config,
+          config: normalizedConfig,
         }),
       })
       if (!response.ok) throw new Error('Failed to import strategy')
@@ -829,6 +832,90 @@ export function StrategyStudioPage() {
     } finally {
       // Reset file input
       event.target.value = ''
+    }
+  }
+
+  // Normalize strategy config - fill missing fields with defaults
+  const normalizeStrategyConfig = (config: Partial<StrategyConfig>, lang: string): StrategyConfig => {
+    const defaultTimeframeCounts: Record<string, number> = {
+      '1m': 120, '3m': 120, '5m': 120, '15m': 80, '30m': 60,
+      '1h': 50, '2h': 40, '4h': 30, '1d': 20, '1w': 10
+    }
+
+    return {
+      language: (config.language || lang) as 'zh' | 'en',
+      coin_source: {
+        source_type: config.coin_source?.source_type || 'ai500',
+        static_coins: config.coin_source?.static_coins || [],
+        excluded_coins: config.coin_source?.excluded_coins || [],
+        use_ai500: config.coin_source?.use_ai500 ?? true,
+        ai500_limit: config.coin_source?.ai500_limit || 10,
+        use_oi_top: config.coin_source?.use_oi_top ?? false,
+        oi_top_limit: config.coin_source?.oi_top_limit || 20,
+      },
+      indicators: {
+        klines: {
+          primary_timeframe: config.indicators?.klines?.primary_timeframe || '5m',
+          primary_count: config.indicators?.klines?.primary_count || 30,
+          longer_timeframe: config.indicators?.klines?.longer_timeframe || '4h',
+          longer_count: config.indicators?.klines?.longer_count || 10,
+          enable_multi_timeframe: config.indicators?.klines?.enable_multi_timeframe ?? true,
+          selected_timeframes: config.indicators?.klines?.selected_timeframes || ['5m', '15m', '1h', '4h'],
+          timeframe_counts: config.indicators?.klines?.timeframe_counts || defaultTimeframeCounts,
+          trading_style_preset: config.indicators?.klines?.trading_style_preset || 'short',
+        },
+        enable_raw_klines: config.indicators?.enable_raw_klines ?? true,
+        enable_ema: config.indicators?.enable_ema ?? false,
+        enable_macd: config.indicators?.enable_macd ?? false,
+        enable_rsi: config.indicators?.enable_rsi ?? false,
+        enable_atr: config.indicators?.enable_atr ?? false,
+        enable_boll: config.indicators?.enable_boll ?? false,
+        enable_volume: config.indicators?.enable_volume ?? true,
+        enable_oi: config.indicators?.enable_oi ?? true,
+        enable_funding_rate: config.indicators?.enable_funding_rate ?? true,
+        ema_periods: config.indicators?.ema_periods || [20, 50],
+        rsi_periods: config.indicators?.rsi_periods || [7, 14],
+        atr_periods: config.indicators?.atr_periods || [14],
+        boll_periods: config.indicators?.boll_periods || [20],
+        external_data_sources: config.indicators?.external_data_sources || [],
+        nofxos_api_key: config.indicators?.nofxos_api_key || '',
+        enable_quant_data: config.indicators?.enable_quant_data ?? true,
+        enable_quant_oi: config.indicators?.enable_quant_oi ?? true,
+        enable_quant_netflow: config.indicators?.enable_quant_netflow ?? true,
+        enable_oi_ranking: config.indicators?.enable_oi_ranking ?? true,
+        oi_ranking_duration: config.indicators?.oi_ranking_duration || '1h',
+        oi_ranking_limit: config.indicators?.oi_ranking_limit || 10,
+        enable_netflow_ranking: config.indicators?.enable_netflow_ranking ?? true,
+        netflow_ranking_duration: config.indicators?.netflow_ranking_duration || '1h',
+        netflow_ranking_limit: config.indicators?.netflow_ranking_limit || 10,
+        enable_price_ranking: config.indicators?.enable_price_ranking ?? true,
+        price_ranking_duration: config.indicators?.price_ranking_duration || '1h,4h,24h',
+        price_ranking_limit: config.indicators?.price_ranking_limit || 10,
+      },
+      risk_control: {
+        max_positions: config.risk_control?.max_positions || 3,
+        btc_eth_max_leverage: config.risk_control?.btc_eth_max_leverage || 5,
+        altcoin_max_leverage: config.risk_control?.altcoin_max_leverage || 5,
+        btc_eth_max_position_value_ratio: config.risk_control?.btc_eth_max_position_value_ratio || 5.0,
+        altcoin_max_position_value_ratio: config.risk_control?.altcoin_max_position_value_ratio || 1.0,
+        max_margin_usage: config.risk_control?.max_margin_usage || 0.9,
+        min_position_size: config.risk_control?.min_position_size || 12,
+        min_risk_reward_ratio: config.risk_control?.min_risk_reward_ratio || 3.0,
+        min_confidence: config.risk_control?.min_confidence || 75,
+        max_daily_trades: config.risk_control?.max_daily_trades || 10,
+        max_hourly_trades: config.risk_control?.max_hourly_trades || 3,
+        max_trades_per_symbol_per_hour: config.risk_control?.max_trades_per_symbol_per_hour || 1,
+        min_hold_time_minutes: config.risk_control?.min_hold_time_minutes || 8,
+        max_loss_per_trade_percent: config.risk_control?.max_loss_per_trade_percent || 3.0,
+        daily_loss_limit_percent: config.risk_control?.daily_loss_limit_percent || 2.0,
+      },
+      custom_prompt: config.custom_prompt || '',
+      prompt_sections: config.prompt_sections || {
+        role_definition: '',
+        trading_frequency: '',
+        entry_standards: '',
+        decision_process: '',
+      },
     }
   }
 

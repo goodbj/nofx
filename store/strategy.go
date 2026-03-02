@@ -261,6 +261,8 @@ func GetDefaultStrategyConfig(lang string) StrategyConfig {
 			RSIPeriods:        []int{7, 14},
 			ATRPeriods:        []int{14},
 			BOLLPeriods:       []int{20},
+			// External data sources
+			ExternalDataSources: []ExternalDataSource{},
 			// NofxOS unified API key
 			NofxOSAPIKey: "cm_568c67eae410d912c54c",
 			// Quant data
@@ -298,6 +300,7 @@ func GetDefaultStrategyConfig(lang string) StrategyConfig {
 			MaxLossPerTradePercent:    3.0, // Maximum loss per trade as percentage
 			DailyLossLimitPercent:     2.0, // Daily loss limit as percentage
 		},
+		CustomPrompt: "", // Custom prompt (optional)
 	}
 
 	if lang == "zh" {
