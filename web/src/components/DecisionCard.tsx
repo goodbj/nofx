@@ -468,7 +468,7 @@ function ActionCard({ action, language, onSymbolClick, positions, exchangeType, 
                 <div className="font-mono font-semibold" style={{ color: '#F6465D' }}>
                   {formatPrice(action.stop_loss)}
                 </div>
-                {action.stop_loss && action.price && (
+                {action.stop_loss !== undefined && action.price !== undefined && (
                   <div className="text-xs mt-0.5" style={{ color: '#848E9C' }}>
                     {calcPctChange(action.price, action.stop_loss, isLong)}
                   </div>
@@ -487,7 +487,7 @@ function ActionCard({ action, language, onSymbolClick, positions, exchangeType, 
                 <div className="font-mono font-semibold" style={{ color: '#EAECEF' }}>
                   {formatPrice(action.entry_price)}
                 </div>
-                {action.exit_price && action.entry_price && (
+                {action.exit_price !== undefined && action.entry_price !== undefined && (
                   <div className="text-xs mt-0.5" style={{ color: action.realized_pnl !== undefined && action.realized_pnl >= 0 ? '#0ECB81' : '#F6465D' }}>
                     {calcPctChange(action.entry_price, action.exit_price, isLong)}
                   </div>
@@ -519,7 +519,7 @@ function ActionCard({ action, language, onSymbolClick, positions, exchangeType, 
                 <div className="font-mono font-semibold" style={{ color: '#0ECB81' }}>
                   {formatPrice(action.take_profit)}
                 </div>
-                {action.take_profit && action.price && (
+                {action.take_profit !== undefined && action.price !== undefined && (
                   <div className="text-xs mt-0.5" style={{ color: '#848E9C' }}>
                     {calcPctChange(action.price, action.take_profit, isLong)}
                   </div>
@@ -534,8 +534,8 @@ function ActionCard({ action, language, onSymbolClick, positions, exchangeType, 
               {isOpen ? t('leverage', language) : isClose ? t('exitPrice', language) : isHold || isWait ? t('confidence', language) : isUpdateStopLoss ? t('adjustment', language) : t('quantity', language)}
             </div>
             <div className="font-mono font-semibold" style={{ color: isOpen ? '#F0B90B' : isClose ? '#EAECEF' : isHold || isWait ? getConfidenceColor(action.confidence) : isUpdateStopLoss ? '#FF9800' : '#EAECEF' }}>
-              {isOpen ? `${action.leverage}x` : isClose ? formatPrice(action.exit_price) : isHold || isWait ? `${action.confidence || 0}%` : isUpdateStopLoss ? 
-                (action.stop_loss && action.new_stop_loss ? 
+              {isOpen ? `${action.leverage}x` : isClose ? formatPrice(action.exit_price) : isHold || isWait ? `${action.confidence !== undefined ? action.confidence : 0}%` : isUpdateStopLoss ? 
+                (action.stop_loss !== undefined && action.new_stop_loss !== undefined ? 
                   `${action.new_stop_loss > action.stop_loss ? '↑' : '↓'}${Math.abs(((action.new_stop_loss - action.stop_loss) / action.stop_loss) * 100).toFixed(1)}%` : '-') : 
                 (action.quantity !== undefined && action.quantity !== null && action.quantity > 0 ? formatPrice(action.quantity) : '-')}
             </div>
@@ -544,7 +544,7 @@ function ActionCard({ action, language, onSymbolClick, positions, exchangeType, 
       )}
 
       {/* Risk/Reward Ratio for open positions */}
-      {isOpen && action.stop_loss && action.take_profit && action.price && (
+      {isOpen && action.stop_loss !== undefined && action.take_profit !== undefined && action.price !== undefined && (
         <div className="mt-3 pt-3 flex items-center justify-between" style={{ borderTop: '1px solid #2B3139' }}>
           <span className="text-xs" style={{ color: '#848E9C' }}>
             {t('riskReward', language)}
