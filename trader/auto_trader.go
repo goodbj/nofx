@@ -155,6 +155,10 @@ type AutoTrader struct {
 	userID                string                 // User ID
 	tradeFrequencyTracker *TradeFrequencyTracker // Tracks trade frequencies for limits
 
+	// Account info cache for API queries during execution
+	cachedAccountInfo      map[string]interface{} // Cached account info
+	cachedAccountInfoTime  time.Time              // Cache timestamp
+	cachedAccountInfoMutex sync.RWMutex           // Cache mutex
 }
 
 // calculateScanDelay 智能计算手动扫描后的延迟时长
@@ -2976,8 +2980,23 @@ func (at *AutoTrader) GetStatus() map[string]interface{} {
 
 // GetAccountInfo gets account information (for API)
 func (at *AutoTrader) GetAccountInfo() (map[string]interface{}, error) {
+	// 🔥 如果交易员正在执行决策周期，优先使用缓存数据避免并发请求交易所API
+	at.executionMutex.Lock()
+	isExecuting := at.isExecuting
+	at.executionMutex.Unlock()
+
+	if isExecuting {
+		logger.Infof("⚠️ [%s] Trader is currently executing, checking cache for account info", at.name)
+	}
+
 	balance, err := at.trader.GetBalance()
 	if err != nil {
+		// 🔥 如果交易员正在执行且获取余额失败，返回缓存的账户信息而不是错误
+		// 这避免了在轮询期间并发请求交易所API导致的限流问题
+		if isExecuting {
+			logger.Warnf("⚠️ [%s] GetBalance failed while executing, returning cached account info: %v", at.name, err)
+			return at.getCachedAccountInfo()
+		}
 		return nil, fmt.Errorf("failed to get balance: %w", err)
 	}
 
@@ -3066,7 +3085,7 @@ func (at *AutoTrader) GetAccountInfo() (map[string]interface{}, error) {
 		marginUsedPct = (totalMarginUsed / totalEquity) * 100
 	}
 
-	return map[string]interface{}{
+	result := map[string]interface{}{
 		// Core fields
 		"total_equity":      totalEquity,           // Account equity = wallet + unrealized
 		"wallet_balance":    totalWalletBalance,    // Wallet balance (excluding unrealized P&L)
@@ -3083,6 +3102,43 @@ func (at *AutoTrader) GetAccountInfo() (map[string]interface{}, error) {
 		"position_count":  len(positions),  // Position count
 		"margin_used":     totalMarginUsed, // Margin used
 		"margin_used_pct": marginUsedPct,   // Margin usage rate
+	}
+
+	// Update cache
+	at.cachedAccountInfoMutex.Lock()
+	at.cachedAccountInfo = result
+	at.cachedAccountInfoTime = time.Now()
+	at.cachedAccountInfoMutex.Unlock()
+
+	return result, nil
+}
+
+// getCachedAccountInfo returns cached account info if available
+func (at *AutoTrader) getCachedAccountInfo() (map[string]interface{}, error) {
+	at.cachedAccountInfoMutex.RLock()
+	defer at.cachedAccountInfoMutex.RUnlock()
+
+	if at.cachedAccountInfo != nil && time.Since(at.cachedAccountInfoTime) < 5*time.Minute {
+		logger.Infof("✓ [%s] Returning cached account info (age: %.1f seconds)", at.name, time.Since(at.cachedAccountInfoTime).Seconds())
+		return at.cachedAccountInfo, nil
+	}
+
+	// Cache expired or not available, return default values
+	logger.Warnf("⚠️ [%s] No valid cache available, returning default account info", at.name)
+	return map[string]interface{}{
+		"total_equity":      0.0,
+		"wallet_balance":    0.0,
+		"unrealized_profit": 0.0,
+		"available_balance": 0.0,
+		"total_pnl":         0.0,
+		"total_pnl_pct":     0.0,
+		"initial_balance":   at.initialBalance,
+		"daily_pnl":         at.dailyPnL,
+		"position_count":    0,
+		"margin_used":       0.0,
+		"margin_used_pct":   0.0,
+		"cached":            true,
+		"cache_age_seconds": time.Since(at.cachedAccountInfoTime).Seconds(),
 	}, nil
 }
 

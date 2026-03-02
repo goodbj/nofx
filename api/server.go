@@ -2710,16 +2710,38 @@ func (s *Server) handleAccount(c *gin.Context) {
 		// Load only this user's traders (this will add the specific trader if it exists)
 		err = s.traderManager.LoadUserTradersFromStore(s.store, userID)
 		if err != nil {
-			logger.Infof("⚠️ Failed to load traders for user %s: %v", userID, err)
-			SafeInternalError(c, "Failed to load traders", err)
+			logger.Warnf("⚠️ Failed to load traders for user %s: %v, returning default account to prevent 500", userID, err)
+			// 返回零值默认账户，避免前端 500 崩溃（SWR 轮询会在下次自动重试）
+			c.JSON(http.StatusOK, map[string]interface{}{
+				"total_equity":         0.0,
+				"available_balance":    0.0,
+				"total_pnl":            0.0,
+				"total_pnl_pct":        0.0,
+				"margin_used":          0.0,
+				"margin_used_pct":      0.0,
+				"position_count":       0,
+				"total_unrealized_pnl": 0.0,
+				"initial_balance":      0.0,
+			})
 			return
 		}
 
 		// Try to get the trader again after loading
 		trader, err = s.traderManager.GetTrader(traderID)
 		if err != nil {
-			logger.Infof("❌ Trader %s still not found after loading user traders: %v", traderID, err)
-			SafeNotFound(c, "Trader not found after loading")
+			logger.Warnf("❌ Trader %s still not found after loading user traders: %v, returning default account", traderID, err)
+			// 返回零值默认账户，避免前端 500 崩溃
+			c.JSON(http.StatusOK, map[string]interface{}{
+				"total_equity":         0.0,
+				"available_balance":    0.0,
+				"total_pnl":            0.0,
+				"total_pnl_pct":        0.0,
+				"margin_used":          0.0,
+				"margin_used_pct":      0.0,
+				"position_count":       0,
+				"total_unrealized_pnl": 0.0,
+				"initial_balance":      0.0,
+			})
 			return
 		}
 	}
@@ -2859,7 +2881,19 @@ func (s *Server) handleAccount(c *gin.Context) {
 							return
 						}
 
-						SafeInternalError(c, "Get account info", err)
+						// 返回零值默认账户，避免前端 500 崩溃
+						logger.Warnf("⚠️ Get account info failed for trader [%s] after retry, returning default account: %v", trader.GetName(), err)
+						c.JSON(http.StatusOK, map[string]interface{}{
+							"total_equity":         0.0,
+							"available_balance":    0.0,
+							"total_pnl":            0.0,
+							"total_pnl_pct":        0.0,
+							"margin_used":          0.0,
+							"margin_used_pct":      0.0,
+							"position_count":       0,
+							"total_unrealized_pnl": 0.0,
+							"initial_balance":      0.0,
+						})
 						return
 					}
 				} else {
@@ -2896,7 +2930,19 @@ func (s *Server) handleAccount(c *gin.Context) {
 								return
 							}
 
-							SafeInternalError(c, "Get account info", err)
+							// 返回零值默认账户，避免前端 500 崩溃
+							logger.Warnf("⚠️ Get account info failed for trader [%s] after refresh, returning default account: %v", trader.GetName(), err)
+							c.JSON(http.StatusOK, map[string]interface{}{
+								"total_equity":         0.0,
+								"available_balance":    0.0,
+								"total_pnl":            0.0,
+								"total_pnl_pct":        0.0,
+								"margin_used":          0.0,
+								"margin_used_pct":      0.0,
+								"position_count":       0,
+								"total_unrealized_pnl": 0.0,
+								"initial_balance":      0.0,
+							})
 							return
 						}
 					} else {
@@ -2904,7 +2950,19 @@ func (s *Server) handleAccount(c *gin.Context) {
 						refreshedTrader, getErr := s.traderManager.GetTrader(traderID)
 						if getErr != nil {
 							logger.Infof("⚠️ Could not get refreshed trader: %v", getErr)
-							SafeInternalError(c, "Get account info", err)
+							// 返回零值默认账户，避免前端 500 崩溃
+							logger.Warnf("⚠️ Could not get refreshed trader [%s], returning default account", trader.GetName())
+							c.JSON(http.StatusOK, map[string]interface{}{
+								"total_equity":         0.0,
+								"available_balance":    0.0,
+								"total_pnl":            0.0,
+								"total_pnl_pct":        0.0,
+								"margin_used":          0.0,
+								"margin_used_pct":      0.0,
+								"position_count":       0,
+								"total_unrealized_pnl": 0.0,
+								"initial_balance":      0.0,
+							})
 							return
 						}
 
@@ -2935,7 +2993,19 @@ func (s *Server) handleAccount(c *gin.Context) {
 								return
 							}
 
-							SafeInternalError(c, "Get account info", err)
+							// 返回零值默认账户，避免前端 500 崩溃
+							logger.Warnf("⚠️ Get account info failed for trader [%s] after all retries, returning default account: %v", trader.GetName(), err)
+							c.JSON(http.StatusOK, map[string]interface{}{
+								"total_equity":         0.0,
+								"available_balance":    0.0,
+								"total_pnl":            0.0,
+								"total_pnl_pct":        0.0,
+								"margin_used":          0.0,
+								"margin_used_pct":      0.0,
+								"position_count":       0,
+								"total_unrealized_pnl": 0.0,
+								"initial_balance":      0.0,
+							})
 							return
 						}
 					}
@@ -2974,7 +3044,19 @@ func (s *Server) handleAccount(c *gin.Context) {
 							return
 						}
 
-						SafeInternalError(c, "Get account info", err)
+						// 返回零值默认账户，避免前端 500 崩溃
+						logger.Warnf("⚠️ Get account info failed for trader [%s] after retry, returning default account: %v", trader.GetName(), err)
+						c.JSON(http.StatusOK, map[string]interface{}{
+							"total_equity":         0.0,
+							"available_balance":    0.0,
+							"total_pnl":            0.0,
+							"total_pnl_pct":        0.0,
+							"margin_used":          0.0,
+							"margin_used_pct":      0.0,
+							"position_count":       0,
+							"total_unrealized_pnl": 0.0,
+							"initial_balance":      0.0,
+						})
 						return
 					}
 				} else {
@@ -2982,7 +3064,19 @@ func (s *Server) handleAccount(c *gin.Context) {
 					refreshedTrader, getErr := s.traderManager.GetTrader(traderID)
 					if getErr != nil {
 						logger.Infof("⚠️ Could not get refreshed trader: %v", getErr)
-						SafeInternalError(c, "Get account info", err)
+						// 返回零值默认账户，避免前端 500 崩溃
+						logger.Warnf("⚠️ Could not get refreshed trader [%s], returning default account", trader.GetName())
+						c.JSON(http.StatusOK, map[string]interface{}{
+							"total_equity":         0.0,
+							"available_balance":    0.0,
+							"total_pnl":            0.0,
+							"total_pnl_pct":        0.0,
+							"margin_used":          0.0,
+							"margin_used_pct":      0.0,
+							"position_count":       0,
+							"total_unrealized_pnl": 0.0,
+							"initial_balance":      0.0,
+						})
 						return
 					}
 
