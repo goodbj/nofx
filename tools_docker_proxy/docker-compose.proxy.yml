@@ -1,0 +1,25 @@
+version: '3.8'
+
+services:
+  nofx-proxy:
+    build:
+      context: .
+      dockerfile: Dockerfile.hot
+      args:
+        - http_proxy=http://docker.for.win.localhost:3128
+        - https_proxy=http://docker.for.win.localhost:3128
+    container_name: tools_docker_proxy
+    ports:
+      - "${PROXY_PORT:-8081}:8081"
+    environment:
+      - PORT=8081
+      - GIN_MODE=debug
+    volumes:
+      - .:/app
+    restart: unless-stopped
+    networks:
+      - nofx-proxy-network
+
+networks:
+  nofx-proxy-network:
+    driver: bridge
