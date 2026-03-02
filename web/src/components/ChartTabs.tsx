@@ -146,8 +146,7 @@ export const ChartTabs = memo(function ChartTabs({ traderId, selectedSymbol, upd
   // console.log('[ChartTabs] rendering, activeTab:', activeTab)
 
   return (
-    <div className={`nofx-glass rounded-lg border border-white/5 relative z-10 w-full flex flex-col transition-all duration-300 ${typeof window !== 'undefined' && window.innerWidth < 768 ? 'h-[500px]' : 'h-[600px]'
-      }`}>
+    <div className={`nofx-glass rounded-lg border border-white/5 relative z-10 w-full flex flex-col transition-all duration-300 ${activeTab === 'kline' ? 'h-[520px]' : 'min-h-0'}`}>
       {/* 
         Premium Professional Toolbar 
         Mobile: Single row, horizontal scroll with gradient mask
@@ -300,7 +299,7 @@ export const ChartTabs = memo(function ChartTabs({ traderId, selectedSymbol, upd
       </div>
 
       {/* Tab Content - Chart autosizes to this container */}
-      <div className="relative flex-1 bg-[#0B0E11]/50 rounded-b-lg overflow-hidden h-full min-h-0">
+      <div className={`relative bg-[#0B0E11]/50 rounded-b-lg ${activeTab === 'kline' ? 'flex-1 overflow-hidden h-full min-h-0' : 'overflow-visible'}`}>
         <AnimatePresence mode="wait">
           {activeTab === 'equity' ? (
             <motion.div
@@ -309,7 +308,7 @@ export const ChartTabs = memo(function ChartTabs({ traderId, selectedSymbol, upd
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               transition={{ duration: 0.2 }}
-              className="h-full w-full absolute inset-0"
+              className="w-full"
             >
               <EquityChart traderId={traderId} embedded />
             </motion.div>
