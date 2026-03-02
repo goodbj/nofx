@@ -2732,13 +2732,30 @@ func (s *Server) handleAccount(c *gin.Context) {
 	if configErr == nil && fullConfig != nil && fullConfig.Exchange != nil && fullConfig.Exchange.CustomAPIURL != "" {
 
 		// 🔥 检查交易员是否正在执行手动扫描，如果是则跳过强制刷新
+		// 或者检查交易员是否正在运行自动轮询，如果是则跳过强制刷新
 		if traderInstance, getErr := s.traderManager.GetTrader(traderID); getErr == nil {
 			status := traderInstance.GetStatus()
+
+			// 检查交易员是否正在执行手动扫描或正在运行自动轮询
+			isExecutingManual := false
+			isRunningAuto := false
+
 			if isExecuting, ok := status["is_executing"].(bool); ok && isExecuting {
+				isExecutingManual = true
+			}
+
+			if isRunning, ok := status["is_running"].(bool); ok && isRunning {
+				isRunningAuto = true
+			}
+
+			if isExecutingManual {
 				logger.Infof("⚠️ Trader %s is currently executing manual scan, skipping force refresh to avoid interruption", traderID)
+			} else if isRunningAuto {
+				logger.Infof("⚠️ Trader %s is currently running automatic polling, skipping force refresh to avoid interrupting scheduled execution", traderID)
 			} else {
-				// NEW: Always force refresh to ensure correct endpoint is used
+				// Only force refresh if trader is neither executing manually nor running automatically
 				// This solves the issue where in-memory trader instances have incorrect configurations
+				// but avoids interrupting active trading operations
 				logger.Infof("🔄 Force refreshing trader %s to ensure correct endpoint configuration", traderID)
 				refreshErr := s.traderManager.ForceRefreshTrader(traderID, s.store)
 				if refreshErr != nil {
