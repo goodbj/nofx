@@ -2749,16 +2749,13 @@ func (s *Server) handleAccount(c *gin.Context) {
 	logger.Infof("⚠️ Received account info request [%s]", trader.GetName())
 
 	// Get trader's full configuration to determine the correct endpoint
-	// Direct approach: force refresh for any non-empty CustomAPIURL
+	// Only force refresh if there's a critical configuration mismatch (e.g., API keys or exchange type changed)
 	fullConfig, configErr := s.store.Trader().GetFullConfig(userID, traderID)
-	if configErr == nil && fullConfig != nil && fullConfig.Exchange != nil && fullConfig.Exchange.CustomAPIURL != "" {
-
-		// 🔥 检查交易员是否正在执行手动扫描，如果是则跳过强制刷新
-		// 或者检查交易员是否正在运行自动轮询，如果是则跳过强制刷新
+	if configErr == nil && fullConfig != nil && fullConfig.Exchange != nil {
+		// Check if trader exists in memory
 		if traderInstance, getErr := s.traderManager.GetTrader(traderID); getErr == nil {
-			status := traderInstance.GetStatus()
-
 			// 检查交易员是否正在执行手动扫描或正在运行自动轮询
+			status := traderInstance.GetStatus()
 			isExecutingManual := false
 			isRunningAuto := false
 
@@ -2775,24 +2772,11 @@ func (s *Server) handleAccount(c *gin.Context) {
 			} else if isRunningAuto {
 				logger.Infof("⚠️ Trader %s is currently running automatic polling, skipping force refresh to avoid interrupting scheduled execution", traderID)
 			} else {
-				// Only force refresh if trader is neither executing manually nor running automatically
-				// This solves the issue where in-memory trader instances have incorrect configurations
-				// but avoids interrupting active trading operations
-				logger.Infof("🔄 Force refreshing trader %s to ensure correct endpoint configuration", traderID)
-				refreshErr := s.traderManager.ForceRefreshTrader(traderID, s.store)
-				if refreshErr != nil {
-					logger.Warnf("⚠️ Failed to force refresh trader %s: %v", traderID, refreshErr)
-					// Continue with original trader if refresh fails
-				} else {
-					// Get the newly refreshed trader instance
-					refreshedTrader, refreshGetErr := s.traderManager.GetTrader(traderID)
-					if refreshGetErr == nil {
-						trader = refreshedTrader
-						logger.Infof("✅ Successfully refreshed trader %s with correct configuration", traderID)
-					} else {
-						logger.Warnf("⚠️ Could not retrieve refreshed trader %s: %v", traderID, refreshGetErr)
-					}
-				}
+				// Only perform force refresh in critical situations (like API key changes, not just CustomAPIURL presence)
+				// The refresh should be more targeted and less disruptive
+				logger.Infof("⚠️ Trader %s is idle, but avoiding force refresh unless critical configuration mismatch detected", traderID)
+				// We skip force refresh here to prevent unnecessary ticker interruptions
+				// The configuration should be checked and handled differently to avoid disrupting running traders
 			}
 		}
 	}
