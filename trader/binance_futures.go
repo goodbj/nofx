@@ -1515,73 +1515,137 @@ func (t *FuturesTrader) PartialClose(symbol string, side string, percentage floa
 	return result, nil
 }
 
-// GetTakeProfitOrders 获取指定符号的所有止盈订单
+// GetTakeProfitOrders 获取指定符号的所有止盈订单（同时查传统订单和Algo订单）
 func (t *FuturesTrader) GetTakeProfitOrders(symbol string) ([]map[string]interface{}, error) {
+	var takeProfitOrders []map[string]interface{}
+
+	// 1. 查传统止盈订单
 	orders, err := t.GetOpenOrders(symbol)
 	if err != nil {
-		return nil, err
-	}
-
-	var takeProfitOrders []map[string]interface{}
-	for _, order := range orders {
-		orderType := order.Type
-		// 🔍 精确识别止盈订单，排除止损订单
-		upperType := strings.ToUpper(orderType)
-		// 只识别止盈类订单，不包括止损订单
-		if strings.Contains(upperType, "TAKE") && !strings.Contains(upperType, "STOP") {
-			// 将OpenOrder转换为map[string]interface{}
-			orderMap := map[string]interface{}{
-				"orderId":      order.OrderID,
-				"symbol":       order.Symbol,
-				"side":         order.Side,
-				"positionSide": order.PositionSide,
-				"type":         order.Type,
-				"price":        order.Price,
-				"stopPrice":    order.StopPrice,
-				"quantity":     order.Quantity,
-				"status":       order.Status,
+		logger.Warnf("⚠️ 获取传统订单失败: %v，继续查询Algo订单", err)
+	} else {
+		for _, order := range orders {
+			orderType := order.Type
+			// 精确识别止盈订单，排除止损订单
+			upperType := strings.ToUpper(orderType)
+			if strings.Contains(upperType, "TAKE") && !strings.Contains(upperType, "STOP") {
+				orderMap := map[string]interface{}{
+					"orderId":      order.OrderID,
+					"symbol":       order.Symbol,
+					"side":         order.Side,
+					"positionSide": order.PositionSide,
+					"type":         order.Type,
+					"price":        order.Price,
+					"stopPrice":    order.StopPrice,
+					"quantity":     order.Quantity,
+					"status":       order.Status,
+				}
+				takeProfitOrders = append(takeProfitOrders, orderMap)
+				logger.Debugf("🔍 识别到传统止盈订单: ID=%s, Type=%s", order.OrderID, order.Type)
 			}
-			takeProfitOrders = append(takeProfitOrders, orderMap)
-			logger.Debugf("🔍 识别到止盈订单: ID=%s, Type=%s", order.OrderID, order.Type)
 		}
 	}
 
-	logger.Infof("📊 找到 %d 个止盈订单用于更新", len(takeProfitOrders))
+	// 2. 查Algo止盈订单（Binance已迁移至Algo API，这是主要的止盈订单来源）
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	algoOrders, algoErr := t.client.NewListOpenAlgoOrdersService().
+		Symbol(symbol).
+		Do(ctx)
+	if algoErr != nil {
+		logger.Warnf("⚠️ 获取Algo订单失败: %v", algoErr)
+	} else {
+		for _, algoOrder := range algoOrders {
+			// 只识别Algo止盈订单，排除止损
+			if algoOrder.OrderType == futures.AlgoOrderTypeTakeProfitMarket || algoOrder.OrderType == futures.AlgoOrderTypeTakeProfit {
+				stopPrice := 0.0
+				if sp, parseErr := strconv.ParseFloat(algoOrder.TriggerPrice, 64); parseErr == nil {
+					stopPrice = sp
+				}
+				algoOrderMap := map[string]interface{}{
+					"algoId":       strconv.FormatInt(algoOrder.AlgoId, 10),
+					"symbol":       algoOrder.Symbol,
+					"side":         string(algoOrder.Side),
+					"positionSide": string(algoOrder.PositionSide),
+					"type":         string(algoOrder.OrderType),
+					"stopPrice":    stopPrice,
+					// price字段兼容旧逻辑的原始价格读取，使用triggerPrice
+					"price": algoOrder.TriggerPrice,
+				}
+				takeProfitOrders = append(takeProfitOrders, algoOrderMap)
+				logger.Debugf("🔍 识别到Algo止盈订单: AlgoID=%d, Type=%s, TriggerPrice=%s",
+					algoOrder.AlgoId, algoOrder.OrderType, algoOrder.TriggerPrice)
+			}
+		}
+	}
+
+	logger.Infof("📊 找到 %d 个止盈订单用于更新（含传统+Algo）", len(takeProfitOrders))
 	return takeProfitOrders, nil
 }
 
-// GetStopLossOrders 获取指定符号的所有止损订单
+// GetStopLossOrders 获取指定符号的所有止损订单（同时查传统订单和Algo订单）
 func (t *FuturesTrader) GetStopLossOrders(symbol string) ([]map[string]interface{}, error) {
+	var stopLossOrders []map[string]interface{}
+
+	// 1. 查传统止损订单
 	orders, err := t.GetOpenOrders(symbol)
 	if err != nil {
-		return nil, err
-	}
-
-	var stopLossOrders []map[string]interface{}
-	for _, order := range orders {
-		orderType := order.Type
-		// 🔍 精确识别止损订单，排除止盈订单
-		upperType := strings.ToUpper(orderType)
-		// 只识别止损类订单，不包括止盈订单
-		if strings.Contains(upperType, "STOP") && !strings.Contains(upperType, "TAKE") {
-			// 将OpenOrder转换为map[string]interface{}
-			orderMap := map[string]interface{}{
-				"orderId":      order.OrderID,
-				"symbol":       order.Symbol,
-				"side":         order.Side,
-				"positionSide": order.PositionSide,
-				"type":         order.Type,
-				"price":        order.Price,
-				"stopPrice":    order.StopPrice,
-				"quantity":     order.Quantity,
-				"status":       order.Status,
+		logger.Warnf("⚠️ 获取传统订单失败: %v，继续查询Algo订单", err)
+	} else {
+		for _, order := range orders {
+			orderType := order.Type
+			// 精确识别止损订单，排除止盈订单
+			upperType := strings.ToUpper(orderType)
+			if strings.Contains(upperType, "STOP") && !strings.Contains(upperType, "TAKE") {
+				orderMap := map[string]interface{}{
+					"orderId":      order.OrderID,
+					"symbol":       order.Symbol,
+					"side":         order.Side,
+					"positionSide": order.PositionSide,
+					"type":         order.Type,
+					"price":        order.Price,
+					"stopPrice":    order.StopPrice,
+					"quantity":     order.Quantity,
+					"status":       order.Status,
+				}
+				stopLossOrders = append(stopLossOrders, orderMap)
+				logger.Debugf("🔍 识别到传统止损订单: ID=%s, Type=%s", order.OrderID, order.Type)
 			}
-			stopLossOrders = append(stopLossOrders, orderMap)
-			logger.Debugf("🔍 识别到止损订单: ID=%s, Type=%s", order.OrderID, order.Type)
 		}
 	}
 
-	logger.Infof("📊 找到 %d 个止损订单用于更新", len(stopLossOrders))
+	// 2. 查Algo止损订单（Binance已迁移至Algo API，这是主要的止损订单来源）
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	algoOrders, algoErr := t.client.NewListOpenAlgoOrdersService().
+		Symbol(symbol).
+		Do(ctx)
+	if algoErr != nil {
+		logger.Warnf("⚠️ 获取Algo订单失败: %v", algoErr)
+	} else {
+		for _, algoOrder := range algoOrders {
+			// 只识别Algo止损订单，排除止盈
+			if algoOrder.OrderType == futures.AlgoOrderTypeStopMarket || algoOrder.OrderType == futures.AlgoOrderTypeStop {
+				stopPrice := 0.0
+				if sp, parseErr := strconv.ParseFloat(algoOrder.TriggerPrice, 64); parseErr == nil {
+					stopPrice = sp
+				}
+				algoOrderMap := map[string]interface{}{
+					"algoId":       strconv.FormatInt(algoOrder.AlgoId, 10),
+					"symbol":       algoOrder.Symbol,
+					"side":         string(algoOrder.Side),
+					"positionSide": string(algoOrder.PositionSide),
+					"type":         string(algoOrder.OrderType),
+					"stopPrice":    stopPrice,
+				}
+				stopLossOrders = append(stopLossOrders, algoOrderMap)
+				logger.Debugf("🔍 识别到Algo止损订单: AlgoID=%d, Type=%s, TriggerPrice=%s",
+					algoOrder.AlgoId, algoOrder.OrderType, algoOrder.TriggerPrice)
+			}
+		}
+	}
+
+	logger.Infof("📊 找到 %d 个止损订单用于更新（含传统+Algo）", len(stopLossOrders))
 	return stopLossOrders, nil
 }
 
@@ -1697,7 +1761,7 @@ func (t *FuturesTrader) UpdateStopLoss(symbol string, positionSide string, newSt
 	}
 
 	// 等待一小段时间确保订单取消完成
-	time.Sleep(500 * time.Millisecond)
+	time.Sleep(800 * time.Millisecond)
 
 	// 4. 设置新的止损订单 ✅（只是当前币种的）
 	logger.Infof("🔒 开始设置新止损: %s -> %.4f", symbol, newStopPrice)
@@ -1705,8 +1769,29 @@ func (t *FuturesTrader) UpdateStopLoss(symbol string, positionSide string, newSt
 	if err != nil {
 		logger.Errorf("❌ 设置新止损失败: %v", err)
 
-		// 检查是否是价格验证错误，如果是，尝试使用修正后的价格
 		errStr := err.Error()
+
+		// 【专项处理】-4130: 仍有同向closePosition止损单存在，强制清除后重试
+		// 这种情况发生在旧止损单是Algo订单但未被成功识别/取消时
+		if strings.Contains(errStr, "-4130") || strings.Contains(errStr, "open stop or take profit order") {
+			logger.Warnf("⚠️ 检测到-4130错误（残留止损单冲突），使用CancelStopLossOrders强制清除并重试...")
+			cancelErr := t.CancelStopLossOrders(symbol)
+			if cancelErr != nil {
+				logger.Warnf("⚠️ 强制清除止损订单出现警告: %v（继续重试）", cancelErr)
+			}
+			// 等待交易所确认取消
+			time.Sleep(1 * time.Second)
+			logger.Infof("🔒 -4130强制清除后重试设置止损: %s -> %.4f", symbol, newStopPrice)
+			err = t.SetStopLoss(symbol, positionSide, currentQty, newStopPrice)
+			if err == nil {
+				logger.Infof("✅ -4130强制清除后重试成功: %s -> %.4f", symbol, newStopPrice)
+				return nil
+			}
+			logger.Errorf("❌ -4130强制清除后仍然失败: %v", err)
+			errStr = err.Error()
+		}
+
+		// 检查是否是价格验证错误，如果是，尝试使用修正后的价格
 		if strings.Contains(errStr, "stop loss price must be above current price") || strings.Contains(errStr, "stop loss price must be below current price") {
 			logger.Infof("⚠️ 检测到止损价格验证错误，尝试使用修正后的价格...")
 
@@ -1838,12 +1923,18 @@ func (t *FuturesTrader) UpdateTakeProfit(symbol string, positionSide string, new
 
 	originalTakeProfitPrice := (*float64)(nil)
 	if len(activeTakeProfitOrders) > 0 {
-		// 保存原始止盈价格用于可能的恢复
-		if priceStr, ok := activeTakeProfitOrders[0]["price"].(string); ok {
-			if originalPrice, err := strconv.ParseFloat(priceStr, 64); err == nil {
+		// 保存原始止盈价格用于可能的恢复（兼容传统订单和Algo订单两种格式）
+		firstOrder := activeTakeProfitOrders[0]
+		if priceStr, ok := firstOrder["price"].(string); ok && priceStr != "" {
+			// Algo订单：price字段是TriggerPrice字符串
+			if originalPrice, err := strconv.ParseFloat(priceStr, 64); err == nil && originalPrice > 0 {
 				originalTakeProfitPrice = &originalPrice
-				logger.Infof("🔒 保存原始止盈价格: %.4f", originalPrice)
+				logger.Infof("🔒 保存原始止盈价格(Algo): %.4f", originalPrice)
 			}
+		} else if stopPrice, ok := firstOrder["stopPrice"].(float64); ok && stopPrice > 0 {
+			// 传统订单：stopPrice字段是float64
+			originalTakeProfitPrice = &stopPrice
+			logger.Infof("🔒 保存原始止盈价格(传统): %.4f", stopPrice)
 		}
 		logger.Infof("🔍 步骤2完成: 发现 %d 个现有止盈订单", len(activeTakeProfitOrders))
 	} else {
@@ -1901,13 +1992,33 @@ func (t *FuturesTrader) UpdateTakeProfit(symbol string, positionSide string, new
 	}
 
 	// 等待一小段时间确保订单取消完成
-	time.Sleep(500 * time.Millisecond)
+	time.Sleep(800 * time.Millisecond)
 
 	// 4. 设置新的止盈订单 ✅（只是当前币种的）
 	logger.Infof("🔒 开始设置新止盈: %s -> %.4f", symbol, newTakeProfitPrice)
 	err = t.SetTakeProfit(symbol, positionSide, currentQty, newTakeProfitPrice)
 	if err != nil {
 		logger.Errorf("❌ 设置新止盈失败: %v", err)
+
+		errStr := err.Error()
+
+		// 【专项处理】-4130: 仍有同向closePosition止盈单存在，强制清除后重试
+		if strings.Contains(errStr, "-4130") || strings.Contains(errStr, "open stop or take profit order") {
+			logger.Warnf("⚠️ 检测到-4130错误（残留止盈单冲突），使用CancelTakeProfitOrders强制清除并重试...")
+			cancelErr := t.CancelTakeProfitOrders(symbol)
+			if cancelErr != nil {
+				logger.Warnf("⚠️ 强制清除止盈订单出现警告: %v（继续重试）", cancelErr)
+			}
+			// 等待交易所确认取消
+			time.Sleep(1 * time.Second)
+			logger.Infof("🔒 -4130强制清除后重试设置止盈: %s -> %.4f", symbol, newTakeProfitPrice)
+			err = t.SetTakeProfit(symbol, positionSide, currentQty, newTakeProfitPrice)
+			if err == nil {
+				logger.Infof("✅ -4130强制清除后重试成功: %s -> %.4f", symbol, newTakeProfitPrice)
+				return nil
+			}
+			logger.Errorf("❌ -4130强制清除后仍然失败: %v", err)
+		}
 
 		// 6. 确认更新完成 🎯（如果更新失败？下达旧订单的修改指令，避免失去保护）
 		if originalTakeProfitPrice != nil {
@@ -1928,35 +2039,46 @@ func (t *FuturesTrader) UpdateTakeProfit(symbol string, positionSide string, new
 	}
 	logger.Infof("✅ 新止盈设置成功: %s -> %.4f", symbol, newTakeProfitPrice)
 
-	// 5. 清理任何残留的旧订单 🗑️（只是当前币种的）
+	// 5. 清理任何残留的旧订单 🗑️（只是当前币种的，同时清理传统订单和Algo订单）
 	// 新止盈设置成功后，再取消任何残留的旧止盈订单
-	activeTakeProfitOrders, err = t.GetTakeProfitOrders(symbol)
+	activeTPOrders, err := t.GetTakeProfitOrders(symbol)
 	if err != nil {
 		logger.Warnf("⚠️ 获取当前止盈订单失败，但仍继续更新: %v", err)
 	}
 
-	if len(activeTakeProfitOrders) > 0 {
-		logger.Infof("🔍 清理可能残留的旧止盈订单...")
-		for _, order := range activeTakeProfitOrders {
-			orderIDStr, ok := order["orderId"].(string)
-			if !ok {
-				continue
-			}
-			orderID, convErr := strconv.ParseInt(orderIDStr, 10, 64)
-			if convErr != nil {
-				continue
-			}
-			// 使用Binance API直接取消订单
-			ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-			defer cancel()
-			_, err := t.client.NewCancelOrderService().
-				Symbol(symbol).
-				OrderID(orderID).
-				Do(ctx)
-			if err != nil {
-				logger.Warnf("⚠️ 取消残留止盈订单 %d 失败: %v", orderID, err)
-			} else {
-				logger.Infof("🗑️ 残留止盈订单 %d 已取消", orderID)
+	if len(activeTPOrders) > 0 {
+		logger.Infof("🔍 清理可能残留的旧止盈订单（%d个）...", len(activeTPOrders))
+		for _, order := range activeTPOrders {
+			// 优先用algoId（Algo订单），其次用orderId（传统订单）
+			if algoIDStr, ok := order["algoId"].(string); ok {
+				algoID, convErr := strconv.ParseInt(algoIDStr, 10, 64)
+				if convErr == nil {
+					ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+					defer cancel()
+					_, err := t.client.NewCancelAlgoOrderService().
+						AlgoID(algoID).
+						Do(ctx)
+					if err != nil {
+						logger.Warnf("⚠️ 取消残留Algo止盈订单 %s 失败: %v", algoIDStr, err)
+					} else {
+						logger.Infof("🗑️ 残留Algo止盈订单 %s 已取消", algoIDStr)
+					}
+				}
+			} else if orderIDStr, ok := order["orderId"].(string); ok {
+				orderID, convErr := strconv.ParseInt(orderIDStr, 10, 64)
+				if convErr == nil {
+					ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+					defer cancel()
+					_, err := t.client.NewCancelOrderService().
+						Symbol(symbol).
+						OrderID(orderID).
+						Do(ctx)
+					if err != nil {
+						logger.Warnf("⚠️ 取消残留传统止盈订单 %d 失败: %v", orderID, err)
+					} else {
+						logger.Infof("🗑️ 残留传统止盈订单 %d 已取消", orderID)
+					}
+				}
 			}
 		}
 	} else {
@@ -2161,6 +2283,32 @@ func (t *FuturesTrader) SetTakeProfit(symbol string, positionSide string, quanti
 	quantityStr, err := t.FormatQuantity(symbol, quantity)
 	if err != nil {
 		return fmt.Errorf("failed to format quantity: %w", err)
+	}
+
+	// 🔍 验证止盈价格方向合理性（与止损方向相反）
+	currentPrice, priceErr := t.GetMarketPrice(symbol)
+	if priceErr != nil {
+		logger.Warnf("⚠️ 无法获取 %s 当前价格用于止盈验证: %v", symbol, priceErr)
+	} else {
+		priceDiff := math.Abs(takeProfitPrice - currentPrice)
+		priceDiffPercent := (priceDiff / currentPrice) * 100
+		logger.Infof("📊 止盈价格验证: %s 当前价格=%.4f, 止盈价格=%.4f, 价差=%.4f (%.2f%%)",
+			symbol, currentPrice, takeProfitPrice, priceDiff, priceDiffPercent)
+
+		// 做多时止盈应该高于当前价格，做空时止盈应该低于当前价格
+		if positionSide == "LONG" && takeProfitPrice <= currentPrice {
+			logger.Errorf("❌ 做多止盈价格设置错误: 止盈价(%.4f) <= 当前价(%.4f)", takeProfitPrice, currentPrice)
+			return fmt.Errorf("long position take profit price must be above current price: tp=%.4f, current=%.4f", takeProfitPrice, currentPrice)
+		}
+		if positionSide == "SHORT" && takeProfitPrice >= currentPrice {
+			logger.Errorf("❌ 做空止盈价格设置错误: 止盈价(%.4f) >= 当前价(%.4f)", takeProfitPrice, currentPrice)
+			return fmt.Errorf("short position take profit price must be below current price: tp=%.4f, current=%.4f", takeProfitPrice, currentPrice)
+		}
+
+		// 检查价差是否过小
+		if priceDiffPercent < 0.1 {
+			logger.Warnf("⚠️ 止盈价格与当前价格过于接近 (%.2f%% < 0.1%%)，可能导致订单立即触发", priceDiffPercent)
+		}
 	}
 
 	// Format price to correct precision
