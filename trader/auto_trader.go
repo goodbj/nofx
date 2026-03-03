@@ -4170,10 +4170,40 @@ func (at *AutoTrader) executeUpdateStopLossWithRecord(decision *kernel.Decision,
 	err = at.trader.UpdateStopLoss(decision.Symbol, side, newStopLossPrice)
 	if err != nil {
 		logger.Errorf("  ❌ Failed to update stop loss for %s: %v", decision.Symbol, err)
-		return fmt.Errorf("failed to update stop loss: %w", err)
+
+		// 【备用止损方案】：主止损更新失败时，尝试从策略配置读取默认止损百分比建立保护
+		// 保证仓位有止损保护，不会因更新失败而裸露敞口
+		if marketData != nil && at.config.StrategyConfig != nil {
+			maxLossPct := at.config.StrategyConfig.RiskControl.MaxLossPerTradePercent
+			if maxLossPct <= 0 {
+				maxLossPct = 3.0 // 默认3%止损
+			}
+			var fallbackStopPrice float64
+			if side == "LONG" {
+				fallbackStopPrice = marketData.CurrentPrice * (1 - maxLossPct/100)
+			} else {
+				fallbackStopPrice = marketData.CurrentPrice * (1 + maxLossPct/100)
+			}
+			logger.Warnf("  ⚠️ 启用备用止损方案: 使用策略默认止损比例 %.1f%%，备用止损价=%.4f (当前价=%.4f)",
+				maxLossPct, fallbackStopPrice, marketData.CurrentPrice)
+
+			fallbackErr := at.trader.UpdateStopLoss(decision.Symbol, side, fallbackStopPrice)
+			if fallbackErr != nil {
+				logger.Errorf("  ❌ 备用止损方案也失败: %v", fallbackErr)
+				// 两种方式都失败，返回原始错误，让上层感知
+				return fmt.Errorf("failed to update stop loss: %w (fallback also failed: %v)", err, fallbackErr)
+			}
+			logger.Infof("  ✅ 备用止损方案成功: %s 止损已设置到 %.4f（%.1f%% 默认止损位）",
+				decision.Symbol, fallbackStopPrice, maxLossPct)
+			// 备用方案成功，将实际止损价更新到记录
+			newStopLossPrice = fallbackStopPrice
+			// 不返回错误，让后续记录正常写入
+		} else {
+			return fmt.Errorf("failed to update stop loss: %w", err)
+		}
 	}
 
-	logger.Infof("  ✓ Stop loss updated successfully for %s to %.4f", decision.Symbol, decision.NewStopLoss)
+	logger.Infof("  ✓ Stop loss updated successfully for %s to %.4f", decision.Symbol, newStopLossPrice)
 
 	// Record the stop loss update action to database
 	if at.store != nil {
@@ -4190,12 +4220,12 @@ func (at *AutoTrader) executeUpdateStopLossWithRecord(decision *kernel.Decision,
 			Type:            "STOP_MARKET", // Or STOP_LIMIT depending on implementation
 			Side:            "STOP_LOSS",
 			Quantity:        qtyFloat,
-			Price:           decision.NewStopLoss, // Target stop loss price
-			Status:          "UPDATED",            // Status indicating the stop loss was updated
-			FilledQuantity:  0,                    // Not filled yet, just updated
-			AvgFillPrice:    0,                    // Will be filled when triggered
-			Commission:      0,                    // No commission for stop loss updates
-			FilledAt:        0,                    // Will be set when triggered
+			Price:           newStopLossPrice, // 记录实际生效的止损价（备用方案时可能与decision.NewStopLoss不同）
+			Status:          "UPDATED",        // Status indicating the stop loss was updated
+			FilledQuantity:  0,                // Not filled yet, just updated
+			AvgFillPrice:    0,                // Will be filled when triggered
+			Commission:      0,                // No commission for stop loss updates
+			FilledAt:        0,                // Will be set when triggered
 			CreatedAt:       time.Now().UTC().UnixMilli(),
 			UpdatedAt:       time.Now().UTC().UnixMilli(),
 		}
