@@ -1922,8 +1922,8 @@ ${promptPreview.user_prompt}`
                       exchanges={exchanges}
                       traders={traders}  //保留traders传递（用于其他功能）
                       traderId={decision.trader_id}  //使用决策记录中的trader_id
-                      exchangeType={undefined}  //让DecisionCard直接使用traders数据
-                      exchangeCustomUrl={undefined}  //让DecisionCard直接使用traders数据
+                      exchangeType={currentExchange?.exchange_type}  //直接传递当前交易所类型
+                      exchangeCustomUrl={currentExchange?.customApiUrl}  //直接传递当前交易所自定义URL
                     />
                   );
                 })
