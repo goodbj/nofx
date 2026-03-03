@@ -732,6 +732,31 @@ func (at *AutoTrader) RecreateInternalTrader(st *store.Store, userID string) err
 	logger.Debugf("🔄 [RecreateInternalTrader] Recreating internal trader for %s (ID: %s)", at.name, at.id)
 	logger.Debugf("🔄 [RecreateInternalTrader] Exchange type: %s, BinanceCustomAPIURL: '%s'", at.config.Exchange, at.config.BinanceCustomAPIURL)
 
+	// If BinanceCustomAPIURL is empty for a binance_demo account, reload it from store
+	// to prevent TargetEndpoint pollution (e.g., using fapi.binance.com instead of testnet)
+	if at.config.BinanceCustomAPIURL == "" && (at.config.Exchange == "binance_demo" || at.config.Exchange == "binance") {
+		logger.Warnf("⚠️ [RecreateInternalTrader] BinanceCustomAPIURL is empty for %s, attempting to reload from store...", at.name)
+		if st != nil && at.config.ExchangeID != "" {
+			exchanges, err := st.Exchange().List(userID)
+			if err == nil {
+				for _, ex := range exchanges {
+					if ex.ID == at.config.ExchangeID {
+						if ex.CustomAPIURL != "" {
+							at.config.BinanceCustomAPIURL = ex.CustomAPIURL
+							logger.Infof("✅ [RecreateInternalTrader] Reloaded BinanceCustomAPIURL from store: '%s'", at.config.BinanceCustomAPIURL)
+						}
+						break
+					}
+				}
+			} else {
+				logger.Warnf("⚠️ [RecreateInternalTrader] Failed to reload exchange from store: %v", err)
+			}
+		}
+		if at.config.BinanceCustomAPIURL == "" {
+			return fmt.Errorf("demo account configuration error: missing required CustomAPIURL after validation")
+		}
+	}
+
 	// 先停止当前的交易员
 	// 注意：这里我们不调用 at.trader.GetStatus() 和 at.trader.Stop()，因为Trader接口没有这些方法
 	// 我们只会在替换时简单地替换实例
@@ -1717,6 +1742,128 @@ func (at *AutoTrader) ExecuteDecision(d *kernel.Decision) error {
 	return nil
 }
 
+// ExecuteExternalDecisions executes a batch of externally-provided decisions using
+// the same pipeline as the automatic polling cycle:
+//   - Step 1: executionMutex (prevents concurrent runs with polling/manual scan)
+//   - Step 2: sortDecisionsByPriority (close first, then open)
+//   - Step 3: validateDecisionCoins (whitelist check)
+//   - Step 4: executeDecisionWithRecord per decision
+//   - Step 5: saveDecision (writes full DecisionRecord to DB)
+//
+// This is the correct entry point for the /test page batch execution.
+func (at *AutoTrader) ExecuteExternalDecisions(decisions []kernel.Decision) ([]map[string]interface{}, error) {
+	startTime := time.Now()
+	logger.Infof("🧪 [%s] External batch execution: %d decisions", at.name, len(decisions))
+
+	// Step 1 — Acquire execution mutex (same guard as TriggerDecision / runCycleWithExecutionLock)
+	at.executionMutex.Lock()
+	if at.isExecuting {
+		at.executionMutex.Unlock()
+		return nil, fmt.Errorf("decision cycle is already executing, please wait for completion")
+	}
+	at.isExecuting = true
+	at.executionMutex.Unlock()
+
+	defer func() {
+		at.executionMutex.Lock()
+		at.isExecuting = false
+		at.executionMutex.Unlock()
+		logger.Infof("🔓 [%s] External batch execution lock released (took %v)", at.name, time.Since(startTime))
+	}()
+
+	// Step 2 — Sort: close positions first, then open (prevents position-stacking overflow)
+	sortedDecisions := sortDecisionsByPriority(decisions)
+
+	// Step 3 — Whitelist validation
+	if err := at.validateDecisionCoins(sortedDecisions); err != nil {
+		logger.Errorf("❌ External batch coin validation failed: %v", err)
+		return nil, fmt.Errorf("decision coin validation failed: %v", err)
+	}
+	logger.Infof("✓ All %d external decisions passed coin validation", len(sortedDecisions))
+
+	// Step 4 — Build a DecisionRecord (mirrors runCycle record structure)
+	record := &store.DecisionRecord{
+		ExecutionLog: []string{},
+		Success:      true,
+	}
+
+	// Step 5 — Execute each decision and collect per-decision results
+	results := make([]map[string]interface{}, 0, len(sortedDecisions))
+	executionErrors := make([]string, 0)
+
+	for i, d := range sortedDecisions {
+		logger.Infof("🧪 [%s] Executing external decision %d/%d: %s %s", at.name, i+1, len(sortedDecisions), d.Action, d.Symbol)
+
+		actionRecord := store.DecisionAction{
+			Action:     d.Action,
+			Symbol:     d.Symbol,
+			Leverage:   d.Leverage,
+			StopLoss:   d.StopLoss,
+			TakeProfit: d.TakeProfit,
+			Confidence: d.Confidence,
+			Reasoning:  d.Reasoning,
+			Timestamp:  time.Now().UTC(),
+			Success:    false,
+
+			NewStopLoss:               d.NewStopLoss,
+			NewTakeProfit:             d.NewTakeProfit,
+			ClosePercentage:           d.ClosePercentage,
+			TrailPercentage:           d.TrailPercentage,
+			CallbackRate:              d.CallbackRate,
+			TargetROI:                 d.TargetROI,
+			MaxROI:                    d.MaxROI,
+			TimeLimitHours:            d.TimeLimitHours,
+			AdditionalPositionSizeUSD: d.AdditionalPositionSizeUSD,
+		}
+
+		result := map[string]interface{}{
+			"index":   i,
+			"symbol":  d.Symbol,
+			"action":  d.Action,
+			"success": false,
+			"error":   "",
+		}
+
+		dCopy := d // avoid loop variable capture
+		if err := at.executeDecisionWithRecord(&dCopy, &actionRecord); err != nil {
+			logger.Errorf("❌ [%s] External decision %d failed (%s %s): %v", at.name, i+1, d.Action, d.Symbol, err)
+			actionRecord.Error = err.Error()
+			actionRecord.Success = false
+			result["error"] = err.Error()
+			record.ExecutionLog = append(record.ExecutionLog, fmt.Sprintf("❌ %s %s failed: %v", d.Symbol, d.Action, err))
+			executionErrors = append(executionErrors, fmt.Sprintf("%s %s: %v", d.Symbol, d.Action, err))
+		} else {
+			logger.Infof("✅ [%s] External decision %d succeeded: %s %s", at.name, i+1, d.Action, d.Symbol)
+			actionRecord.Success = true
+			result["success"] = true
+			record.ExecutionLog = append(record.ExecutionLog, fmt.Sprintf("✓ %s %s succeeded", d.Symbol, d.Action))
+			// Brief delay after successful execution (same as runCycle)
+			time.Sleep(1 * time.Second)
+		}
+
+		record.Decisions = append(record.Decisions, actionRecord)
+		results = append(results, result)
+	}
+
+	// Update overall success flag
+	if len(executionErrors) > 0 {
+		record.Success = false
+		record.ErrorMessage = fmt.Sprintf("外部批量执行部分失败 (%d/%d 决策失败): %s",
+			len(executionErrors), len(sortedDecisions), strings.Join(executionErrors, "; "))
+		logger.Errorf("❌ [%s] External batch execution finished with errors: %s", at.name, record.ErrorMessage)
+	} else {
+		record.Success = true
+		logger.Infof("✅ [%s] All %d external decisions executed successfully (took %v)", at.name, len(sortedDecisions), time.Since(startTime))
+	}
+
+	// Step 6 — Save DecisionRecord to database (same as runCycle step 9)
+	if err := at.saveDecision(record); err != nil {
+		logger.Warnf("⚠ [%s] Failed to save external batch decision record: %v", at.name, err)
+	}
+
+	return results, nil
+}
+
 // TriggerDecision triggers a new decision cycle immediately
 // GenerateFullPrompt generates the complete prompt (System + User) with real-time data
 // but does NOT call the AI. Used for manual copy-paste workflow.
@@ -2348,13 +2495,17 @@ func (at *AutoTrader) executeCloseLongWithRecord(decision *kernel.Decision, acti
 	// Get entry price and quantity - prioritize local database for accurate quantity
 	var entryPrice float64
 	var quantity float64
+	var leverage int = 1 // default to 1x if not found
 
 	// First try to get from local database (more accurate for quantity)
 	if at.store != nil {
 		if openPos, err := at.store.Position().GetOpenPositionBySymbol(at.id, normalizedSymbol, "LONG"); err == nil && openPos != nil {
 			quantity = openPos.Quantity
 			entryPrice = openPos.EntryPrice
-			logger.Infof("  📊 Using local position data: qty=%.8f, entry=%.2f", quantity, entryPrice)
+			if openPos.Leverage > 0 {
+				leverage = openPos.Leverage
+			}
+			logger.Infof("  📊 Using local position data: qty=%.8f, entry=%.2f, leverage=%d", quantity, entryPrice, leverage)
 		}
 	}
 
@@ -2366,6 +2517,9 @@ func (at *AutoTrader) executeCloseLongWithRecord(decision *kernel.Decision, acti
 				if pos["symbol"] == decision.Symbol && pos["side"] == "long" {
 					if ep, ok := pos["entryPrice"].(float64); ok {
 						entryPrice = ep
+					}
+					if lev, ok := pos["leverage"].(float64); ok && lev > 0 {
+						leverage = int(lev)
 					}
 					quantityTemp, ok := pos["positionAmt"].(float64)
 					if !ok {
@@ -2387,7 +2541,7 @@ func (at *AutoTrader) executeCloseLongWithRecord(decision *kernel.Decision, acti
 				}
 			}
 		}
-		logger.Infof("  📊 Using exchange position data: qty=%.8f, entry=%.2f", quantity, entryPrice)
+		logger.Infof("  📊 Using exchange position data: qty=%.8f, entry=%.2f, leverage=%d", quantity, entryPrice, leverage)
 	}
 
 	// Close position
@@ -2410,7 +2564,13 @@ func (at *AutoTrader) executeCloseLongWithRecord(decision *kernel.Decision, acti
 	realizedPnL := (exitPrice - entryPrice) * quantity
 	realizedPnLPercentage := 0.0
 	if entryPrice != 0 {
-		realizedPnLPercentage = ((exitPrice - entryPrice) / entryPrice) * 100
+		// Correct formula: pnl% = realized_pnl / margin * 100
+		// margin = entryPrice * quantity / leverage
+		// → pnl% = price_change% * leverage
+		margin := entryPrice * quantity / float64(leverage)
+		if margin > 0 {
+			realizedPnLPercentage = (realizedPnL / margin) * 100
+		}
 	}
 
 	// Set P&L information in action record
@@ -2459,13 +2619,17 @@ func (at *AutoTrader) executeCloseShortWithRecord(decision *kernel.Decision, act
 	// Get entry price and quantity - prioritize local database for accurate quantity
 	var entryPrice float64
 	var quantity float64
+	var leverage int = 1 // default to 1x if not found
 
 	// First try to get from local database (more accurate for quantity)
 	if at.store != nil {
 		if openPos, err := at.store.Position().GetOpenPositionBySymbol(at.id, normalizedSymbol, "SHORT"); err == nil && openPos != nil {
 			quantity = openPos.Quantity
 			entryPrice = openPos.EntryPrice
-			logger.Infof("  📊 Using local position data: qty=%.8f, entry=%.2f", quantity, entryPrice)
+			if openPos.Leverage > 0 {
+				leverage = openPos.Leverage
+			}
+			logger.Infof("  📊 Using local position data: qty=%.8f, entry=%.2f, leverage=%d", quantity, entryPrice, leverage)
 		}
 	}
 
@@ -2477,6 +2641,9 @@ func (at *AutoTrader) executeCloseShortWithRecord(decision *kernel.Decision, act
 				if pos["symbol"] == decision.Symbol && pos["side"] == "short" {
 					if ep, ok := pos["entryPrice"].(float64); ok {
 						entryPrice = ep
+					}
+					if lev, ok := pos["leverage"].(float64); ok && lev > 0 {
+						leverage = int(lev)
 					}
 					quantityTemp, ok := pos["positionAmt"].(float64)
 					if !ok {
@@ -2498,7 +2665,7 @@ func (at *AutoTrader) executeCloseShortWithRecord(decision *kernel.Decision, act
 				}
 			}
 		}
-		logger.Infof("  📊 Using exchange position data: qty=%.8f, entry=%.2f", quantity, entryPrice)
+		logger.Infof("  📊 Using exchange position data: qty=%.8f, entry=%.2f, leverage=%d", quantity, entryPrice, leverage)
 	}
 
 	// Close position
@@ -2521,7 +2688,13 @@ func (at *AutoTrader) executeCloseShortWithRecord(decision *kernel.Decision, act
 	realizedPnL := (entryPrice - exitPrice) * quantity
 	realizedPnLPercentage := 0.0
 	if entryPrice != 0 {
-		realizedPnLPercentage = ((entryPrice - exitPrice) / entryPrice) * 100
+		// Correct formula: pnl% = realized_pnl / margin * 100
+		// margin = entryPrice * quantity / leverage
+		// → pnl% = price_change% * leverage
+		margin := entryPrice * quantity / float64(leverage)
+		if margin > 0 {
+			realizedPnLPercentage = (realizedPnL / margin) * 100
+		}
 	}
 
 	// Set P&L information in action record
@@ -4197,6 +4370,19 @@ func (at *AutoTrader) executeUpdateStopLossWithRecord(decision *kernel.Decision,
 				decision.Symbol, fallbackStopPrice, maxLossPct)
 			// 备用方案成功，将实际止损价更新到记录
 			newStopLossPrice = fallbackStopPrice
+
+			// 【重要】记录备用方案使用情况到决策记录，确保前端和用户能够感知
+			actionRecord.FallbackUsed = true
+			actionRecord.FallbackReason = fmt.Sprintf("主止损更新失败: %v", err)
+			actionRecord.FallbackDetails = fmt.Sprintf("使用策略默认止损比例 %.1f%% 建立保护，备用止损价=%.4f (AI建议价=%.4f, 当前价=%.4f)",
+				maxLossPct, fallbackStopPrice, decision.NewStopLoss, marketData.CurrentPrice)
+			// 同时更新 reasoning 字段，让前端显示更直观
+			if actionRecord.Reasoning != "" {
+				actionRecord.Reasoning = actionRecord.Reasoning + " | ⚠️备用止损: " + actionRecord.FallbackDetails
+			} else {
+				actionRecord.Reasoning = "⚠️备用止损: " + actionRecord.FallbackDetails
+			}
+
 			// 不返回错误，让后续记录正常写入
 		} else {
 			return fmt.Errorf("failed to update stop loss: %w", err)
@@ -4493,6 +4679,12 @@ func (at *AutoTrader) executePartialCloseWithRecord(decision *kernel.Decision, a
 		entryPrice = ep
 	}
 
+	// Get leverage from position data
+	leverage := 1
+	if lev, ok := foundPos["leverage"].(float64); ok && lev > 0 {
+		leverage = int(lev)
+	}
+
 	// Close partial position
 	order, err := at.trader.PartialClose(decision.Symbol, positionType, decision.ClosePercentage)
 	if err != nil {
@@ -4507,13 +4699,20 @@ func (at *AutoTrader) executePartialCloseWithRecord(decision *kernel.Decision, a
 		// Long position: (exit_price - entry_price) * partial_quantity
 		realizedPnL = (exitPrice - entryPrice) * partialQty
 		if entryPrice != 0 {
-			realizedPnLPercentage = ((exitPrice - entryPrice) / entryPrice) * 100
+			// pnl% = realized_pnl / margin * 100, margin = entryPrice * partialQty / leverage
+			margin := entryPrice * partialQty / float64(leverage)
+			if margin > 0 {
+				realizedPnLPercentage = (realizedPnL / margin) * 100
+			}
 		}
 	} else {
 		// Short position: (entry_price - exit_price) * partial_quantity
 		realizedPnL = (entryPrice - exitPrice) * partialQty
 		if entryPrice != 0 {
-			realizedPnLPercentage = ((entryPrice - exitPrice) / entryPrice) * 100
+			margin := entryPrice * partialQty / float64(leverage)
+			if margin > 0 {
+				realizedPnLPercentage = (realizedPnL / margin) * 100
+			}
 		}
 	}
 
