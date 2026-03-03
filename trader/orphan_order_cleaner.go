@@ -21,14 +21,14 @@ func NewOrphanOrderCleaner(trader Trader) *OrphanOrderCleaner {
 	}
 }
 
-// SafeCleanupOrphanedOrders 安全地清理孤儿委托
-// 只有在确认委托与当前持仓无关时才取消委托
+// SafeCleanupOrphanedOrders 安全地清理所有孤儿委托（传统订单+Algo订单）
 func (c *OrphanOrderCleaner) SafeCleanupOrphanedOrders() error {
 	positions, err := c.trader.GetPositions()
 	if err != nil {
 		return fmt.Errorf("failed to get positions: %w", err)
 	}
 
+	// 1. 清理传统孤儿订单
 	openOrders, err := c.trader.GetOpenOrders("")
 	if err != nil {
 		return fmt.Errorf("failed to get open orders: %w", err)
@@ -60,6 +60,54 @@ func (c *OrphanOrderCleaner) SafeCleanupOrphanedOrders() error {
 		}
 	}
 
+	// 2. 清理Algo孤儿订单（Binance已迁移，止损/止盈主要是Algo单）
+	if ft, ok := c.trader.(*FuturesTrader); ok {
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+		algoOrders, algoErr := ft.client.NewListOpenAlgoOrdersService().
+			Do(ctx)
+		if algoErr != nil {
+			slog.Warn("Failed to list all Algo orders for orphan cleanup", "error", algoErr)
+		} else {
+			for _, algoOrder := range algoOrders {
+				symbol := algoOrder.Symbol
+				// 检查Algo单是否是孤儿
+				isOrphan := true
+				for _, pos := range positions {
+					posSymbol, ok := pos["symbol"].(string)
+					if !ok {
+						continue
+					}
+					if !strings.EqualFold(posSymbol, symbol) {
+						continue
+					}
+					posAmt, ok := pos["positionAmt"].(float64)
+					if !ok {
+						continue
+					}
+					if posAmt > 0.00000001 || posAmt < -0.00000001 {
+						isOrphan = false
+						break
+					}
+				}
+
+				if isOrphan {
+					ctx2, cancel2 := context.WithTimeout(context.Background(), 15*time.Second)
+					defer cancel2()
+					_, cancelErr := ft.client.NewCancelAlgoOrderService().
+						AlgoID(algoOrder.AlgoId).
+						Do(ctx2)
+					if cancelErr != nil {
+						slog.Warn("Failed to cancel orphaned Algo order", "symbol", symbol, "algoId", algoOrder.AlgoId, "error", cancelErr)
+					} else {
+						slog.Info("Canceled orphaned Algo order", "symbol", symbol, "algoId", algoOrder.AlgoId, "type", algoOrder.OrderType)
+						canceledCount++
+					}
+				}
+			}
+		}
+	}
+
 	if canceledCount > 0 {
 		slog.Info("Completed orphaned order cleanup", "canceled_count", canceledCount)
 	} else {
@@ -69,13 +117,14 @@ func (c *OrphanOrderCleaner) SafeCleanupOrphanedOrders() error {
 	return nil
 }
 
-// SafeCleanupOrphanedOrdersForSymbol 安全地清理指定交易对的孤儿委托
+// SafeCleanupOrphanedOrdersForSymbol 清理指定交易对的孤儿委托（传统订单+Algo订单）
 func (c *OrphanOrderCleaner) SafeCleanupOrphanedOrdersForSymbol(symbol string) error {
 	positions, err := c.trader.GetPositions()
 	if err != nil {
 		return fmt.Errorf("failed to get positions: %w", err)
 	}
 
+	// 1. 清理传统孤儿订单
 	openOrders, err := c.trader.GetOpenOrders(symbol)
 	if err != nil {
 		return fmt.Errorf("failed to get open orders for %s: %w", symbol, err)
@@ -94,6 +143,55 @@ func (c *OrphanOrderCleaner) SafeCleanupOrphanedOrdersForSymbol(symbol string) e
 				}
 				slog.Info("Canceled orphaned order", "symbol", order.Symbol, "orderID", order.OrderID, "type", order.Type)
 				canceledCount++
+			}
+		}
+	}
+
+	// 2. 清理Algo孤儿订单（Binance已迁移，止损/止盈主要是Algo单）
+	// 对于Binance FuturesTrader，直接通过类型断言访问Algo API
+	if ft, ok := c.trader.(*FuturesTrader); ok {
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+		algoOrders, algoErr := ft.client.NewListOpenAlgoOrdersService().
+			Symbol(symbol).
+			Do(ctx)
+		if algoErr != nil {
+			slog.Warn("Failed to list Algo orders for orphan cleanup", "symbol", symbol, "error", algoErr)
+		} else {
+			for _, algoOrder := range algoOrders {
+				// 检查Algo单是否是孤儿（没有对应持仓）
+				isOrphan := true
+				for _, pos := range positions {
+					posSymbol, ok := pos["symbol"].(string)
+					if !ok {
+						continue
+					}
+					if !strings.EqualFold(posSymbol, symbol) {
+						continue
+					}
+					posAmt, ok := pos["positionAmt"].(float64)
+					if !ok {
+						continue
+					}
+					if posAmt > 0.00000001 || posAmt < -0.00000001 {
+						isOrphan = false
+						break
+					}
+				}
+
+				if isOrphan {
+					ctx2, cancel2 := context.WithTimeout(context.Background(), 15*time.Second)
+					defer cancel2()
+					_, cancelErr := ft.client.NewCancelAlgoOrderService().
+						AlgoID(algoOrder.AlgoId).
+						Do(ctx2)
+					if cancelErr != nil {
+						slog.Warn("Failed to cancel orphaned Algo order", "symbol", symbol, "algoId", algoOrder.AlgoId, "error", cancelErr)
+					} else {
+						slog.Info("Canceled orphaned Algo order", "symbol", symbol, "algoId", algoOrder.AlgoId, "type", algoOrder.OrderType)
+						canceledCount++
+					}
+				}
 			}
 		}
 	}
