@@ -110,6 +110,11 @@ type DecisionAction struct {
 	ExitPrice             float64 `json:"exit_price,omitempty"`              // Exit price for calculating P&L
 	RealizedPnL           float64 `json:"realized_pnl,omitempty"`            // Realized profit/loss amount
 	RealizedPnLPercentage float64 `json:"realized_pnl_percentage,omitempty"` // Realized profit/loss percentage
+
+	// Fallback information - records when alternative execution strategy was used
+	FallbackUsed    bool   `json:"fallback_used,omitempty"`    // Whether a fallback strategy was used
+	FallbackReason  string `json:"fallback_reason,omitempty"`  // Reason for using fallback (e.g., "primary stop loss update failed")
+	FallbackDetails string `json:"fallback_details,omitempty"` // Detailed information about the fallback execution
 }
 
 // Statistics statistics information

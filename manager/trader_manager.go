@@ -947,6 +947,10 @@ func (tm *TraderManager) ForceRefreshTrader(traderID string, st *store.Store) er
 		return fmt.Errorf("exchange %s for trader %s is not enabled", traderCfg.ExchangeID, traderCfg.Name)
 	}
 
+	// Remember whether trader was running BEFORE we stop it (from in-memory state, not DB)
+	// DB is unreliable here because executionFailed may have already written is_running=false
+	wasRunning := false
+
 	// Stop and remove the existing trader if it exists
 	if existingTrader, exists := tm.traders[traderID]; exists {
 		// Stop the trader if it's running
@@ -954,6 +958,7 @@ func (tm *TraderManager) ForceRefreshTrader(traderID string, st *store.Store) er
 		if isRunning, ok := status["is_running"].(bool); ok && isRunning {
 			logger.Infof("⏹ Stopping trader %s before refreshing...", traderID)
 			existingTrader.Stop()
+			wasRunning = true
 		}
 
 		// 特别处理AutoTrader，确保内部的交易员实例也被重建以实现完全隔离
@@ -988,6 +993,29 @@ func (tm *TraderManager) ForceRefreshTrader(traderID string, st *store.Store) er
 	}
 
 	logger.Infof("🔄 Trader %s successfully refreshed", traderID)
+
+	// If trader was running before force refresh, restart it immediately.
+	// We use the in-memory wasRunning flag (not DB) because executionFailed may
+	// have already set is_running=false in DB before this refresh was triggered.
+	if wasRunning {
+		if newTrader, exists := tm.traders[traderID]; exists {
+			logger.Infof("▶️  [ForceRefresh] Auto-restarting trader '%s' (was running before refresh)...", traderID)
+			// Update DB to reflect running state before launching goroutine
+			if st != nil {
+				_ = st.Trader().UpdateStatus(traderCfg.UserID, traderID, true)
+			}
+			go func(at *trader.AutoTrader, name, id, userID string) {
+				if err := at.Run(); err != nil {
+					logger.Warnf("⚠️ [ForceRefresh] Trader '%s' stopped after restart: %v", name, err)
+					if st != nil {
+						_ = st.Trader().UpdateStatus(userID, id, false)
+					}
+				}
+			}(newTrader, traderCfg.Name, traderID, traderCfg.UserID)
+			logger.Infof("✅ [ForceRefresh] Trader '%s' restart goroutine launched", traderCfg.Name)
+		}
+	}
+
 	return nil
 }
 
