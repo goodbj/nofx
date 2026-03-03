@@ -310,7 +310,7 @@ func (t *LighterTraderV2) CancelOrder(symbol, orderID string) error {
 	if err != nil {
 		return fmt.Errorf("failed to get market index: %w", err)
 	}
-	marketIndex := uint8(marketIndexU16) // SDK expects uint8
+	marketIndex := int16(marketIndexU16) // SDK expects int16
 
 	// Convert orderID to int64
 	orderIndex, err := strconv.ParseInt(orderID, 10, 64)
@@ -320,7 +320,7 @@ func (t *LighterTraderV2) CancelOrder(symbol, orderID string) error {
 
 	// Build cancel order request
 	txReq := &types.CancelOrderTxReq{
-		MarketIndex: marketIndex,
+		MarketIndex: int16(marketIndex),
 		Index:       orderIndex,
 	}
 

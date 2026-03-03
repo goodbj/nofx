@@ -1,9 +1,15 @@
-FROM golang:1.19-alpine AS builder
+FROM golang:1.19-alpine
+
+# 更换APK软件源为阿里云
+RUN sed -i 's/dl-cdn.alpinelinux.org/mirrors.aliyun.com/g' /etc/apk/repositories
+
+# 安装依赖
+RUN apk --no-cache add ca-certificates git
 
 # 设置工作目录
 WORKDIR /app
 
-# 复制 go.mod 和 go.sum 文件
+# 复制go.mod和go.sum
 COPY go.mod go.sum ./
 
 # 下载依赖
@@ -13,20 +19,10 @@ RUN go mod download
 COPY . .
 
 # 构建应用
-RUN CGO_ENABLED=0 GOOS=linux go build -o nofx-proxy .
-
-FROM alpine:latest
-
-# 安装 ca-certificates
-RUN apk --no-cache add ca-certificates
-
-WORKDIR /root/
-
-# 从构建器阶段复制二进制文件
-COPY --from=builder /app/nofx-proxy .
+RUN go build -o proxy-server .
 
 # 暴露端口
 EXPOSE 8081
 
-# 运行二进制文件
-CMD ["./nofx-proxy"]
+# 运行应用
+CMD ["./proxy-server"]
