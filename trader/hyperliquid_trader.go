@@ -131,6 +131,7 @@ func NewHyperliquidTrader(privateKeyHex string, walletAddr string, testnet bool)
 		"",         // vault address (empty for personal account)
 		walletAddr, // wallet address
 		nil,        // SpotMeta will be fetched automatically
+		nil,        // PerpDexs will be fetched automatically
 	)
 
 	logger.Infof("✓ Hyperliquid trader initialized successfully (testnet=%v, wallet=%s)", testnet, walletAddr)
@@ -664,7 +665,7 @@ func (t *HyperliquidTrader) SetLeverage(symbol string, leverage int) error {
 
 // refreshMetaIfNeeded refreshes meta information when invalid (triggered when Asset ID is 0)
 func (t *HyperliquidTrader) refreshMetaIfNeeded(coin string) error {
-	assetID := t.exchange.Info().NameToAsset(coin)
+	assetID, _ := t.exchange.Info().CoinToAsset(coin)
 	if assetID != 0 {
 		return nil // Meta is normal, no refresh needed
 	}
@@ -685,7 +686,7 @@ func (t *HyperliquidTrader) refreshMetaIfNeeded(coin string) error {
 	logger.Infof("✅ Meta information refreshed, contains %d assets", len(meta.Universe))
 
 	// Verify Asset ID after refresh
-	assetID = t.exchange.Info().NameToAsset(coin)
+	assetID, _ = t.exchange.Info().CoinToAsset(coin)
 	if assetID == 0 {
 		return fmt.Errorf("❌ Even after refreshing Meta, Asset ID for %s is still 0. Possible reasons:\n"+
 			"  1. This coin is not listed on Hyperliquid\n"+

@@ -196,7 +196,7 @@ func (t *LighterTraderV2) CreateOrder(symbol string, isAsk bool, quantity float6
 	if err != nil {
 		return nil, fmt.Errorf("failed to get market info: %w", err)
 	}
-	marketIndex := uint8(marketInfo.MarketID) // SDK expects uint8
+	marketIndex := int16(marketInfo.MarketID) // SDK expects int16
 
 	// Build order request
 	// Use ClientOrderIndex=0 for market orders (same as web UI)
@@ -260,7 +260,7 @@ func (t *LighterTraderV2) CreateOrder(symbol string, isAsk bool, quantity float6
 	}
 
 	txReq := &types.CreateOrderTxReq{
-		MarketIndex:      marketIndex,
+		MarketIndex:      int16(marketIndex),
 		ClientOrderIndex: clientOrderIndex,
 		BaseAmount:       baseAmount,
 		Price:            priceValue,
@@ -307,11 +307,11 @@ func (t *LighterTraderV2) CreateOrder(symbol string, isAsk bool, quantity float6
 
 // SendTxResponse Send transaction response
 type SendTxResponse struct {
-	Code                    int                    `json:"code"`
-	Message                 string                 `json:"message"`
-	TxHash                  string                 `json:"tx_hash"`
-	PredictedExecutionTime  int64                  `json:"predicted_execution_time_ms"`
-	Data                    map[string]interface{} `json:"data"`
+	Code                   int                    `json:"code"`
+	Message                string                 `json:"message"`
+	TxHash                 string                 `json:"tx_hash"`
+	PredictedExecutionTime int64                  `json:"predicted_execution_time_ms"`
+	Data                   map[string]interface{} `json:"data"`
 }
 
 // CreateOrderTxInfoAPI Order transaction info with CamelCase JSON tags (matching SDK) + hex signature
@@ -514,10 +514,10 @@ func (t *LighterTraderV2) fetchMarketList() ([]MarketInfo, error) {
 	for _, market := range apiResp.OrderBooks {
 		if market.Status == "active" {
 			markets = append(markets, MarketInfo{
-				Symbol:           market.Symbol,
-				MarketID:         market.MarketID,
-				SizeDecimals:     market.SupportedSizeDecimals,
-				PriceDecimals:    market.SupportedPriceDecimals,
+				Symbol:        market.Symbol,
+				MarketID:      market.MarketID,
+				SizeDecimals:  market.SupportedSizeDecimals,
+				PriceDecimals: market.SupportedPriceDecimals,
 			})
 		}
 	}
@@ -590,7 +590,7 @@ func (t *LighterTraderV2) CreateStopOrder(symbol string, isAsk bool, quantity fl
 	if err != nil {
 		return nil, fmt.Errorf("failed to get market info: %w", err)
 	}
-	marketIndex := uint8(marketInfo.MarketID)
+	marketIndex := int16(marketInfo.MarketID)
 
 	// Build order request
 	clientOrderIndex := time.Now().UnixMilli() % 281474976710655
@@ -626,7 +626,7 @@ func (t *LighterTraderV2) CreateStopOrder(symbol string, isAsk bool, quantity fl
 	orderExpiry := time.Now().Add(30 * 24 * time.Hour).UnixMilli() // 30 days
 
 	txReq := &types.CreateOrderTxReq{
-		MarketIndex:      marketIndex,
+		MarketIndex:      int16(marketIndex),
 		ClientOrderIndex: clientOrderIndex,
 		BaseAmount:       baseAmount,
 		Price:            priceValue,
