@@ -1,0 +1,644 @@
+{
+  "_document": {
+    "title": "NOFX交易策略配置规范 - AI专用版",
+    "version": "2.0",
+    "last_updated": "2026-02-23",
+    "purpose": "指导AI生成符合NOFX系统要求的交易策略JSON配置",
+    "audience": "AI助手/大语言模型"
+  },
+
+  "_quick_start": {
+    "description": "生成策略配置的3个步骤",
+    "steps": [
+      "1. 理解用户需求：交易风格(保守/激进)、目标币种、风险偏好",
+      "2. 填写核心字段：name, description, config.language, config.coin_source",
+      "3. 根据交易风格调整risk_control参数和indicators开关"
+    ],
+    "minimal_example": {
+      "name": "保守型BTC策略",
+      "description": "专注BTC交易，低杠杆，严格止损",
+      "config": {
+        "language": "zh",
+        "coin_source": {
+          "source_type": "static",
+          "static_coins": ["BTCUSDT"],
+          "use_ai500": false,
+          "use_oi_top": false
+        },
+        "indicators": {
+          "klines": {
+            "primary_timeframe": "1h",
+            "primary_count": 50,
+            "enable_multi_timeframe": true
+          },
+          "enable_raw_klines": true,
+          "enable_volume": true,
+          "enable_oi": true
+        },
+        "risk_control": {
+          "max_positions": 2,
+          "btc_eth_max_leverage": 3,
+          "max_margin_usage": 0.7,
+          "min_position_size": 100
+        }
+      }
+    }
+  },
+
+  "_schema_overview": {
+    "root_fields": [
+      {
+        "field": "name",
+        "type": "string",
+        "required": true,
+        "constraints": "2-50字符，简洁描述策略核心特征",
+        "examples": ["BTCETH保守策略", "AI500量化策略", "山寨币激进策略"]
+      },
+      {
+        "field": "description",
+        "type": "string",
+        "required": true,
+        "constraints": "10-500字符，说明策略逻辑、适用场景、风险提示",
+        "good_example": "基于EMA和RSI双指标确认的趋势跟踪策略，适用于BTC/ETH主流币种，4小时周期入场，严格设置止损",
+        "bad_example": "一个好策略"
+      },
+      {
+        "field": "config",
+        "type": "object",
+        "required": true,
+        "sections": ["language", "coin_source", "indicators", "risk_control", "custom_prompt", "prompt_sections"]
+      }
+    ],
+    "export_metadata": {
+      "description": "系统导出时自动添加的元数据",
+      "fields": {
+        "exported_at": "ISO8601格式时间戳，如2026-02-23T10:30:00.000Z",
+        "version": "配置格式版本，当前为'1.0'"
+      }
+    }
+  },
+
+  "config": {
+    "language": {
+      "description": "策略使用的语言，影响AI提示词和数据展示",
+      "type": "string",
+      "enum": ["zh", "en"],
+      "default": "zh",
+      "impact": "决定prompt_sections和系统提示词的语言"
+    },
+
+    "coin_source": {
+      "description": "交易币种来源配置 - 决定AI分析哪些币种",
+      "source_type": {
+        "description": "币种选择模式",
+        "type": "string",
+        "enum": ["static", "ai500", "oi_top", "mixed"],
+        "options_detail": {
+          "static": {
+            "use_case": "只交易特定币种",
+            "required_fields": ["static_coins"],
+            "example": {"static_coins": ["BTCUSDT", "ETHUSDT"]}
+          },
+          "ai500": {
+            "use_case": "交易AI500热门币池",
+            "required_fields": ["use_ai500", "ai500_limit"],
+            "example": {"use_ai500": true, "ai500_limit": 10}
+          },
+          "oi_top": {
+            "use_case": "交易持仓量Top币种",
+            "required_fields": ["use_oi_top", "oi_top_limit"],
+            "example": {"use_oi_top": true, "oi_top_limit": 10}
+          },
+          "mixed": {
+            "use_case": "组合多种来源",
+            "example": {"use_ai500": true, "ai500_limit": 10, "use_oi_top": true, "oi_top_limit": 5}
+          }
+        }
+      },
+      "static_coins": {
+        "description": "静态币种列表，source_type='static'时必填",
+        "type": "string[]",
+        "examples": [["BTCUSDT", "ETHUSDT"], ["SOLUSDT", "AVAXUSDT", "MATICUSDT"]]
+      },
+      "excluded_coins": {
+        "description": "排除的币种列表，从所有来源中过滤掉",
+        "type": "string[]",
+        "optional": true,
+        "common_exclusions": ["DOGEUSDT", "SHIBUSDT", "PEPEUSDT"]
+      },
+      "use_ai500": {"type": "boolean", "description": "是否启用AI500币池"},
+      "ai500_limit": {"type": "integer", "range": "1-100", "default": 10},
+      "use_oi_top": {"type": "boolean", "description": "是否启用OI Top币池"},
+      "oi_top_limit": {"type": "integer", "range": "1-100", "default": 10}
+    },
+
+    "indicators": {
+      "description": "技术指标和数据源配置 - 决定AI分析时使用哪些数据",
+      
+      "klines": {
+        "description": "K线数据配置 - 技术分析的基础数据",
+        "primary_timeframe": {
+          "type": "string",
+          "enum": ["1m", "3m", "5m", "15m", "30m", "1h", "2h", "4h", "1d", "1w"],
+          "recommendations": {
+            "短线交易": "5m, 15m",
+            "中线交易": "1h, 4h",
+            "长线交易": "4h, 1d"
+          }
+        },
+        "primary_count": {
+          "type": "integer",
+          "default": 30,
+          "range": "10-500",
+          "description": "主时间周期K线数量"
+        },
+        "longer_timeframe": {
+          "type": "string",
+          "optional": true,
+          "description": "更长周期用于趋势判断",
+          "example": "4h配合1h使用，1d配合4h使用"
+        },
+        "enable_multi_timeframe": {
+          "type": "boolean",
+          "default": true,
+          "description": "是否启用多时间周期分析"
+        },
+        "selected_timeframes": {
+          "type": "string[]",
+          "description": "启用的多时间周期列表",
+          "example": ["5m", "15m", "1h", "4h"]
+        },
+        "timeframe_counts": {
+          "description": "各时间周期的K线数量配置",
+          "type": "object",
+          "default": {
+            "1m": 120, "3m": 120, "5m": 120, "15m": 80, "30m": 60,
+            "1h": 50, "2h": 40, "4h": 30, "1d": 20, "1w": 10
+          }
+        },
+        "trading_style_preset": {
+          "type": "string",
+          "enum": ["short", "medium", "long"],
+          "mapping": {
+            "short": {"timeframe": "5m-1h", "hold_time": "分钟-小时", "frequency": "高"},
+            "medium": {"timeframe": "1h-4h", "hold_time": "小时-日", "frequency": "中"},
+            "long": {"timeframe": "4h-1d", "hold_time": "日-周", "frequency": "低"}
+          }
+        }
+      },
+
+      "technical_indicators": {
+        "description": "技术指标开关 - 根据策略类型选择启用",
+        "trend_following": {
+          "description": "趋势跟踪策略推荐启用",
+          "indicators": ["enable_ema", "enable_macd", "enable_boll"]
+        },
+        "momentum": {
+          "description": "动量策略推荐启用",
+          "indicators": ["enable_rsi", "enable_macd"]
+        },
+        "volatility": {
+          "description": "波动率策略推荐启用",
+          "indicators": ["enable_atr", "enable_boll"]
+        },
+        "all": {
+          "enable_raw_klines": {"type": "boolean", "default": true, "note": "必须启用，OHLCV数据是基础"},
+          "enable_ema": {"type": "boolean", "default": false, "periods": [20, 50]},
+          "enable_macd": {"type": "boolean", "default": false},
+          "enable_rsi": {"type": "boolean", "default": false, "periods": [7, 14]},
+          "enable_atr": {"type": "boolean", "default": false, "periods": [14]},
+          "enable_boll": {"type": "boolean", "default": false, "periods": [20]},
+          "enable_volume": {"type": "boolean", "default": true},
+          "enable_oi": {"type": "boolean", "default": true, "note": "持仓量数据"},
+          "enable_funding_rate": {"type": "boolean", "default": true}
+        }
+      },
+
+      "quantitative_data": {
+        "description": "量化数据源 - NofxOS提供的市场数据",
+        "nofxos_api_key": {"type": "string", "default": "cm_568c67eae410d912c54c"},
+        "enable_quant_data": {"type": "boolean", "default": true},
+        "enable_quant_oi": {"type": "boolean", "default": true},
+        "enable_quant_netflow": {"type": "boolean", "default": true},
+        
+        "ranking_data": {
+          "enable_oi_ranking": {"type": "boolean", "default": true},
+          "oi_ranking_duration": {"type": "string", "enum": ["1h", "4h", "24h"], "default": "1h"},
+          "oi_ranking_limit": {"type": "integer", "default": 10},
+          
+          "enable_netflow_ranking": {"type": "boolean", "default": true},
+          "netflow_ranking_duration": {"type": "string", "enum": ["1h", "4h", "24h"], "default": "1h"},
+          "netflow_ranking_limit": {"type": "integer", "default": 10},
+          
+          "enable_price_ranking": {"type": "boolean", "default": true},
+          "price_ranking_duration": {"type": "string", "default": "1h,4h,24h"},
+          "price_ranking_limit": {"type": "integer", "default": 10}
+        }
+      },
+
+      "external_data_sources": {
+        "description": "外部数据源配置 - 可选，用于接入自定义数据",
+        "type": "array",
+        "optional": true,
+        "item_schema": {
+          "name": "string, 数据源名称",
+          "type": "string, 枚举: 'api'|'webhook'",
+          "url": "string, API端点URL",
+          "method": "string, HTTP方法",
+          "headers": "object, 可选, 请求头",
+          "data_path": "string, 可选, JSON数据提取路径",
+          "refresh_secs": "integer, 可选, 刷新间隔秒数"
+        }
+      }
+    },
+
+    "risk_control": {
+      "description": "风险控制参数 - 分为代码强制执行和AI指导两类",
+      
+      "_understanding": {
+        "code_enforced": "系统强制执行的硬性限制，AI决策必须遵守",
+        "ai_guided": "作为AI决策参考，AI可根据实际情况调整"
+      },
+
+      "position_limits": {
+        "description": "仓位限制 - 代码强制执行",
+        "max_positions": {
+          "type": "integer",
+          "range": "1-10",
+          "default": 3,
+          "description": "最大同时持仓币种数量"
+        },
+        "btc_eth_max_position_value_ratio": {
+          "type": "number",
+          "range": "1.0-10.0",
+          "default": 5.0,
+          "description": "BTC/ETH仓位价值/账户净值比"
+        },
+        "altcoin_max_position_value_ratio": {
+          "type": "number",
+          "range": "0.5-5.0",
+          "default": 1.0,
+          "description": "山寨币仓位价值/账户净值比"
+        },
+        "max_margin_usage": {
+          "type": "number",
+          "range": "0.1-0.95",
+          "default": 0.9,
+          "description": "最大保证金使用率，0.9=90%"
+        },
+        "min_position_size": {
+          "type": "number",
+          "range": "12-10000",
+          "default": 12,
+          "description": "最小开仓金额(USDT)"
+        }
+      },
+
+      "leverage_settings": {
+        "description": "杠杆设置 - AI指导",
+        "btc_eth_max_leverage": {
+          "type": "integer",
+          "range": "1-125",
+          "default": 5,
+          "recommendations": {"保守": "3-5", "平衡": "5-10", "激进": "10-20"}
+        },
+        "altcoin_max_leverage": {
+          "type": "integer",
+          "range": "1-100",
+          "default": 5,
+          "recommendations": {"保守": "3-5", "平衡": "5-8", "激进": "8-15"}
+        }
+      },
+
+      "trading_frequency_limits": {
+        "description": "交易频率限制 - 代码强制执行，防止过度交易",
+        "max_daily_trades": {"type": "integer", "range": "1-100", "default": 10},
+        "max_hourly_trades": {"type": "integer", "range": "1-20", "default": 3},
+        "max_trades_per_symbol_per_hour": {"type": "integer", "range": "1-10", "default": 1},
+        "min_hold_time_minutes": {"type": "integer", "range": "1-1440", "default": 8}
+      },
+
+      "loss_limits": {
+        "description": "损失限制 - 代码强制执行",
+        "max_loss_per_trade_percent": {"type": "number", "range": "0.1-10.0", "default": 3.0},
+        "daily_loss_limit_percent": {"type": "number", "range": "0.1-10.0", "default": 2.0}
+      },
+
+      "ai_decision_params": {
+        "description": "AI决策参数 - AI指导",
+        "min_risk_reward_ratio": {
+          "type": "number",
+          "range": "1.0-10.0",
+          "default": 3.0,
+          "description": "最小盈亏比(止盈/止损)"
+        },
+        "min_confidence": {
+          "type": "integer",
+          "range": "50-100",
+          "default": 75,
+          "description": "AI开仓最小信心度(%)"
+        }
+      }
+    },
+
+    "custom_prompt": {
+      "description": "自定义提示词 - 追加到系统提示词末尾",
+      "type": "string",
+      "optional": true,
+      "max_length": "2000字符",
+      "use_cases": [
+        "添加特定的交易规则或限制",
+        "强调某种技术分析方法",
+        "指定特定市场条件下的处理方式"
+      ],
+      "example": "特别关注美联储利率决议前后的市场波动，在重要数据发布前2小时减少仓位或暂停新开仓。优先选择流动性好的主流币种，避免小市值币种。"
+    },
+
+    "prompt_sections": {
+      "description": "可编辑的系统提示词段落 - 用于自定义AI行为",
+      "optional": true,
+      "sections": {
+        "role_definition": {
+          "description": "AI角色定义",
+          "default_zh": "# 你是一个专业的加密货币交易AI\\n\\n你的任务是根据提供的市场数据做出交易决策。你是一个经验丰富的量化交易员，擅长技术分析和风险管理。"
+        },
+        "trading_frequency": {
+          "description": "交易频率意识",
+          "default_zh": "# ⏱️ 交易频率意识\\n\\n- 优秀交易员：每天2-4笔 ≈ 每小时0.1-0.2笔\\n- 每小时超过2笔 = 过度交易\\n- 单笔持仓时间 ≥ 30-60分钟"
+        },
+        "entry_standards": {
+          "description": "入场标准",
+          "default_zh": "# 🎯 入场标准（严格）\\n\\n只在多个信号共振时入场。自由使用任何有效的分析方法，避免单一指标、信号矛盾、横盘震荡、或平仓后立即重新开仓等低质量行为。"
+        },
+        "decision_process": {
+          "description": "决策流程",
+          "default_zh": "# 📋 决策流程\\n\\n1. 检查持仓 → 是否止盈/止损\\n2. 扫描候选币种 + 多时间框架 → 是否存在强信号\\n3. 先写思维链，再输出结构化JSON"
+        }
+      }
+    }
+  },
+
+  "_strategy_templates": {
+    "conservative_btc_eth": {
+      "name": "BTCETH保守策略",
+      "description": "专注BTC和ETH交易，低杠杆，严格风险控制，适合稳健型投资者",
+      "config": {
+        "language": "zh",
+        "coin_source": {
+          "source_type": "static",
+          "static_coins": ["BTCUSDT", "ETHUSDT"],
+          "use_ai500": false,
+          "use_oi_top": false
+        },
+        "indicators": {
+          "klines": {
+            "primary_timeframe": "4h",
+            "primary_count": 50,
+            "longer_timeframe": "1d",
+            "longer_count": 20,
+            "enable_multi_timeframe": true,
+            "selected_timeframes": ["1h", "4h", "1d"],
+            "trading_style_preset": "medium"
+          },
+          "enable_raw_klines": true,
+          "enable_ema": true,
+          "enable_macd": true,
+          "enable_rsi": true,
+          "enable_boll": true,
+          "enable_volume": true,
+          "enable_oi": true,
+          "enable_funding_rate": true
+        },
+        "risk_control": {
+          "max_positions": 2,
+          "btc_eth_max_leverage": 3,
+          "altcoin_max_leverage": 3,
+          "btc_eth_max_position_value_ratio": 3,
+          "altcoin_max_position_value_ratio": 1,
+          "max_margin_usage": 0.7,
+          "min_position_size": 100,
+          "min_risk_reward_ratio": 3,
+          "min_confidence": 80,
+          "max_daily_trades": 5,
+          "max_hourly_trades": 2,
+          "min_hold_time_minutes": 60,
+          "max_loss_per_trade_percent": 2,
+          "daily_loss_limit_percent": 1
+        },
+        "custom_prompt": "专注于BTC和ETH的主流趋势跟踪，避免频繁交易，只在高确定性机会时入场。关注宏观经济环境和重要新闻事件对市场的影响。"
+      }
+    },
+
+    "aggressive_multi_coin": {
+      "name": "多币种激进策略",
+      "description": "交易多个热门币种，较高杠杆，追求高收益，适合风险承受能力强的投资者",
+      "config": {
+        "language": "zh",
+        "coin_source": {
+          "source_type": "mixed",
+          "use_ai500": true,
+          "ai500_limit": 20,
+          "use_oi_top": true,
+          "oi_top_limit": 10,
+          "excluded_coins": ["DOGEUSDT", "SHIBUSDT"]
+        },
+        "indicators": {
+          "klines": {
+            "primary_timeframe": "15m",
+            "primary_count": 50,
+            "longer_timeframe": "1h",
+            "longer_count": 30,
+            "enable_multi_timeframe": true,
+            "selected_timeframes": ["5m", "15m", "1h", "4h"],
+            "trading_style_preset": "short"
+          },
+          "enable_raw_klines": true,
+          "enable_ema": true,
+          "enable_macd": true,
+          "enable_rsi": true,
+          "enable_atr": true,
+          "enable_volume": true,
+          "enable_oi": true,
+          "enable_funding_rate": true
+        },
+        "risk_control": {
+          "max_positions": 5,
+          "btc_eth_max_leverage": 10,
+          "altcoin_max_leverage": 8,
+          "btc_eth_max_position_value_ratio": 5,
+          "altcoin_max_position_value_ratio": 2,
+          "max_margin_usage": 0.85,
+          "min_position_size": 50,
+          "min_risk_reward_ratio": 2,
+          "min_confidence": 70,
+          "max_daily_trades": 15,
+          "max_hourly_trades": 5,
+          "min_hold_time_minutes": 15,
+          "max_loss_per_trade_percent": 4,
+          "daily_loss_limit_percent": 5
+        }
+      }
+    },
+
+    "quant_data_focused": {
+      "name": "量化数据驱动策略",
+      "description": "重点利用OI、资金流向等量化数据，结合技术分析进行交易决策",
+      "config": {
+        "language": "zh",
+        "coin_source": {
+          "source_type": "mixed",
+          "use_ai500": true,
+          "ai500_limit": 15,
+          "use_oi_top": true,
+          "oi_top_limit": 15
+        },
+        "indicators": {
+          "klines": {
+            "primary_timeframe": "1h",
+            "primary_count": 40,
+            "longer_timeframe": "4h",
+            "longer_count": 20,
+            "enable_multi_timeframe": true,
+            "selected_timeframes": ["15m", "1h", "4h"],
+            "trading_style_preset": "medium"
+          },
+          "enable_raw_klines": true,
+          "enable_ema": true,
+          "enable_volume": true,
+          "enable_oi": true,
+          "enable_funding_rate": true,
+          "enable_quant_data": true,
+          "enable_quant_oi": true,
+          "enable_quant_netflow": true,
+          "enable_oi_ranking": true,
+          "oi_ranking_duration": "1h",
+          "enable_netflow_ranking": true,
+          "netflow_ranking_duration": "1h",
+          "enable_price_ranking": true,
+          "price_ranking_duration": "1h,4h,24h"
+        },
+        "risk_control": {
+          "max_positions": 4,
+          "btc_eth_max_leverage": 5,
+          "altcoin_max_leverage": 5,
+          "max_margin_usage": 0.8,
+          "min_position_size": 50,
+          "min_risk_reward_ratio": 2.5,
+          "min_confidence": 75
+        },
+        "custom_prompt": "重点关注OI变化和资金流向数据，寻找机构资金进出的信号。当OI排名和资金流向排名同时出现明显变化时，视为强烈信号。结合技术分析确认入场时机。"
+      }
+    }
+  },
+
+  "_validation_checklist": {
+    "before_submit": [
+      "✅ name和description已填写且符合长度要求",
+      "✅ config.language为'zh'或'en'",
+      "✅ coin_source.source_type为有效枚举值",
+      "✅ 当source_type='static'时，static_coins不为空",
+      "✅ indicators.klines.primary_timeframe为有效时间周期",
+      "✅ risk_control中所有数值在有效范围内",
+      "✅ 百分比值使用小数形式(如0.9而非90%)"
+    ],
+    "common_mistakes": [
+      "❌ 使用'90%'而非0.9表示百分比",
+      "❌ timeframe使用'1H'而非'1h'(必须小写)",
+      "❌ static_coins包含空格或格式错误(如'BTC USDT'而非'BTCUSDT')",
+      "❌ 数值类型错误(如使用字符串'5'而非数字5)"
+    ]
+  },
+
+  "_complete_example": {
+    "name": "AI500量化策略",
+    "description": "基于AI500币池的量化交易策略，结合OI和资金流向数据，适用于中线交易",
+    "config": {
+      "language": "zh",
+      "coin_source": {
+        "source_type": "mixed",
+        "static_coins": [],
+        "excluded_coins": ["DOGEUSDT", "SHIBUSDT"],
+        "use_ai500": true,
+        "ai500_limit": 10,
+        "use_oi_top": true,
+        "oi_top_limit": 10
+      },
+      "indicators": {
+        "klines": {
+          "primary_timeframe": "1h",
+          "primary_count": 40,
+          "longer_timeframe": "4h",
+          "longer_count": 20,
+          "enable_multi_timeframe": true,
+          "selected_timeframes": ["15m", "1h", "4h"],
+          "timeframe_counts": {
+            "1m": 120,
+            "3m": 120,
+            "5m": 120,
+            "15m": 80,
+            "30m": 60,
+            "1h": 50,
+            "2h": 40,
+            "4h": 30,
+            "1d": 20,
+            "1w": 10
+          },
+          "trading_style_preset": "medium"
+        },
+        "enable_raw_klines": true,
+        "enable_ema": true,
+        "enable_macd": true,
+        "enable_rsi": true,
+        "enable_atr": true,
+        "enable_boll": true,
+        "enable_volume": true,
+        "enable_oi": true,
+        "enable_funding_rate": true,
+        "ema_periods": [20, 50],
+        "rsi_periods": [7, 14],
+        "atr_periods": [14],
+        "boll_periods": [20],
+        "external_data_sources": [],
+        "nofxos_api_key": "cm_568c67eae410d912c54c",
+        "enable_quant_data": true,
+        "enable_quant_oi": true,
+        "enable_quant_netflow": true,
+        "enable_oi_ranking": true,
+        "oi_ranking_duration": "1h",
+        "oi_ranking_limit": 10,
+        "enable_netflow_ranking": true,
+        "netflow_ranking_duration": "1h",
+        "netflow_ranking_limit": 10,
+        "enable_price_ranking": true,
+        "price_ranking_duration": "1h,4h,24h",
+        "price_ranking_limit": 10
+      },
+      "risk_control": {
+        "max_positions": 3,
+        "btc_eth_max_leverage": 5,
+        "altcoin_max_leverage": 5,
+        "btc_eth_max_position_value_ratio": 5,
+        "altcoin_max_position_value_ratio": 1,
+        "max_margin_usage": 0.9,
+        "min_position_size": 12,
+        "min_risk_reward_ratio": 3,
+        "min_confidence": 75,
+        "max_daily_trades": 10,
+        "max_hourly_trades": 3,
+        "max_trades_per_symbol_per_hour": 1,
+        "min_hold_time_minutes": 30,
+        "max_loss_per_trade_percent": 3,
+        "daily_loss_limit_percent": 2
+      },
+      "custom_prompt": "优先选择AI500和OI Top同时出现的币种作为交易标的。关注资金流向变化，当机构资金持续流入且技术指标共振时入场。",
+      "prompt_sections": {
+        "role_definition": "# 你是一个专业的加密货币交易AI\n\n你的任务是根据提供的市场数据做出交易决策。你是一个经验丰富的量化交易员，擅长技术分析和风险管理。",
+        "trading_frequency": "# ⏱️ 交易频率意识\n\n- 优秀交易员：每天2-4笔 ≈ 每小时0.1-0.2笔\n- 每小时超过2笔 = 过度交易\n- 单笔持仓时间 ≥ 30-60分钟",
+        "entry_standards": "# 🎯 入场标准（严格）\n\n只在多个信号共振时入场。自由使用任何有效的分析方法，避免单一指标、信号矛盾、横盘震荡、或平仓后立即重新开仓等低质量行为。",
+        "decision_process": "# 📋 决策流程\n\n1. 检查持仓 → 是否止盈/止损\n2. 扫描候选币种 + 多时间框架 → 是否存在强信号\n3. 先写思维链，再输出结构化JSON"
+      }
+    },
+    "exported_at": "2026-02-23T10:30:00.000Z",
+    "version": "1.0"
+  }
+}
