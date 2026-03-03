@@ -106,35 +106,31 @@ function openExchangeLink(symbol: string, exchangeType?: string, customUrl?: str
   const langCode = language === 'zh' ? 'zh-CN' : 'en';
   
   // If a custom URL is provided, use it as the base URL
-  if (customUrl) {
+  // But for binance_demo, always use the demo trading interface URL
+  if (exchangeType?.toLowerCase() === 'binance_demo') {
+    // Binance demo/virtual trading platform
+    exchangeUrl = `https://demo.binance.com/${langCode}/futures/${symbol}`;
+  } else if (customUrl) {
     // Check if the custom URL is a testnet URL by looking for testnet indicators
     const isTestnet = customUrl.toLowerCase().includes('test') || 
                       customUrl.toLowerCase().includes('sandbox') || 
                       customUrl.toLowerCase().includes('demo') ||
                       customUrl.toLowerCase().includes('futures-test') ||
                       customUrl.toLowerCase().includes('testnet');
-    
+      
     if (customUrl.includes('{symbol}')) {
       // Replace placeholder in custom URL if present
       exchangeUrl = customUrl.replace('{symbol}', symbol);
     } else if (customUrl.includes('{futures_symbol}')) {
-      // Handle futures-specific symbol format (e.g., BTCUSDT for Binance Futures)
+      // Handle futures-specific symbol format (e.g. BTCUSDT for Binance Futures)
       exchangeUrl = customUrl.replace('{futures_symbol}', symbol);
     } else {
       // For known testnet URLs, use appropriate format
       if (isTestnet) {
         // For testnet environments, we need to handle different URL structures
         if (customUrl.includes('binance')) {
-          // If it's clearly a binance testnet URL
-          if (customUrl.includes('testnet.binancefuture.com')) {
-            // Append language parameter to binance testnet URL
-            exchangeUrl = customUrl.endsWith('/') ? `${customUrl}${symbol}` : `${customUrl}/${symbol}`;
-            // Add language parameter if not already present
-            exchangeUrl = exchangeUrl.includes('?') ? `${exchangeUrl}&lang=${langCode}` : `${exchangeUrl}?lang=${langCode}`;
-          } else {
-            // If it's a custom testnet URL that looks like binance, append to the standard testnet URL
-            exchangeUrl = `https://testnet.binancefuture.com/${langCode}/futures/${symbol}`;
-          }
+          // Binance testnet - use standard format
+          exchangeUrl = `https://testnet.binancefuture.com/${langCode}/futures/${symbol}`;
         } else {
           // For other exchange testnets, append symbol to custom URL
           exchangeUrl = customUrl.endsWith('/') ? `${customUrl}${symbol}` : `${customUrl}/${symbol}`;
@@ -146,67 +142,51 @@ function openExchangeLink(symbol: string, exchangeType?: string, customUrl?: str
     }
   } else {
     // Determine exchange URL based on exchange type
-    console.log('🔍进默认分支处理');
-    console.log('exchangeType参数:', exchangeType);
-    console.log('exchangeType类型:', typeof exchangeType);
-    console.log('exchangeType.toLowerCase():', exchangeType?.toLowerCase());
     
     // Check if we can infer testnet from other contextual clues
     const isLikelyTestnet = false; // We can't determine this without explicit config
     
-    console.log('🔍 开始switch判断...');
     switch (exchangeType?.toLowerCase()) {
       case 'binance_demo':
-        console.log('✅匹到binance_demo分支');
         exchangeUrl = `https://demo.binance.com/${langCode}/futures/${symbol}`;
         break;
       case 'binance':
-        console.log('✅ 匹配到binance分支');
         exchangeUrl = `https://www.binance.com/${langCode}/futures/${symbol}`;
         break;
       case 'bybit':
-        console.log('✅ 匹配到bybit分支');
         exchangeUrl = isLikelyTestnet 
           ? `https://testnet.bybit.com/trade/futures/${symbol.replace('USDT', '')}-USDT?l=${langCode}`
           : `https://www.bybit.com/${langCode}/trade/futures/${symbol.replace('USDT', '')}-USDT`;
         break;
       case 'okx':
-        console.log('✅ 匹配到okx分支');
         exchangeUrl = isLikelyTestnet 
           ? `https://www.okx.com/${langCode}/trade-futures-demo/${symbol.toLowerCase()}`
           : `https://www.okx.com/${langCode}/trade-futures/${symbol.toLowerCase()}`;
         break;
       case 'bitget':
-        console.log('✅ 匹配到bitget分支');
         exchangeUrl = isLikelyTestnet 
           ? `https://www.bitget.com/futures/${symbol.replace('USDT', '')}_USDT?lng=${langCode}`
           : `https://www.bitget.com/futures/${symbol.replace('USDT', '')}_USDT?lng=${langCode}`;
         break;
       case 'hyperliquid':
-        console.log('✅ 匹配到hyperliquid分支');
         exchangeUrl = isLikelyTestnet 
           ? `https://app.hyperliquid.xyz/demo#/${symbol.replace('USDT', '')}?lang=${langCode}`
           : `https://app.hyperliquid.xyz/trade#${symbol.replace('USDT', '')}?lang=${langCode}`;
         break;
       case 'aster':
-        console.log('✅ 匹配到aster分支');
         exchangeUrl = isLikelyTestnet 
           ? `https://test.aster-trade.com/${langCode}/market/${symbol}`
           : `https://aster-trade.com/${langCode}/market/${symbol}`;
         break;
       case 'lighter':
-        console.log('✅ 匹配到lighter分支');
         exchangeUrl = isLikelyTestnet 
           ? `https://test.lighter.trade/${langCode}/markets/${symbol}`
           : `https://lighter.trade/${langCode}/markets/${symbol}`;
         break;
       default:
-        console.log('❌ 未匹配到任何分支，执行默认处理');
-        console.log('交换类型为:', exchangeType);
         // Default to Binance futures mainnet as it's the most common exchange in the codebase
         exchangeUrl = `https://www.binance.com/${langCode}/futures/${symbol}`;
     }
-    console.log('最终生成的链接:', exchangeUrl);
   }
   
   window.open(exchangeUrl, '_blank', 'noopener,noreferrer');
@@ -320,54 +300,22 @@ function ActionCard({ action, language, onSymbolClick, positions, exchangeType, 
           <span 
             className="text-xl cursor-pointer transition-all duration-200 hover:scale-110" 
             onClick={() => {
-              //调试信息输出
-              console.log('=== 交易所链接调试信息 ===');
-              console.log('traderId:', traderId);
-              console.log('exchangeType:', exchangeType);
-              console.log('exchangeCustomUrl:', exchangeCustomUrl);
-              console.log('exchanges:', exchanges);
-              console.log('traders:', traders);
-              console.log('traders类型:', typeof traders);
-              console.log('traders是否为数组:', Array.isArray(traders));
-              console.log('traders长度:', traders?.length);
-              
               //检查是否有直接传递的交易所信息
               if (exchangeType || exchangeCustomUrl) {
-                console.log('使用直接传递的交易所信息');
-                console.log('传递的参数:', { symbol: action.symbol, exchangeType, exchangeCustomUrl, language });
                 openExchangeLink(action.symbol, exchangeType, exchangeCustomUrl, language);
                 return;
               }
               
               //检查是否有通过traderId获取交易所信息的必要数据
               if (exchanges && traders && traderId && Array.isArray(traders) && traders.length > 0) {
-                console.log('🔍 开始获取交易所信息...');
-                console.log('traderId:', traderId);
-                console.log('exchanges数组:', exchanges);
-                console.log('traders数组:', traders);
-                
                 const exchangeInfo = getExchangeInfoByTraderId(traderId, exchanges, traders);
-                console.log('✅ 通过traderId获取的交易所信息:', exchangeInfo);
-                console.log('exchangeType:', exchangeInfo.exchangeType);
-                console.log('customUrl:', exchangeInfo.customUrl);
-                
-                console.log('传递给openExchangeLink的参数:', { 
-                  symbol: action.symbol, 
-                  exchangeType: exchangeInfo.exchangeType, 
-                  customUrl: exchangeInfo.customUrl, 
-                  language 
-                });
-                
                 openExchangeLink(action.symbol, exchangeInfo.exchangeType, exchangeInfo.customUrl, language);
                 return;
               }
               
               // 最后的后备方案：使用traderId模式匹配
-              console.log('使用默认行为');
-              // Check if this is a demo trader based on traderId pattern
               const isDemoTrader = traderId?.includes('demo') || traderId?.includes('test') || traderId?.includes('虚拟');
               const fallbackExchangeType = isDemoTrader ? 'binance_demo' : 'binance';
-              console.log('根据traderId推断的交易所类型:', fallbackExchangeType);
               openExchangeLink(action.symbol, fallbackExchangeType, undefined, language);
             }}
             title={`Click to open ${action.symbol} on exchange`}
@@ -773,6 +721,7 @@ export function DecisionCard({ decision, language, onSymbolClick, onDelete, exch
               exchangeCustomUrl={exchangeCustomUrl}
               exchanges={exchanges}
               traderId={decision.trader_id}
+              traders={traders}
             />
           ))}
         </div>

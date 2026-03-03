@@ -151,7 +151,9 @@ export function AdvancedChart({
   const fetchKlineData = async (symbol: string, interval: string) => {
     try {
       const limit = 1500
-      const klineUrl = `/api/klines?symbol=${symbol}&interval=${interval}&limit=${limit}&exchange=${exchange}`
+      // Map exchange for kline data: binance_demo uses the same data as binance
+      const klineExchange = exchange === 'binance_demo' ? 'binance' : exchange
+      const klineUrl = `/api/klines?symbol=${symbol}&interval=${interval}&limit=${limit}&exchange=${klineExchange}`
       const result = await httpClient.get(klineUrl)
 
       if (!result.success || !result.data) {
