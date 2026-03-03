@@ -2,6 +2,30 @@ import { useState, useEffect } from 'react'
 import type { DecisionRecord, DecisionAction } from '../types'
 import { t, type Language } from '../i18n/translations'
 
+// Add custom CSS for animations
+const customStyles = `
+  @keyframes pulse-once {
+    0% { transform: scale(1); }
+    50% { transform: scale(1.05); box-shadow: 0 0 20px rgba(14, 203, 129, 0.6); }
+    100% { transform: scale(1); }
+  }
+  
+  .animate-pulse-once {
+    animation: pulse-once 0.5s ease-in-out;
+  }
+  
+  .animate-pulse {
+    animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  }
+`;
+
+// Inject styles
+if (typeof document !== 'undefined') {
+  const styleSheet = document.createElement('style');
+  styleSheet.textContent = customStyles;
+  document.head.appendChild(styleSheet);
+}
+
 interface DecisionCardProps {
   decision: DecisionRecord
   language: Language
@@ -596,14 +620,21 @@ function ActionCard({ action, language, onSymbolClick, positions, exchangeType, 
       {/* Error Message */}
       {action.error && (
         <div
-          className="mt-3 rounded p-2 text-xs"
+          className="mt-3 rounded p-3 text-xs border-l-2 animate-pulse"
           style={{
-            background: 'rgba(246, 70, 93, 0.1)',
+            background: 'rgba(246, 70, 93, 0.15)',
+            borderLeftColor: '#F6465D',
             border: '1px solid rgba(246, 70, 93, 0.3)',
             color: '#F6465D',
           }}
         >
-          ❌ {action.error}
+          <div className="flex items-center gap-2">
+            <span className="text-lg">⚠️</span>
+            <span className="font-semibold">执行失败:</span>
+          </div>
+          <div className="mt-1 ml-6">
+            {action.error}
+          </div>
         </div>
       )}
     </div>
@@ -684,11 +715,25 @@ export function DecisionCard({ decision, language, onSymbolClick, onDelete, exch
         </div>
         <div className="flex items-center gap-2">
           <div
-            className="px-4 py-1.5 rounded-full text-xs font-bold tracking-wider"
+            className={`px-4 py-1.5 rounded-full text-xs font-bold tracking-wider transition-all duration-300 ${
+              decision.success 
+                ? 'animate-pulse-once' 
+                : 'animate-pulse border-2'
+            }`}
             style={
               decision.success
-                ? { background: 'rgba(14, 203, 129, 0.15)', color: '#0ECB81', border: '1px solid rgba(14, 203, 129, 0.3)' }
-                : { background: 'rgba(246, 70, 93, 0.15)', color: '#F6465D', border: '1px solid rgba(246, 70, 93, 0.3)' }
+                ? { 
+                    background: 'rgba(14, 203, 129, 0.25)', 
+                    color: '#0ECB81', 
+                    border: '1px solid rgba(14, 203, 129, 0.5)',
+                    boxShadow: '0 0 10px rgba(14, 203, 129, 0.3)'
+                  }
+                : { 
+                    background: 'rgba(246, 70, 93, 0.25)', 
+                    color: '#F6465D', 
+                    border: '1px solid rgba(246, 70, 93, 0.7)',
+                    boxShadow: '0 0 15px rgba(246, 70, 93, 0.4)'
+                  }
             }
           >
             {t(decision.success ? 'success' : 'failed', language)}
@@ -970,17 +1015,52 @@ export function DecisionCard({ decision, language, onSymbolClick, onDelete, exch
         </div>
       )}
 
-      {/* Error Message */}
-      {decision.error_message && (
+      {/* Error Message - Enhanced Display */}
+      {(decision.error_message || decision.decisions?.some(d => d.error)) && (
         <div
-          className="rounded-lg p-3 mt-4 text-sm"
+          className="rounded-lg p-4 mt-4 border-l-4 animate-pulse"
           style={{
-            background: 'rgba(246, 70, 93, 0.1)',
+            background: 'rgba(246, 70, 93, 0.15)',
+            borderLeftColor: '#F6465D',
             border: '1px solid rgba(246, 70, 93, 0.4)',
-            color: '#F6465D',
           }}
         >
-          ❌ {decision.error_message}
+          <div className="flex items-start gap-3">
+            <div className="text-2xl">❌</div>
+            <div className="flex-1">
+              <div className="font-bold text-red-400 mb-2">
+                {t('executionFailed', language) || '执行失败'}
+              </div>
+              {decision.error_message && (
+                <div className="text-sm text-red-300 mb-3">
+                  {decision.error_message}
+                </div>
+              )}
+              {decision.decisions?.filter(d => d.error).length > 0 && (
+                <div className="space-y-2">
+                  <div className="text-xs text-red-200 font-semibold">
+                    {t('failedActions', language) || '失败的操作:'}
+                  </div>
+                  {decision.decisions
+                    .filter(d => d.error)
+                    .map((failedAction, index) => (
+                      <div 
+                        key={index}
+                        className="text-xs p-2 rounded bg-red-900/20 border border-red-800/30"
+                      >
+                        <div className="font-mono text-red-200">
+                          {failedAction.symbol} {failedAction.action}
+                        </div>
+                        <div className="text-red-300 mt-1">
+                          {failedAction.error}
+                        </div>
+                      </div>
+                    ))
+                  }
+                </div>
+              )}
+            </div>
+          </div>
         </div>
       )}
     </div>
