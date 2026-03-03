@@ -1365,12 +1365,14 @@ func (s *Server) handleExecuteDecision(c *gin.Context) {
 	c.JSON(http.StatusOK, responseData)
 }
 
-// handleExecuteMultipleDecisions Execute multiple trading decisions in batch
+// handleExecuteMultipleDecisions Execute multiple trading decisions in batch.
+// Uses the same execution pipeline as the automatic polling cycle:
+// priority sorting → whitelist validation → execution mutex → DB record saving.
 func (s *Server) handleExecuteMultipleDecisions(c *gin.Context) {
 	userID := c.GetString("user_id")
 	traderID := c.Param("id")
 
-	logger.Infof("🔄 Manual batch decision execution initiated for trader %s by user %s", traderID, userID)
+	logger.Infof("🧪 External batch decision execution initiated for trader %s by user %s", traderID, userID)
 
 	// Verify trader belongs to current user
 	_, err := s.store.Trader().GetFullConfig(userID, traderID)
@@ -1380,9 +1382,10 @@ func (s *Server) handleExecuteMultipleDecisions(c *gin.Context) {
 		return
 	}
 
-	trader, err := s.traderManager.GetTraderExecutor(traderID)
+	// Get *AutoTrader directly so we can call ExecuteExternalDecisions
+	autoTrader, err := s.traderManager.GetTrader(traderID)
 	if err != nil {
-		logger.Errorf("❌ Failed to get trader executor %s from manager: %v", traderID, err)
+		logger.Errorf("❌ Failed to get trader %s from manager: %v", traderID, err)
 		c.JSON(http.StatusNotFound, gin.H{"error": "Trader does not exist"})
 		return
 	}
@@ -1395,50 +1398,34 @@ func (s *Server) handleExecuteMultipleDecisions(c *gin.Context) {
 		return
 	}
 
-	logger.Infof("✅ Received %d decisions to execute", len(decisions))
-
-	// Log initial decisions for tracking
-	for i, decision := range decisions {
-		logger.Debugf("📋 批量决策 %d 初始状态: Symbol=%s, Action=%s, Leverage=%d, PositionSizeUSD=%.2f, StopLoss=%.4f, TakeProfit=%.4f, Confidence=%d",
-			i+1, decision.Symbol, decision.Action, decision.Leverage, decision.PositionSizeUSD, decision.StopLoss, decision.TakeProfit, decision.Confidence)
+	logger.Infof("✅ Received %d decisions to execute via unified pipeline", len(decisions))
+	for i, d := range decisions {
+		logger.Debugf("📋 批量决策 %d: Symbol=%s, Action=%s, Leverage=%d, PositionSizeUSD=%.2f, StopLoss=%.4f, TakeProfit=%.4f, Confidence=%d",
+			i+1, d.Symbol, d.Action, d.Leverage, d.PositionSizeUSD, d.StopLoss, d.TakeProfit, d.Confidence)
 	}
 
-	// Execute each decision
-	results := make([]map[string]interface{}, 0, len(decisions))
-	for i, decision := range decisions {
-		logger.Infof("Executing decision %d: %s %s", i+1, decision.Action, decision.Symbol)
-		logger.Debugf("📋 决策 %d 执行前: %+v", i+1, decision)
-
-		result := map[string]interface{}{
-			"index":   i,
-			"symbol":  decision.Symbol,
-			"action":  decision.Action,
-			"success": false,
-			"error":   "",
-		}
-
-		if err := trader.ExecuteDecision(&decision); err != nil {
-			logger.Errorf("❌ Failed to execute decision %d for %s %s: %v", i+1, decision.Symbol, decision.Action, err)
-			result["error"] = err.Error()
-		} else {
-			logger.Infof("✅ Decision %d executed successfully: %s %s", i+1, decision.Action, decision.Symbol)
-			result["success"] = true
-		}
-
-		results = append(results, result)
+	// Execute using the unified pipeline (sorting + whitelist + mutex + DB record)
+	results, execErr := autoTrader.ExecuteExternalDecisions(decisions)
+	if execErr != nil {
+		// Validation / mutex error — no decisions were executed
+		logger.Errorf("❌ External batch execution rejected for trader %s: %v", traderID, execErr)
+		c.JSON(http.StatusBadRequest, gin.H{"error": execErr.Error()})
+		return
 	}
 
-	logger.Infof("✅ Batch execution completed for trader %s, %d/%d decisions successful", traderID, countSuccessfulResults(results), len(results))
+	successCount := countSuccessfulResults(results)
+	logger.Infof("✅ External batch execution completed for trader %s, %d/%d decisions successful", traderID, successCount, len(results))
 
 	c.JSON(http.StatusOK, gin.H{
 		"message":         "Batch decisions executed",
 		"total_decisions": len(decisions),
-		"successful":      countSuccessfulResults(results),
+		"successful":      successCount,
 		"results":         results,
 	})
 }
 
-// handleGuardianExecuteDecision Handle decision execution request from guardian
+// handleGuardianExecuteDecision Handle decision execution request from guardian.
+// Uses the same unified execution pipeline as polling cycle (sorting + whitelist + mutex + DB record).
 func (s *Server) handleGuardianExecuteDecision(c *gin.Context) {
 	logger.Info("🔄 Received decision from guardian")
 
@@ -1467,10 +1454,10 @@ func (s *Server) handleGuardianExecuteDecision(c *gin.Context) {
 		return
 	}
 
-	// Get the trader executor
-	trader, err := s.traderManager.GetTraderExecutor(req.TraderID)
+	// Get *AutoTrader directly (unified pipeline via ExecuteExternalDecisions)
+	autoTrader, err := s.traderManager.GetTrader(req.TraderID)
 	if err != nil {
-		logger.Errorf("❌ Failed to get trader executor %s: %v", req.TraderID, err)
+		logger.Errorf("❌ Failed to get trader %s: %v", req.TraderID, err)
 		c.JSON(http.StatusNotFound, gin.H{"error": "Trader does not exist"})
 		return
 	}
@@ -1494,36 +1481,21 @@ func (s *Server) handleGuardianExecuteDecision(c *gin.Context) {
 
 	logger.Infof("✅ Received %d decisions from guardian for trader %s", len(decisions), req.TraderID)
 
-	// Execute each decision
-	results := make([]map[string]interface{}, 0, len(decisions))
-	for i, decision := range decisions {
-		logger.Infof("Executing decision %d from guardian: %s %s", i+1, decision.Action, decision.Symbol)
-
-		result := map[string]interface{}{
-			"index":   i,
-			"symbol":  decision.Symbol,
-			"action":  decision.Action,
-			"success": false,
-			"error":   "",
-		}
-
-		if err := trader.ExecuteDecision(&decision); err != nil {
-			logger.Errorf("❌ Failed to execute decision %d for %s %s: %v", i+1, decision.Symbol, decision.Action, err)
-			result["error"] = err.Error()
-		} else {
-			logger.Infof("✅ Decision %d executed successfully: %s %s", i+1, decision.Action, decision.Symbol)
-			result["success"] = true
-		}
-
-		results = append(results, result)
+	// Execute using the unified pipeline (sorting + whitelist + mutex + DB record)
+	results, execErr := autoTrader.ExecuteExternalDecisions(decisions)
+	if execErr != nil {
+		logger.Errorf("❌ Guardian batch execution rejected for trader %s: %v", req.TraderID, execErr)
+		c.JSON(http.StatusBadRequest, gin.H{"error": execErr.Error()})
+		return
 	}
 
-	logger.Infof("✅ Guardian decision execution completed for trader %s, %d/%d decisions successful", req.TraderID, countSuccessfulResults(results), len(results))
+	successCount := countSuccessfulResults(results)
+	logger.Infof("✅ Guardian decision execution completed for trader %s, %d/%d decisions successful", req.TraderID, successCount, len(results))
 
 	c.JSON(http.StatusOK, gin.H{
 		"message":         "Guardian decisions executed",
 		"total_decisions": len(decisions),
-		"successful":      countSuccessfulResults(results),
+		"successful":      successCount,
 		"results":         results,
 	})
 }

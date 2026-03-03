@@ -2172,21 +2172,16 @@ async function exportPositionHistoryToCSV(
           : 0
       const holdingDuration = formatDurationForCSV(holdingMinutes)
 
-      // 计算盈亏百分比
+      // 计算盈亏百分比：realized_pnl / 保证金 * 100（保证金 = 开仓价 * 数量 / 杠杆）
       const entryPrice = position.entry_price || 0
       const exitPrice = position.exit_price || 0
-      let pnlPct = 0
-      if (entryPrice > 0) {
-        const isLong = (position.side || '').toUpperCase() === 'LONG'
-        if (isLong) {
-          pnlPct = ((exitPrice - entryPrice) / entryPrice) * 100
-        } else {
-          pnlPct = ((entryPrice - exitPrice) / entryPrice) * 100
-        }
-      }
-
-      // 计算仓位大小 (USD)
+      const leverage = position.leverage || 1
       const entryQuantity = position.entry_quantity || position.quantity || 0
+      let pnlPct = 0
+      const margin = entryPrice > 0 && entryQuantity > 0 ? (entryPrice * entryQuantity) / leverage : 0
+      if (margin > 0) {
+        pnlPct = ((position.realized_pnl || 0) / margin) * 100
+      }
       const positionValue = entryPrice * entryQuantity
 
       const row = [

@@ -254,20 +254,17 @@ function PositionRow({ position }: { position: HistoricalPosition }) {
   const exitTime = position.exit_time ? new Date(position.exit_time).getTime() : 0
   const holdingMinutes = entryTime && exitTime && exitTime > entryTime ? (exitTime - entryTime) / 60000 : 0
 
-  // Calculate PnL percentage based on entry price
+  // Calculate PnL percentage: realized_pnl / margin * 100
+  // margin = entryPrice * quantity / leverage (= initial collateral)
   const entryPrice = position.entry_price || 0
   const exitPrice = position.exit_price || 0
-  let pnlPct = 0
-  if (entryPrice > 0) {
-    if (isLong) {
-      pnlPct = ((exitPrice - entryPrice) / entryPrice) * 100
-    } else {
-      pnlPct = ((entryPrice - exitPrice) / entryPrice) * 100
-    }
-  }
-
-  // Use entry_quantity for display (original position size)
+  const leverage = position.leverage || 1
   const displayQty = position.entry_quantity || position.quantity || 0
+  let pnlPct = 0
+  const margin = entryPrice > 0 && displayQty > 0 ? (entryPrice * displayQty) / leverage : 0
+  if (margin > 0) {
+    pnlPct = (realizedPnl / margin) * 100
+  }
 
   return (
     <tr

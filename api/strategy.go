@@ -1114,40 +1114,32 @@ func (s *Server) handleSubmitAIDecision(c *gin.Context) {
 		return
 	}
 
-	// 获取交易员实例
-	trader, err := s.traderManager.GetTrader(req.TraderID)
+	// 获取交易员实例（直接拿 *AutoTrader，走统一执行管道）
+	autoTrader, err := s.traderManager.GetTrader(req.TraderID)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Trader instance not found"})
 		return
 	}
 
-	// 使用已过滤的决策
-	filteredDecisions := decisions
+	// 执行决策：使用统一执行管道（排序 + 白名单 + 互斥锁 + 数据库记录）
+	results, execErr := autoTrader.ExecuteExternalDecisions(decisions)
+	if execErr != nil {
+		// 白名单校验失败 / 并发互斥拒绝
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"error":   execErr.Error(),
+		})
+		return
+	}
 
-	// 执行决策（复用现有的执行逻辑）
-	results := make([]map[string]interface{}, 0, len(filteredDecisions))
 	successCount := 0
 	failCount := 0
-
-	for i, decision := range filteredDecisions {
-		result := map[string]interface{}{
-			"index":   i + 1,
-			"symbol":  decision.Symbol,
-			"action":  decision.Action,
-			"success": false,
-		}
-
-		err := trader.ExecuteDecision(&decision)
-		if err != nil {
-			result["error"] = err.Error()
-			failCount++
-		} else {
-			result["success"] = true
-			result["message"] = "Executed successfully"
+	for _, r := range results {
+		if ok, _ := r["success"].(bool); ok {
 			successCount++
+		} else {
+			failCount++
 		}
-
-		results = append(results, result)
 	}
 
 	c.JSON(http.StatusOK, gin.H{
