@@ -1705,6 +1705,32 @@ func (t *FuturesTrader) UpdateStopLoss(symbol string, positionSide string, newSt
 	if err != nil {
 		logger.Errorf("❌ 设置新止损失败: %v", err)
 
+		// 检查是否是价格验证错误，如果是，尝试使用修正后的价格
+		errStr := err.Error()
+		if strings.Contains(errStr, "stop loss price must be above current price") || strings.Contains(errStr, "stop loss price must be below current price") {
+			logger.Infof("⚠️ 检测到止损价格验证错误，尝试使用修正后的价格...")
+
+			// 获取当前市场价格
+			currentPrice, getPriceErr := t.GetMarketPrice(symbol)
+			if getPriceErr != nil {
+				logger.Errorf("❌ 无法获取当前市场价格: %v", getPriceErr)
+			} else {
+				// 使用智能函数计算修正后的止损价格
+				correctedStopPrice := t.calculateCorrectedStopPrice(positionSide, newStopPrice, currentPrice)
+				logger.Infof("🔄 修正止损价格: %.4f -> %.4f (仓位类型: %s, 当前价格: %.4f)",
+					newStopPrice, correctedStopPrice, positionSide, currentPrice)
+
+				logger.Infof("🔒 尝试使用修正后的止损价格: %s -> %.4f", symbol, correctedStopPrice)
+				err = t.SetStopLoss(symbol, positionSide, currentQty, correctedStopPrice)
+				if err == nil {
+					logger.Infof("✅ 使用修正后的止损价格设置成功: %s -> %.4f", symbol, correctedStopPrice)
+					return nil
+				} else {
+					logger.Errorf("❌ 使用修正后的止损价格仍然失败: %v", err)
+				}
+			}
+		}
+
 		// 6. 确认更新完成 🎯（如果更新失败？下达旧订单的修改指令，避免失去保护）
 		if originalStopPrice != nil {
 			logger.Warnf("🔄 更新失败，尝试恢复原始止损保护...")
@@ -3004,4 +3030,45 @@ func (t *FuturesTrader) performSafePostCloseCleanup(symbol string) error {
 
 	logger.Infof("✅ %s 安全清理完成", symbol)
 	return nil
+}
+
+// calculateCorrectedStopPrice 智能计算修正后的止损价格
+func (t *FuturesTrader) calculateCorrectedStopPrice(positionSide string, requestedStopPrice float64, currentPrice float64) float64 {
+	// 计算一个安全的修正价格，基于当前价格和一定比例的安全边际
+	const safetyMarginPercent = 0.5 // 0.5%的安全边际
+
+	if positionSide == "SHORT" {
+		// 对于空头仓位，止损价格必须高于当前价格
+		// 计算一个高于当前价格的合理止损价格
+		correctedPrice := currentPrice * (1 + safetyMarginPercent/100)
+
+		// 如果用户请求的价格已经是合理的（高于当前价格），则使用更高的价格以确保安全性
+		if requestedStopPrice > currentPrice {
+			// 用户请求的价格已经合理，但可能太接近当前价格，稍微提高一点以增加安全边际
+			requestedWithSafety := requestedStopPrice * (1 + safetyMarginPercent/100)
+			if requestedWithSafety > correctedPrice {
+				correctedPrice = requestedWithSafety
+			}
+		}
+
+		return correctedPrice
+	} else if positionSide == "LONG" {
+		// 对于多头仓位，止损价格必须低于当前价格
+		// 计算一个低于当前价格的合理止损价格
+		correctedPrice := currentPrice * (1 - safetyMarginPercent/100)
+
+		// 如果用户请求的价格已经是合理的（低于当前价格），则使用更低的价格以确保安全性
+		if requestedStopPrice < currentPrice {
+			// 用户请求的价格已经合理，但可能太接近当前价格，稍微降低一点以增加安全边际
+			requestedWithSafety := requestedStopPrice * (1 - safetyMarginPercent/100)
+			if requestedWithSafety < correctedPrice {
+				correctedPrice = requestedWithSafety
+			}
+		}
+
+		return correctedPrice
+	}
+
+	// 如果仓位类型无效，返回原始价格
+	return requestedStopPrice
 }
