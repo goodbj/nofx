@@ -796,15 +796,13 @@ func (at *AutoTrader) RecreateInternalTrader(st *store.Store, userID string) err
 		}
 	case "binance_demo":
 		logger.Infof("🏦 [%s] Using Binance Futures Demo trading", at.name)
-		// 直接使用已验证的自定义API URL
-		if at.config.BinanceCustomAPIURL == "" {
-			logger.Errorf("❌ CRITICAL ERROR: Empty BinanceCustomAPIURL for demo account after validation")
-			logger.Errorf("❌ SYSTEM CONFIGURATION ERROR: Demo account must have valid CustomAPIURL")
-			// Instead of panicking, return an error to allow graceful handling
-			return fmt.Errorf("demo account configuration error: missing required CustomAPIURL after validation")
+		// 使用已验证的端点获取函数，确保获得正确的测试网URL
+		targetEndpoint, err := getBinanceCustomEndpointForAutoTrader(&at.config)
+		if err != nil {
+			logger.Errorf("❌ CRITICAL ERROR: Failed to get validated endpoint for demo account: %v", err)
+			return fmt.Errorf("demo account endpoint configuration error: %w", err)
 		}
-		endpoint := at.config.BinanceCustomAPIURL
-		targetEndpoint := endpoint
+		endpoint := targetEndpoint
 
 		// 检查全局代理开关
 		useProxyGlobal := os.Getenv("USE_BINANCE_PROXY") == "true"
@@ -1150,6 +1148,7 @@ func (at *AutoTrader) runCycle() error {
 	// 状态检查将移到决策执行阶段，确保AI生成过程不被中断
 
 	// Execute decisions and record results
+	executionErrors := make([]string, 0)
 	for _, d := range sortedDecisions {
 		// 🔥 在每个决策执行前检查停止状态
 		// 这样确保AI提示词生成完整执行，只在实际交易执行时才响应停止命令
@@ -1193,7 +1192,9 @@ func (at *AutoTrader) runCycle() error {
 		if err := at.executeDecisionWithRecord(&d, &actionRecord); err != nil {
 			logger.Infof("❌ Failed to execute decision (%s %s): %v", d.Symbol, d.Action, err)
 			actionRecord.Error = err.Error()
+			actionRecord.Success = false
 			record.ExecutionLog = append(record.ExecutionLog, fmt.Sprintf("❌ %s %s failed: %v", d.Symbol, d.Action, err))
+			executionErrors = append(executionErrors, fmt.Sprintf("%s %s: %v", d.Symbol, d.Action, err))
 		} else {
 			actionRecord.Success = true
 			record.ExecutionLog = append(record.ExecutionLog, fmt.Sprintf("✓ %s %s succeeded", d.Symbol, d.Action))
@@ -1202,6 +1203,27 @@ func (at *AutoTrader) runCycle() error {
 		}
 
 		record.Decisions = append(record.Decisions, actionRecord)
+	}
+
+	// Check if any decisions failed and update overall success status
+	failedCount := 0
+	for _, action := range record.Decisions {
+		if !action.Success {
+			failedCount++
+		}
+	}
+
+	if failedCount > 0 {
+		record.Success = false
+		if len(executionErrors) > 0 {
+			record.ErrorMessage = fmt.Sprintf("执行失败 (%d/%d 决策失败): %s", failedCount, len(record.Decisions), strings.Join(executionErrors, "; "))
+		} else {
+			record.ErrorMessage = fmt.Sprintf("执行失败 (%d/%d 决策失败)", failedCount, len(record.Decisions))
+		}
+		logger.Errorf("❌ 决策周期执行失败: %s", record.ErrorMessage)
+	} else {
+		record.Success = true
+		logger.Infof("✅ 所有决策执行成功")
 	}
 
 	// 9. Save decision record
@@ -4116,6 +4138,30 @@ func (at *AutoTrader) executeUpdateStopLossWithRecord(decision *kernel.Decision,
 	if newStopLossPrice == 0 && marketData != nil {
 		newStopLossPrice = marketData.CurrentPrice
 		logger.Infof("  💡 Using current market price as stop loss price: %.4f", newStopLossPrice)
+	}
+
+	// Pre-validate stop loss price against current market price to avoid exchange errors
+	if marketData != nil {
+		currentPrice := marketData.CurrentPrice
+		priceDiff := math.Abs(newStopLossPrice - currentPrice)
+		priceDiffPercent := (priceDiff / currentPrice) * 100
+
+		logger.Infof("  📊 Pre-validating stop loss: Symbol=%s, Side=%s, Current=%.4f, NewStopLoss=%.4f, Diff=%.4f (%.2f%%)",
+			decision.Symbol, side, currentPrice, newStopLossPrice, priceDiff, priceDiffPercent)
+
+		// For LONG positions, stop loss should be below current price
+		if side == "LONG" && newStopLossPrice >= currentPrice {
+			logger.Warnf("  ⚠️ Long position stop loss (%.4f) >= current price (%.4f), adjusting...", newStopLossPrice, currentPrice)
+			// Adjust to be slightly below current price (with 0.5% buffer)
+			newStopLossPrice = currentPrice * 0.995
+			logger.Infof("  🔄 Adjusted stop loss for long position: %.4f -> %.4f", decision.NewStopLoss, newStopLossPrice)
+		} else if side == "SHORT" && newStopLossPrice <= currentPrice {
+			// For SHORT positions, stop loss should be above current price
+			logger.Warnf("  ⚠️ Short position stop loss (%.4f) <= current price (%.4f), adjusting...", newStopLossPrice, currentPrice)
+			// Adjust to be slightly above current price (with 0.5% buffer)
+			newStopLossPrice = currentPrice * 1.005
+			logger.Infof("  🔄 Adjusted stop loss for short position: %.4f -> %.4f", decision.NewStopLoss, newStopLossPrice)
+		}
 	}
 
 	// Debug log for exchange API call
